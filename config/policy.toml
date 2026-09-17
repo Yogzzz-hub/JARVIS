@@ -1,0 +1,29 @@
+# JARVIS EDGE Policy Configuration
+# Phase 5 Security & Trusted Execution Policy
+
+[defaults]
+READ_ONLY = "ALLOW"
+REVERSIBLE = "ALLOW"
+EXTERNAL_EFFECT = "CONFIRM"
+DESTRUCTIVE = "CONFIRM_ALWAYS"
+PRIVILEGED = "CONFIRM_ALWAYS"
+
+[confirmation]
+timeout_seconds = 30
+single_confirmation_per_graph = true
+
+[paths]
+protected_roots = [
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)"
+]
+deny_other_user_profiles = true
+
+[execution]
+allow_raw_shell = false
+allow_arbitrary_powershell = false
+allow_uac_automation = false
+allow_password_automation = false
+allow_otp_automation = false
+allow_captcha_automation = false

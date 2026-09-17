@@ -1,0 +1,107 @@
+{
+  "timestamp": 1789660904.8289857,
+  "total_indexed_benchmark": 10000,
+  "quality_metrics": {
+    "top1_accuracy": 86.25,
+    "top5_accuracy": 95.0,
+    "total_golden": 240
+  },
+  "cache_hit_rate": 93.8,
+  "lexical_p50_ms": 3.878,
+  "lexical_p95_ms": 5.53,
+  "lexical_p99_ms": 6.0104,
+  "semantic_p50_ms": 18.2,
+  "semantic_p95_ms": 31.4,
+  "top1_accuracy": 86.25,
+  "top5_accuracy": 95.0,
+  "watcher_status": "ACTIVE",
+  "benchmarks": {
+    "level_0_hot_cache": {
+      "n": 500,
+      "p50": 0.0042,
+      "p95": 0.0072,
+      "p99": 0.0288,
+      "mean": 0.005376,
+      "max": 0.1293
+    },
+    "level_1_context": {
+      "n": 500,
+      "p50": 0.0264,
+      "p95": 0.0418,
+      "p99": 0.081,
+      "mean": 0.0286654,
+      "max": 0.1156
+    },
+    "level_2_exact_metadata": {
+      "n": 500,
+      "p50": 0.0857,
+      "p95": 0.1781,
+      "p99": 0.302,
+      "mean": 0.100472,
+      "max": 0.7592
+    },
+    "level_3_lexical_fts": {
+      "n": 500,
+      "p50": 3.878,
+      "p95": 5.53,
+      "p99": 6.0104,
+      "mean": 3.8778324,
+      "max": 6.8966
+    },
+    "end_to_end_nlp_pdf": {
+      "n": 500,
+      "p50": 0.1219,
+      "p95": 0.3045,
+      "p99": 0.4552,
+      "mean": 0.1382304,
+      "max": 0.7064
+    },
+    "level_4_content_fts": {
+      "n": 500,
+      "p50": 2.8649,
+      "p95": 4.3513,
+      "p99": 4.8742,
+      "mean": 2.884457,
+      "max": 5.1765
+    },
+    "scale_sensitivity": {
+      "1000_files": {
+        "n": 200,
+        "p50": 0.9139,
+        "p95": 1.4827,
+        "p99": 1.9019,
+        "mean": 0.9303705,
+        "max": 2.0868
+      },
+      "10000_files": {
+        "n": 200,
+        "p50": 4.3897,
+        "p95": 5.569,
+        "p99": 6.1604,
+        "mean": 4.249307,
+        "max": 6.4955
+      },
+      "50000_files": {
+        "n": 200,
+        "p50": 17.2035,
+        "p95": 26.3074,
+        "p99": 26.7434,
+        "mean": 17.81684,
+        "max": 31.1687
+      }
+    },
+    "golden_dataset": {
+      "total_evaluated": 240,
+      "top1_accuracy": 86.25,
+      "top5_accuracy": 95.0,
+      "latency": {
+        "n": 240,
+        "p50": 0.9686,
+        "p95": 5.2251,
+        "p99": 7.0653,
+        "mean": 1.4587254166666666,
+        "max": 11.5063
+      }
+    }
+  }
+}

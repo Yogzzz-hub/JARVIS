@@ -1,0 +1,162 @@
+{
+  "command_validation": {
+    "n": 1000,
+    "p50": 0.0079,
+    "p95": 0.0151,
+    "p99": 0.0326,
+    "mean": 0.0106778,
+    "max": 0.1366
+  },
+  "registry_lookup": {
+    "n": 1000,
+    "p50": 0.0003,
+    "p95": 0.0006,
+    "p99": 0.0009,
+    "mean": 0.0003908,
+    "max": 0.016
+  },
+  "command_resolution": {
+    "n": 1000,
+    "p50": 0.0012,
+    "p95": 0.0022,
+    "p99": 0.0028,
+    "mean": 0.0013391,
+    "max": 0.0122
+  },
+  "event_emission": {
+    "n": 1000,
+    "p50": 0.0023,
+    "p95": 0.0036,
+    "p99": 0.0053,
+    "mean": 0.0027819,
+    "max": 0.2251
+  },
+  "persistence_enqueue": {
+    "n": 1000,
+    "p50": 0.0031,
+    "p95": 0.0119,
+    "p99": 0.0908,
+    "mean": 0.0082214,
+    "max": 0.5672
+  },
+  "text_command_dispatch": {
+    "n": 1000,
+    "p50": 2.224,
+    "p95": 3.361,
+    "p99": 4.1529,
+    "mean": 2.3202405,
+    "max": 8.2337
+  },
+  "first_action_in_process": {
+    "n": 1000,
+    "p50": 0.7798,
+    "p95": 1.2548,
+    "p99": 2.0372,
+    "mean": 0.8216159,
+    "max": 5.9709
+  },
+  "mock_notepad_first_action": {
+    "n": 1000,
+    "p50": 0.883,
+    "p95": 1.417,
+    "p99": 1.963,
+    "mean": 0.9285833,
+    "max": 2.4293
+  },
+  "mock_notepad_verification": {
+    "n": 1000,
+    "p50": 1.1905,
+    "p95": 2.2496,
+    "p99": 3.0483,
+    "mean": 1.3037422,
+    "max": 3.7427
+  },
+  "mock_notepad_total": {
+    "n": 1000,
+    "p50": 3.3217,
+    "p95": 4.7561,
+    "p99": 5.5598,
+    "mean": 3.4315998,
+    "max": 6.9765
+  },
+  "microbench_drops": {
+    "events": 0,
+    "persistence": 0,
+    "metrics": 0,
+    "logs": 0
+  },
+  "health_round_trip": {
+    "n": 1000,
+    "p50": 11.188,
+    "p95": 18.7918,
+    "p99": 21.2118,
+    "mean": 11.2810051,
+    "max": 52.5578
+  },
+  "http_command_round_trip": {
+    "n": 1000,
+    "p50": 4.4482,
+    "p95": 5.5601,
+    "p99": 6.0311,
+    "mean": 4.4910568,
+    "max": 13.8126
+  },
+  "first_action_http": {
+    "n": 1000,
+    "p50": 1.3565,
+    "p95": 1.815,
+    "p99": 2.168,
+    "mean": 1.3665095,
+    "max": 8.912
+  },
+  "verification_http": {
+    "n": 1000,
+    "p50": 0.0303,
+    "p95": 0.0465,
+    "p99": 0.0715,
+    "mean": 0.0316414,
+    "max": 0.1119
+  },
+  "total_http": {
+    "n": 1000,
+    "p50": 2.1932,
+    "p95": 2.9873,
+    "p99": 3.3837,
+    "mean": 2.243512,
+    "max": 10.4259
+  },
+  "ws_extensions": null,
+  "websocket_ping_round_trip": {
+    "n": 1000,
+    "p50": 0.9427,
+    "p95": 1.2189,
+    "p99": 1.4071,
+    "mean": 0.9369696,
+    "max": 1.674
+  },
+  "websocket_command_round_trip": {
+    "n": 1000,
+    "p50": 3.6181,
+    "p95": 4.8668,
+    "p99": 5.6838,
+    "mean": 3.7031405,
+    "max": 7.176
+  },
+  "first_action_websocket": {
+    "n": 1000,
+    "p50": 1.0058,
+    "p95": 1.5422,
+    "p99": 2.3407,
+    "mean": 1.0546828,
+    "max": 4.382
+  },
+  "health_after": {
+    "status": "ready",
+    "tool_count": 15,
+    "database_status": "ready",
+    "dropped_events": 0,
+    "dropped_persistence": 0,
+    "dropped_metrics": 0,
+    "dropped_logs": 0
+  }
+}

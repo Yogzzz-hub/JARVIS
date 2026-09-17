@@ -1,0 +1,100 @@
+{"text": "How do I open chrome?", "forbidden_intent": "open_app", "description": "Trap for chrome"}
+{"text": "Why did chrome close?", "forbidden_intent": "close_app", "description": "Trap for chrome"}
+{"text": "Can chrome open PDF files?", "forbidden_intent": "open_app", "description": "Trap for chrome"}
+{"text": "Is chrome installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for chrome"}
+{"text": "Tell me what chrome is used for.", "forbidden_intent": "close_app", "description": "Trap for chrome"}
+{"text": "Don't open chrome under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for chrome"}
+{"text": "Never launch chrome without permission.", "forbidden_intent": "open_app", "description": "Trap for chrome"}
+{"text": "What is the difference between chrome and other tools?", "forbidden_intent": "close_app", "description": "Trap for chrome"}
+{"text": "Why is chrome taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for chrome"}
+{"text": "Does chrome support plugins?", "forbidden_intent": "close_app", "description": "Trap for chrome"}
+{"text": "How do I open vscode?", "forbidden_intent": "open_app", "description": "Trap for vscode"}
+{"text": "Why did vscode close?", "forbidden_intent": "close_app", "description": "Trap for vscode"}
+{"text": "Can vscode open PDF files?", "forbidden_intent": "open_app", "description": "Trap for vscode"}
+{"text": "Is vscode installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for vscode"}
+{"text": "Tell me what vscode is used for.", "forbidden_intent": "close_app", "description": "Trap for vscode"}
+{"text": "Don't open vscode under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for vscode"}
+{"text": "Never launch vscode without permission.", "forbidden_intent": "open_app", "description": "Trap for vscode"}
+{"text": "What is the difference between vscode and other tools?", "forbidden_intent": "close_app", "description": "Trap for vscode"}
+{"text": "Why is vscode taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for vscode"}
+{"text": "Does vscode support plugins?", "forbidden_intent": "close_app", "description": "Trap for vscode"}
+{"text": "How do I open notepad?", "forbidden_intent": "open_app", "description": "Trap for notepad"}
+{"text": "Why did notepad close?", "forbidden_intent": "close_app", "description": "Trap for notepad"}
+{"text": "Can notepad open PDF files?", "forbidden_intent": "open_app", "description": "Trap for notepad"}
+{"text": "Is notepad installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for notepad"}
+{"text": "Tell me what notepad is used for.", "forbidden_intent": "close_app", "description": "Trap for notepad"}
+{"text": "Don't open notepad under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for notepad"}
+{"text": "Never launch notepad without permission.", "forbidden_intent": "open_app", "description": "Trap for notepad"}
+{"text": "What is the difference between notepad and other tools?", "forbidden_intent": "close_app", "description": "Trap for notepad"}
+{"text": "Why is notepad taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for notepad"}
+{"text": "Does notepad support plugins?", "forbidden_intent": "close_app", "description": "Trap for notepad"}
+{"text": "How do I open calculator?", "forbidden_intent": "open_app", "description": "Trap for calculator"}
+{"text": "Why did calculator close?", "forbidden_intent": "close_app", "description": "Trap for calculator"}
+{"text": "Can calculator open PDF files?", "forbidden_intent": "open_app", "description": "Trap for calculator"}
+{"text": "Is calculator installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for calculator"}
+{"text": "Tell me what calculator is used for.", "forbidden_intent": "close_app", "description": "Trap for calculator"}
+{"text": "Don't open calculator under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for calculator"}
+{"text": "Never launch calculator without permission.", "forbidden_intent": "open_app", "description": "Trap for calculator"}
+{"text": "What is the difference between calculator and other tools?", "forbidden_intent": "close_app", "description": "Trap for calculator"}
+{"text": "Why is calculator taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for calculator"}
+{"text": "Does calculator support plugins?", "forbidden_intent": "close_app", "description": "Trap for calculator"}
+{"text": "How do I open terminal?", "forbidden_intent": "open_app", "description": "Trap for terminal"}
+{"text": "Why did terminal close?", "forbidden_intent": "close_app", "description": "Trap for terminal"}
+{"text": "Can terminal open PDF files?", "forbidden_intent": "open_app", "description": "Trap for terminal"}
+{"text": "Is terminal installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for terminal"}
+{"text": "Tell me what terminal is used for.", "forbidden_intent": "close_app", "description": "Trap for terminal"}
+{"text": "Don't open terminal under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for terminal"}
+{"text": "Never launch terminal without permission.", "forbidden_intent": "open_app", "description": "Trap for terminal"}
+{"text": "What is the difference between terminal and other tools?", "forbidden_intent": "close_app", "description": "Trap for terminal"}
+{"text": "Why is terminal taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for terminal"}
+{"text": "Does terminal support plugins?", "forbidden_intent": "close_app", "description": "Trap for terminal"}
+{"text": "How do I open cmd?", "forbidden_intent": "open_app", "description": "Trap for cmd"}
+{"text": "Why did cmd close?", "forbidden_intent": "close_app", "description": "Trap for cmd"}
+{"text": "Can cmd open PDF files?", "forbidden_intent": "open_app", "description": "Trap for cmd"}
+{"text": "Is cmd installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for cmd"}
+{"text": "Tell me what cmd is used for.", "forbidden_intent": "close_app", "description": "Trap for cmd"}
+{"text": "Don't open cmd under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for cmd"}
+{"text": "Never launch cmd without permission.", "forbidden_intent": "open_app", "description": "Trap for cmd"}
+{"text": "What is the difference between cmd and other tools?", "forbidden_intent": "close_app", "description": "Trap for cmd"}
+{"text": "Why is cmd taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for cmd"}
+{"text": "Does cmd support plugins?", "forbidden_intent": "close_app", "description": "Trap for cmd"}
+{"text": "How do I open explorer?", "forbidden_intent": "open_app", "description": "Trap for explorer"}
+{"text": "Why did explorer close?", "forbidden_intent": "close_app", "description": "Trap for explorer"}
+{"text": "Can explorer open PDF files?", "forbidden_intent": "open_app", "description": "Trap for explorer"}
+{"text": "Is explorer installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for explorer"}
+{"text": "Tell me what explorer is used for.", "forbidden_intent": "close_app", "description": "Trap for explorer"}
+{"text": "Don't open explorer under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for explorer"}
+{"text": "Never launch explorer without permission.", "forbidden_intent": "open_app", "description": "Trap for explorer"}
+{"text": "What is the difference between explorer and other tools?", "forbidden_intent": "close_app", "description": "Trap for explorer"}
+{"text": "Why is explorer taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for explorer"}
+{"text": "Does explorer support plugins?", "forbidden_intent": "close_app", "description": "Trap for explorer"}
+{"text": "How do I open edge?", "forbidden_intent": "open_app", "description": "Trap for edge"}
+{"text": "Why did edge close?", "forbidden_intent": "close_app", "description": "Trap for edge"}
+{"text": "Can edge open PDF files?", "forbidden_intent": "open_app", "description": "Trap for edge"}
+{"text": "Is edge installed on this PC?", "forbidden_intent": "close_app", "description": "Trap for edge"}
+{"text": "Tell me what edge is used for.", "forbidden_intent": "close_app", "description": "Trap for edge"}
+{"text": "Don't open edge under any circumstances.", "forbidden_intent": "open_app", "description": "Trap for edge"}
+{"text": "Never launch edge without permission.", "forbidden_intent": "open_app", "description": "Trap for edge"}
+{"text": "What is the difference between edge and other tools?", "forbidden_intent": "close_app", "description": "Trap for edge"}
+{"text": "Why is edge taking so much memory?", "forbidden_intent": "close_app", "description": "Trap for edge"}
+{"text": "Does edge support plugins?", "forbidden_intent": "close_app", "description": "Trap for edge"}
+{"text": "Tell me what shutdown means.", "forbidden_intent": "shutdown_timer"}
+{"text": "Why should I lock pc?", "forbidden_intent": "lock_pc"}
+{"text": "What happens when you mute audio?", "forbidden_intent": "mute"}
+{"text": "How do screenshot utilities work?", "forbidden_intent": "take_screenshot"}
+{"text": "Do not delete anything from desktop.", "forbidden_intent": "list_directory"}
+{"text": "Why did terminal close unexpectedly?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Can cmd run bash scripts?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Is powershell better than cmd?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "How do I close edge safely?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Tell me what system info means.", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Don't change the volume level.", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Never mute the sound.", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Can calculator do matrix multiplication?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Why is edge opening multiple processes?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "What is the shortcut to take screenshot?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "How does windows lock screen work?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Why is vscode using so much cpu?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Can notepad edit binary files?", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Don't close any windows.", "forbidden_intent": "any_tool", "description": "Trap question/negation"}
+{"text": "Never run shutdown command.", "forbidden_intent": "any_tool", "description": "Trap question/negation"}

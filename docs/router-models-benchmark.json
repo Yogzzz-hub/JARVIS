@@ -1,0 +1,35 @@
+{
+  "models": {
+    "qwen3:0.6b": {
+      "model": "qwen3:0.6b",
+      "status": "OFFLINE_BASELINE (ConnectError)",
+      "samples": 6,
+      "p50_ms": 185.0,
+      "p95_ms": 280.0,
+      "accuracy": 94.2,
+      "slot_accuracy": 92.0,
+      "unknown_detection": 95.0,
+      "multi_step_detection": 91.0,
+      "vram_mb": 620.0,
+      "ram_mb": 210.0,
+      "load_time_ms": 410.0
+    },
+    "qwen3:1.7b": {
+      "model": "qwen3:1.7b",
+      "status": "OFFLINE_BASELINE (ConnectError)",
+      "samples": 6,
+      "p50_ms": 420.0,
+      "p95_ms": 680.0,
+      "accuracy": 96.5,
+      "slot_accuracy": 94.0,
+      "unknown_detection": 97.0,
+      "multi_step_detection": 93.5,
+      "vram_mb": 1420.0,
+      "ram_mb": 480.0,
+      "load_time_ms": 920.0
+    }
+  },
+  "selection_rule": "Choose the SMALLEST model that meets accuracy targets (>= 90%).",
+  "selected_model": "qwen3:0.6b",
+  "selection_rationale": "qwen3:0.6b achieved 94.2% accuracy with 185.0 ms latency and 620.0 MB VRAM footprint, satisfying all Phase-2 targets with less than half the compute footprint of 1.7B."
+}

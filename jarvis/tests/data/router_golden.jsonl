@@ -1,0 +1,328 @@
+{"text": "open chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close chrome", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close vscode", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open notepad", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start notepad", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch notepad", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close notepad", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close calculator", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close terminal", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open cmd", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start cmd", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch cmd", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close cmd", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open explorer", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start explorer", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch explorer", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close explorer", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "open edge", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "start edge", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "launch edge", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "clean_command"}
+{"text": "close edge", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "clean_command"}
+{"text": "time", "expected_lane": "LANE_0", "expected_intent": "get_time", "category": "clean_command"}
+{"text": "current time", "expected_lane": "LANE_0", "expected_intent": "get_time", "category": "clean_command"}
+{"text": "what time is it", "expected_lane": "LANE_0", "expected_intent": "get_time", "category": "clean_command"}
+{"text": "system info", "expected_lane": "LANE_0", "expected_intent": "system_info", "category": "clean_command"}
+{"text": "hardware info", "expected_lane": "LANE_0", "expected_intent": "system_info", "category": "clean_command"}
+{"text": "screenshot", "expected_lane": "LANE_0", "expected_intent": "take_screenshot", "category": "clean_command"}
+{"text": "take screenshot", "expected_lane": "LANE_0", "expected_intent": "take_screenshot", "category": "clean_command"}
+{"text": "volume 30", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "clean_command"}
+{"text": "volume 50%", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "clean_command"}
+{"text": "set volume to 75", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "clean_command"}
+{"text": "volume up", "expected_lane": "LANE_0", "expected_intent": "volume_up", "category": "clean_command"}
+{"text": "volume down", "expected_lane": "LANE_0", "expected_intent": "volume_down", "category": "clean_command"}
+{"text": "mute", "expected_lane": "LANE_0", "expected_intent": "mute", "category": "clean_command"}
+{"text": "unmute", "expected_lane": "LANE_0", "expected_intent": "unmute", "category": "clean_command"}
+{"text": "list desktop", "expected_lane": "LANE_0", "expected_intent": "list_directory", "category": "clean_command"}
+{"text": "list downloads", "expected_lane": "LANE_0", "expected_intent": "list_directory", "category": "clean_command"}
+{"text": "list documents", "expected_lane": "LANE_0", "expected_intent": "list_directory", "category": "clean_command"}
+{"text": "lock pc", "expected_lane": "LANE_0", "expected_intent": "lock_pc", "category": "clean_command"}
+{"text": "hey jarvis please open chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring chrome up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring vscode up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open notepad", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start notepad", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring notepad up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring calculator up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring terminal up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open cmd", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start cmd", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring cmd up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open explorer", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start explorer", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring explorer up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "hey jarvis please open edge", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you please start edge", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "can you bring edge up for me", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "casual_polite"}
+{"text": "could you tell me the time please", "expected_lane": "LANE_0", "expected_intent": "get_time", "category": "casual_polite"}
+{"text": "jarvis please take a screenshot", "expected_lane": "LANE_0", "expected_intent": "take_screenshot", "category": "casual_polite"}
+{"text": "hey jarvis make it a little quieter", "expected_lane": "LANE_0", "expected_intent": "volume_down", "category": "casual_polite"}
+{"text": "bring the sound down a little", "expected_lane": "LANE_0", "expected_intent": "volume_down", "category": "casual_polite"}
+{"text": "make it louder please", "expected_lane": "LANE_0", "expected_intent": "volume_up", "category": "casual_polite"}
+{"text": "hey jarvis show files in downloads", "expected_lane": "LANE_0", "expected_intent": "list_directory", "category": "casual_polite"}
+{"text": "bro chrome open pannunga", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "jarvis bro open chrome da", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "machan open chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "yaar open chrome please", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "bro notepad open pannunga", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "jarvis bro open notepad da", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "machan open notepad", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "yaar open notepad please", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "bro calculator open pannunga", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "jarvis bro open calculator da", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "machan open calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "yaar open calculator please", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "bro terminal open pannunga", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "jarvis bro open terminal da", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "machan open terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "yaar open terminal please", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "bro vscode open pannunga", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "jarvis bro open vscode da", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "machan open vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "yaar open vscode please", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "tanglish"}
+{"text": "volume ten", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 10}}
+{"text": "turn volume to ten", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 10}}
+{"text": "set volume to ten percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 10}}
+{"text": "volume twenty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 20}}
+{"text": "turn volume to twenty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 20}}
+{"text": "set volume to twenty percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 20}}
+{"text": "volume thirty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 30}}
+{"text": "turn volume to thirty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 30}}
+{"text": "set volume to thirty percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 30}}
+{"text": "volume forty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 40}}
+{"text": "turn volume to forty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 40}}
+{"text": "set volume to forty percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 40}}
+{"text": "volume fifty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 50}}
+{"text": "turn volume to fifty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 50}}
+{"text": "set volume to fifty percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 50}}
+{"text": "volume sixty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 60}}
+{"text": "turn volume to sixty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 60}}
+{"text": "set volume to sixty percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 60}}
+{"text": "volume seventy", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 70}}
+{"text": "turn volume to seventy", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 70}}
+{"text": "set volume to seventy percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 70}}
+{"text": "volume eighty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 80}}
+{"text": "turn volume to eighty", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 80}}
+{"text": "set volume to eighty percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 80}}
+{"text": "volume ninety", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 90}}
+{"text": "turn volume to ninety", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 90}}
+{"text": "set volume to ninety percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 90}}
+{"text": "volume hundred", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 100}}
+{"text": "turn volume to hundred", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 100}}
+{"text": "set volume to hundred percent", "expected_lane": "LANE_0", "expected_intent": "volume_set", "category": "slot_number_words", "expected_slot": {"percent": 100}}
+{"text": "open google chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "chrome"}}
+{"text": "open vs code", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "vscode"}}
+{"text": "open visual studio code", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "vscode"}}
+{"text": "open calc", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "calculator"}}
+{"text": "open command prompt", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "cmd"}}
+{"text": "open file explorer", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "explorer"}}
+{"text": "open microsoft edge", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "app_alias", "expected_slot": {"name": "edge"}}
+{"text": "open chrome and calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "open vscode and terminal", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "open notepad and chrome", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "open cmd and powershell", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "launch edge and calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "start chrome and vscode", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "open notepad, chrome and calculator", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "compound"}
+{"text": "stop", "expected_lane": "CONTROL", "category": "control"}
+{"text": "cancel", "expected_lane": "CONTROL", "category": "control"}
+{"text": "cancel that", "expected_lane": "CONTROL", "category": "control"}
+{"text": "stop everything", "expected_lane": "CONTROL", "category": "control"}
+{"text": "never mind", "expected_lane": "CONTROL", "category": "control"}
+{"text": "nevermind", "expected_lane": "CONTROL", "category": "control"}
+{"text": "abort", "expected_lane": "CONTROL", "category": "control"}
+{"text": "stop task", "expected_lane": "CONTROL", "category": "control"}
+{"text": "cancel task", "expected_lane": "CONTROL", "category": "control"}
+{"text": "stop now", "expected_lane": "CONTROL", "category": "control"}
+{"text": "don't open chrome", "expected_lane": "REJECT", "category": "negation"}
+{"text": "do not open vscode", "expected_lane": "REJECT", "category": "negation"}
+{"text": "never open notepad", "expected_lane": "REJECT", "category": "negation"}
+{"text": "don't start calculator", "expected_lane": "REJECT", "category": "negation"}
+{"text": "do not launch terminal", "expected_lane": "REJECT", "category": "negation"}
+{"text": "don't open edge", "expected_lane": "REJECT", "category": "negation"}
+{"text": "avoid opening chrome", "expected_lane": "REJECT", "category": "negation"}
+{"text": "don't close notepad", "expected_lane": "REJECT", "category": "negation"}
+{"text": "do not delete the file", "expected_lane": "REJECT", "category": "negation"}
+{"text": "don't shutdown", "expected_lane": "REJECT", "category": "negation"}
+{"text": "don't change volume", "expected_lane": "REJECT", "category": "negation"}
+{"text": "not now open chrome", "expected_lane": "REJECT", "category": "negation"}
+{"text": "without opening chrome", "expected_lane": "REJECT", "category": "negation"}
+{"text": "don't open any apps", "expected_lane": "REJECT", "category": "negation"}
+{"text": "stop opening calculator", "expected_lane": "REJECT", "category": "negation"}
+{"text": "can chrome open pdf files", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "can chrome open pdf files?", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "why is chrome slow", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "how do i open chrome", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "is chrome installed", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "what is chrome", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "is notepad open", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "is calculator running", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "why did chrome close", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "what is quantum computing", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "how to take screenshot", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "what time is it in london", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "tell me what shutdown means", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "can whatsapp send pdfs", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "why is the cpu usage high", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "explain how operating systems work", "expected_lane": "LANE_2", "category": "question_not_command"}
+{"text": "open studio", "expected_lane": "CLARIFY", "category": "ambiguous"}
+{"text": "start studio", "expected_lane": "CLARIFY", "category": "ambiguous"}
+{"text": "launch studio", "expected_lane": "CLARIFY", "category": "ambiguous"}
+{"text": "open office", "expected_lane": "CLARIFY", "category": "ambiguous"}
+{"text": "start office", "expected_lane": "CLARIFY", "category": "ambiguous"}
+{"text": "find my notes and email them to santosh", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "prepare everything I need for tomorrow's ML lab", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "find tomorrow ML material and put everything into one folder", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "check tomorrow schedule and find the relevant files", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "install power bi and open the report i downloaded yesterday", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "check the weather then send an email", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "compare report1.pdf and report2.pdf and summarize differences", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "organize everything on my desktop into folders", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "download latest drivers and install them after that", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "prepare presentation for the team meeting", "expected_lane": "LANE_2", "category": "complex_planner"}
+{"text": "open app_1", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_2", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_3", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_4", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_5", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_6", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_7", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_8", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_9", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_10", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_11", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_12", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_13", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_14", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_15", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_16", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_17", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_18", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_19", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_20", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_21", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_22", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_23", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_24", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_25", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_26", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_27", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_28", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_29", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_30", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_31", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_32", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_33", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_34", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_35", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_36", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_37", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_38", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_39", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_40", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_41", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_42", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_43", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_44", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_45", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_46", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_47", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_48", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_49", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_50", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_51", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_52", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_53", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_54", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_55", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_56", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_57", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_58", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_59", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_60", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_61", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_62", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_63", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_64", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_65", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_66", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_67", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_68", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_69", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_70", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_71", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_72", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_73", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_74", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_75", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_76", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_77", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_78", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_79", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_80", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_81", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_82", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_83", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_84", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_85", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_86", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_87", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_88", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_89", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_90", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_91", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_92", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_93", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_94", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_95", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_96", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_97", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_98", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_99", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_100", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_101", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_102", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_103", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "open app_104", "expected_lane": "LANE_0", "expected_intent": "open_app", "category": "generated_app"}
+{"text": "close app_1", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_2", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_3", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_4", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_5", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_6", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_7", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_8", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_9", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_10", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_11", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_12", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_13", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_14", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_15", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_16", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_17", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_18", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_19", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_20", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_21", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_22", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_23", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}
+{"text": "close app_24", "expected_lane": "LANE_0", "expected_intent": "close_app", "category": "generated_app"}

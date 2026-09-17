@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-edge"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.35,<1", "pydantic>=2.10,<3",
+  "psutil>=6,<8", "mss>=10,<11", "pycaw>=20240210; sys_platform == 'win32'",
+  "httptools>=0.6,<1", "websockets>=14,<17", "h11>=0.16,<1",
+  "rapidfuzz>=3.0.0", "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "httpx>=0.28,<1"]
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.setuptools.package-data]
+jarvis = ["config/*.toml", "db/migrations/*.sql", "core/router/*.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["jarvis/tests"]
+norecursedirs = [".venv", "venv", ".runtime", "scratch"]

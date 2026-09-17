@@ -1,0 +1,138 @@
+{
+  "command_validation": {
+    "n": 1000,
+    "p50": 0.0025,
+    "p95": 0.0043,
+    "p99": 0.0055,
+    "mean": 0.0027884,
+    "max": 0.0547
+  },
+  "registry_lookup": {
+    "n": 1000,
+    "p50": 0.0001,
+    "p95": 0.0001,
+    "p99": 0.0002,
+    "mean": 0.000105,
+    "max": 0.0056
+  },
+  "command_resolution": {
+    "n": 1000,
+    "p50": 0.0004,
+    "p95": 0.0005,
+    "p99": 0.0008,
+    "mean": 0.000426,
+    "max": 0.0061
+  },
+  "event_emission": {
+    "n": 1000,
+    "p50": 0.0007,
+    "p95": 0.0009,
+    "p99": 0.0019,
+    "mean": 0.0015422,
+    "max": 0.6785
+  },
+  "persistence_enqueue": {
+    "n": 1000,
+    "p50": 0.0008,
+    "p95": 0.0011,
+    "p99": 0.002,
+    "mean": 0.0008857,
+    "max": 0.024
+  },
+  "text_command_dispatch": {
+    "n": 1000,
+    "p50": 1.0336,
+    "p95": 2.0137,
+    "p99": 2.984,
+    "mean": 1.1550255,
+    "max": 4.9193
+  },
+  "first_action_in_process": {
+    "n": 1000,
+    "p50": 0.2337,
+    "p95": 0.4727,
+    "p99": 0.9032,
+    "mean": 0.2718649,
+    "max": 2.2366
+  },
+  "microbench_drops": {
+    "events": 0,
+    "persistence": 0,
+    "metrics": 0,
+    "logs": 0
+  },
+  "health_round_trip": {
+    "n": 1000,
+    "p50": 13.0957,
+    "p95": 20.9563,
+    "p99": 38.3961,
+    "mean": 13.6160295,
+    "max": 61.3546
+  },
+  "http_command_round_trip": {
+    "n": 1000,
+    "p50": 11.3465,
+    "p95": 16.6996,
+    "p99": 26.071,
+    "mean": 12.6430161,
+    "max": 725.8133
+  },
+  "first_action_http": {
+    "n": 1000,
+    "p50": 0.6398,
+    "p95": 3.8816,
+    "p99": 5.1799,
+    "mean": 1.1312135,
+    "max": 55.6219
+  },
+  "verification_http": {
+    "n": 1000,
+    "p50": 0.0186,
+    "p95": 0.0329,
+    "p99": 0.0476,
+    "mean": 0.0207594,
+    "max": 0.0925
+  },
+  "total_http": {
+    "n": 1000,
+    "p50": 1.4243,
+    "p95": 4.8011,
+    "p99": 6.7332,
+    "mean": 1.9666171,
+    "max": 56.2316
+  },
+  "ws_extensions": null,
+  "websocket_ping_round_trip": {
+    "n": 1000,
+    "p50": 0.8234,
+    "p95": 2.6658,
+    "p99": 3.3301,
+    "mean": 1.1243463,
+    "max": 4.7227
+  },
+  "websocket_command_round_trip": {
+    "n": 1000,
+    "p50": 2.2058,
+    "p95": 3.3204,
+    "p99": 5.2708,
+    "mean": 2.3873849,
+    "max": 31.4457
+  },
+  "first_action_websocket": {
+    "n": 1000,
+    "p50": 0.3824,
+    "p95": 0.6125,
+    "p99": 1.0981,
+    "mean": 0.4184278,
+    "max": 4.885
+  },
+  "health_after": {
+    "status": "ready",
+    "tool_count": 7,
+    "database_status": "ready",
+    "dropped_events": 0,
+    "dropped_persistence": 0,
+    "dropped_metrics": 0,
+    "dropped_logs": 0
+  }
+}

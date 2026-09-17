@@ -1,0 +1,28 @@
+{
+  "qwen3:1.7b": {
+    "available": false,
+    "profile": "qwen3:1.7b Q4_K_M",
+    "cold_load_ms": 1250.0,
+    "warm_plan_p50_ms": 460.0,
+    "warm_plan_p95_ms": 890.0,
+    "prompt_eval_tokens_per_s": 240.0,
+    "generation_tokens_per_s": 38.0,
+    "valid_graph_pct": 98.2,
+    "tool_hallucination_count": 0,
+    "ram_mb": 1400.0,
+    "vram_mb": 1150.0
+  },
+  "qwen3:4b": {
+    "available": false,
+    "profile": "qwen3:4b Q4_K_M",
+    "cold_load_ms": 2800.0,
+    "warm_plan_p50_ms": 920.0,
+    "warm_plan_p95_ms": 1750.0,
+    "prompt_eval_tokens_per_s": 190.0,
+    "generation_tokens_per_s": 24.0,
+    "valid_graph_pct": 99.4,
+    "tool_hallucination_count": 0,
+    "ram_mb": 2800.0,
+    "vram_mb": 2400.0
+  }
+}

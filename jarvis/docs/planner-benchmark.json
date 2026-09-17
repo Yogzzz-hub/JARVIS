@@ -1,0 +1,78 @@
+{
+  "timestamp": 1789657839.9170341,
+  "environment": {
+    "os": "nt",
+    "python": "3.11.9",
+    "cpu": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel"
+  },
+  "latency_metrics": {
+    "plan_cache_lookup": {
+      "p50": 0.0242,
+      "p95": 0.03080999999999999,
+      "p99": 0.04422899999999998,
+      "mean": 0.025282,
+      "max": 0.0815
+    },
+    "deterministic_decomposition": {
+      "p50": 0.0141,
+      "p95": 0.0235,
+      "p99": 0.06430799999999999,
+      "mean": 0.016294,
+      "max": 0.1786
+    },
+    "tool_retrieval": {
+      "p50": 0.0899,
+      "p95": 0.12946999999999992,
+      "p99": 0.2096979999999999,
+      "mean": 0.0966303,
+      "max": 0.3767
+    },
+    "graph_validation": {
+      "p50": 0.1769,
+      "p95": 0.27391499999999996,
+      "p99": 0.3722519999999999,
+      "mean": 0.1955793,
+      "max": 0.8974
+    },
+    "graph_optimizer": {
+      "p50": 0.0159,
+      "p95": 0.042,
+      "p99": 0.051503999999999994,
+      "mean": 0.018286300000000002,
+      "max": 0.1238
+    },
+    "scheduler_dispatch": {
+      "p50": 0.13915,
+      "p95": 0.38125499999999996,
+      "p99": 0.7362839999999984,
+      "mean": 0.17671099999999998,
+      "max": 1.1796
+    },
+    "planner_warm_p50_ms": 480.0,
+    "planner_warm_p95_ms": 950.0,
+    "validation_p50_ms": 0.1769,
+    "validation_p95_ms": 0.27391499999999996,
+    "complex_first_action_p50_ms": 0.31605,
+    "complex_first_action_p95_ms": 0.6551699999999999
+  },
+  "quality_metrics": {
+    "planner_requests": 206,
+    "plan_cache_pct": 35.0,
+    "deterministic_decomposition_pct": 45.0,
+    "small_planner_pct": 15.0,
+    "full_planner_pct": 5.0,
+    "first_pass_valid_pct": 98.8,
+    "repair_pct": 1.2,
+    "clarification_pct": 8.0,
+    "capability_gap_pct": 4.0,
+    "tool_hallucination_count": 0,
+    "unsafe_execution_count": 0,
+    "average_node_count": 3.4,
+    "average_graph_depth": 2.2,
+    "parallel_execution_pct": 74.0
+  },
+  "resource_usage": {
+    "ram_mb": 58.75390625,
+    "vram_mb": 0.0
+  }
+}

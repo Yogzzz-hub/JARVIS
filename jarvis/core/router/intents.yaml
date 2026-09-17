@@ -1,0 +1,492 @@
+intents:
+  - name: open_app
+    tool: open_app
+    risk: REVERSIBLE
+    required_slots: ["name"]
+    optional_slots: []
+    patterns:
+      - "^open (?P<name>.+)$"
+      - "^start (?P<name>.+)$"
+      - "^launch (?P<name>.+)$"
+      - "^bring up (?P<name>.+)$"
+      - "^run (?P<name>.+)$"
+    keywords: ["open", "start", "launch", "bring up", "run"]
+    examples:
+      - "open chrome"
+      - "start vscode"
+      - "launch calculator"
+      - "bring up notepad"
+      - "open terminal"
+      - "run powershell"
+    negative_examples:
+      - "can chrome open pdf files"
+      - "don't open chrome"
+      - "why is chrome slow"
+      - "is chrome installed"
+      - "what is chrome"
+      - "how do i open chrome"
+    aliases:
+      chrome: ["google chrome", "browser"]
+      vscode: ["vs code", "visual studio code", "code"]
+      notepad: ["text editor"]
+      calculator: ["calc"]
+      cmd: ["command prompt"]
+      terminal: ["windows terminal"]
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: close_app
+    tool: close_app
+    risk: REVERSIBLE
+    required_slots: ["name"]
+    optional_slots: []
+    patterns:
+      - "^close (?P<name>.+)$"
+      - "^quit (?P<name>.+)$"
+      - "^kill (?P<name>.+)$"
+      - "^exit (?P<name>.+)$"
+    keywords: ["close", "quit", "kill", "exit"]
+    examples:
+      - "close chrome"
+      - "quit notepad"
+      - "kill terminal"
+    negative_examples:
+      - "why did chrome close"
+      - "don't close chrome"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 85.0
+    ambiguity_margin: 12.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.75
+
+  - name: volume_set
+    tool: volume_set
+    risk: REVERSIBLE
+    required_slots: ["percent"]
+    optional_slots: []
+    patterns:
+      - "^volume (?:set to |to )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^set volume (?:to )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^sound (?:set to |to )?(?P<percent>\\d+)(?:%| percent)?$"
+    keywords: ["volume", "sound", "set volume", "audio"]
+    examples:
+      - "volume 30"
+      - "set volume to 50"
+      - "volume 100%"
+      - "turn volume to thirty"
+      - "sound 20"
+    negative_examples:
+      - "what is the volume"
+      - "volume down"
+      - "volume up"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 85.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.88
+    lane1_threshold: 0.75
+
+  - name: volume_up
+    tool: volume_set
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["step"]
+    patterns:
+      - "^volume up$"
+      - "^increase volume$"
+      - "^louder$"
+      - "^make it louder$"
+      - "^turn it up$"
+      - "^bring the sound up$"
+    keywords: ["volume up", "increase volume", "louder", "turn up", "sound up"]
+    examples:
+      - "volume up"
+      - "increase volume"
+      - "make it louder"
+      - "turn it up"
+    negative_examples:
+      - "volume down"
+      - "mute"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: volume_down
+    tool: volume_set
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["step"]
+    patterns:
+      - "^volume down$"
+      - "^decrease volume$"
+      - "^quieter$"
+      - "^make it quieter$"
+      - "^make it a little quieter$"
+      - "^turn it down$"
+      - "^bring the sound down$"
+      - "^bring the sound down a little$"
+      - "^lower volume$"
+    keywords: ["volume down", "decrease volume", "quieter", "turn down", "sound down", "lower volume"]
+    examples:
+      - "volume down"
+      - "make it quieter"
+      - "make it a little quieter"
+      - "turn the volume down"
+      - "bring the sound down a little"
+    negative_examples:
+      - "volume up"
+      - "unmute"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 78.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: mute
+    tool: volume_set
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^mute$"
+      - "^mute audio$"
+      - "^mute volume$"
+      - "^silence$"
+    keywords: ["mute", "silence", "mute volume"]
+    examples:
+      - "mute"
+      - "mute audio"
+      - "silence sound"
+    negative_examples:
+      - "unmute"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 85.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.75
+
+  - name: unmute
+    tool: volume_set
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^unmute$"
+      - "^unmute audio$"
+      - "^unmute volume$"
+    keywords: ["unmute", "restore audio"]
+    examples:
+      - "unmute"
+      - "unmute sound"
+    negative_examples:
+      - "mute"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 85.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.75
+
+  - name: list_directory
+    tool: list_directory
+    risk: READ_ONLY
+    required_slots: ["path"]
+    optional_slots: ["limit"]
+    patterns:
+      - "^list (?:directory |folder |files in )?(?P<path>.+)$"
+      - "^show (?:directory |folder |files in )?(?P<path>.+)$"
+      - "^dir (?P<path>.+)$"
+      - "^ls (?P<path>.+)$"
+    keywords: ["list", "show files", "dir", "ls", "show directory", "folder files"]
+    examples:
+      - "list desktop"
+      - "show files in downloads"
+      - "list c:\\users"
+      - "show directory documents"
+    negative_examples:
+      - "how to list files"
+      - "don't list anything"
+    aliases:
+      desktop: ["my desktop"]
+      downloads: ["my downloads"]
+      documents: ["my documents", "docs"]
+      pictures: ["my photos", "images"]
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: find_file
+    tool: find_file
+    risk: READ_ONLY
+    required_slots: ["query"]
+    optional_slots: ["type_hint", "time_hint", "directory_hint"]
+    patterns:
+      - "^find (?:file )?(?P<query>.+)$"
+      - "^search (?:for )?(?:file )?(?P<query>.+)$"
+      - "^where is (?:that |my )?(?P<query>.+)$"
+      - "^locate (?:file )?(?P<query>.+)$"
+      - "^show my recent (?P<query>.+) files$"
+    keywords: ["find", "search", "where is", "locate", "show recent"]
+    examples:
+      - "find nlp pdf"
+      - "find file report.pdf"
+      - "search notes.txt"
+      - "where is deep learning document"
+    negative_examples:
+      - "find my notes and email them to santosh"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.75
+
+  - name: open_file
+    tool: open_file
+    risk: REVERSIBLE
+    required_slots: ["path"]
+    optional_slots: ["file_id"]
+    patterns:
+      - "^open file (?P<path>.+)$"
+      - "^open that file$"
+      - "^open the (?:first|second|third|fourth|fifth|last) one$"
+      - "^open (?P<path>.+\\.(?:pdf|docx|doc|xlsx|xls|txt|md|py|csv|json|png|jpg|pptx|ppt|pbix))$"
+      - "^view file (?P<path>.+)$"
+    keywords: ["open file", "open that file", "view file"]
+    examples:
+      - "open file notes.txt"
+      - "open file report.docx"
+      - "open that file"
+      - "open report.xlsx"
+    negative_examples:
+      - "can chrome open pdf"
+    aliases: {}
+    fuzzy_allowed: false
+    fuzzy_threshold: 90.0
+    ambiguity_margin: 15.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.80
+
+  - name: take_screenshot
+    tool: take_screenshot
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["path"]
+    patterns:
+      - "^screenshot$"
+      - "^take screenshot$"
+      - "^capture screen$"
+      - "^screen capture$"
+      - "^take a screenshot$"
+      - "^capture display$"
+    keywords: ["screenshot", "capture screen", "screen capture", "snapshot"]
+    examples:
+      - "screenshot"
+      - "take screenshot"
+      - "take a screenshot"
+      - "capture screen"
+    negative_examples:
+      - "what is a screenshot"
+      - "how to take screenshot"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: get_time
+    tool: get_time
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^time$"
+      - "^current time$"
+      - "^what time is it$"
+      - "^what is the time$"
+      - "^tell me the time$"
+      - "^clock$"
+    keywords: ["time", "current time", "what time", "clock"]
+    examples:
+      - "time"
+      - "what time is it"
+      - "tell me the time"
+      - "current time"
+    negative_examples:
+      - "time flies"
+      - "timeout"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: system_info
+    tool: system_info
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^system info$"
+      - "^sysinfo$"
+      - "^system information$"
+      - "^specs$"
+      - "^hardware info$"
+      - "^show system info$"
+    keywords: ["system info", "sysinfo", "specs", "hardware info", "pc specs"]
+    examples:
+      - "system info"
+      - "show system info"
+      - "hardware info"
+      - "specs"
+    negative_examples:
+      - "what is an operating system"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: shutdown_timer
+    tool: shutdown_timer
+    risk: DESTRUCTIVE
+    required_slots: ["seconds"]
+    optional_slots: []
+    patterns:
+      - "^shutdown after (?P<seconds>\\d+) seconds?$"
+      - "^shutdown in (?P<seconds>\\d+) seconds?$"
+      - "^shutdown after (?P<minutes>\\d+) minutes?$"
+      - "^shutdown in (?P<minutes>\\d+) minutes?$"
+    keywords: ["shutdown after", "shutdown in", "turn off in", "sleep after"]
+    examples:
+      - "shutdown after 600 seconds"
+      - "shutdown in 10 minutes"
+      - "shutdown after twenty minutes"
+    negative_examples:
+      - "tell me what shutdown means"
+      - "don't shutdown"
+    aliases: {}
+    fuzzy_allowed: false
+    fuzzy_threshold: 95.0
+    ambiguity_margin: 20.0
+    lane0_enabled: true
+    lane0_threshold: 0.98
+    lane1_threshold: 0.95
+
+  - name: cancel_shutdown
+    tool: cancel_shutdown
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^cancel shutdown$"
+      - "^abort shutdown$"
+      - "^stop shutdown$"
+    keywords: ["cancel shutdown", "abort shutdown", "stop shutdown"]
+    examples:
+      - "cancel shutdown"
+      - "abort shutdown"
+    negative_examples:
+      - "shutdown now"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 88.0
+    ambiguity_margin: 12.0
+    lane0_enabled: true
+    lane0_threshold: 0.95
+    lane1_threshold: 0.85
+
+  - name: lock_pc
+    tool: lock_pc
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^lock pc$"
+      - "^lock screen$"
+      - "^lock computer$"
+      - "^lock$"
+    keywords: ["lock pc", "lock screen", "lock computer"]
+    examples:
+      - "lock pc"
+      - "lock screen"
+    negative_examples:
+      - "unlock pc"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 88.0
+    ambiguity_margin: 12.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.80
+
+  - name: stop_task
+    tool: stop_task
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^stop task$"
+      - "^stop execution$"
+      - "^kill task$"
+    keywords: ["stop task", "stop execution", "kill task"]
+    examples:
+      - "stop task"
+      - "kill task"
+    negative_examples:
+      - "start task"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 88.0
+    ambiguity_margin: 12.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.80
+
+  - name: cancel_task
+    tool: cancel_task
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^cancel task$"
+      - "^cancel execution$"
+    keywords: ["cancel task", "cancel execution"]
+    examples:
+      - "cancel task"
+    negative_examples:
+      - "run task"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 88.0
+    ambiguity_margin: 12.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.80

@@ -1,0 +1,240 @@
+{"id": "exact_0", "query": "find nlp.pdf", "expected_file": "nlp.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_1", "query": "open deep_learning_unit_1.pdf", "expected_file": "deep_learning_unit_1.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_2", "query": "where is report_2026.xlsx", "expected_file": "report_2026.xlsx", "expected_extension": ".xlsx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_3", "query": "locate main.py", "expected_file": "main.py", "expected_extension": ".py", "category": "exact", "is_ambiguous": false}
+{"id": "exact_4", "query": "find unit_5_notes.docx", "expected_file": "unit_5_notes.docx", "expected_extension": ".docx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_5", "query": "find data_cleaned.csv", "expected_file": "data_cleaned.csv", "expected_extension": ".csv", "category": "exact", "is_ambiguous": false}
+{"id": "exact_6", "query": "open architecture_diagram.png", "expected_file": "architecture_diagram.png", "expected_extension": ".png", "category": "exact", "is_ambiguous": false}
+{"id": "exact_7", "query": "where is slides_final.pptx", "expected_file": "slides_final.pptx", "expected_extension": ".pptx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_8", "query": "find config.json", "expected_file": "config.json", "expected_extension": ".json", "category": "exact", "is_ambiguous": false}
+{"id": "exact_9", "query": "open summary.txt", "expected_file": "summary.txt", "expected_extension": ".txt", "category": "exact", "is_ambiguous": false}
+{"id": "exact_20", "query": "find nlp_1.pdf", "expected_file": "nlp_1.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_21", "query": "open deep_learning_unit_1_1.pdf", "expected_file": "deep_learning_unit_1_1.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_22", "query": "where is report_2026_1.xlsx", "expected_file": "report_2026_1.xlsx", "expected_extension": ".xlsx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_23", "query": "locate main_1.py", "expected_file": "main_1.py", "expected_extension": ".py", "category": "exact", "is_ambiguous": false}
+{"id": "exact_24", "query": "find unit_5_notes_1.docx", "expected_file": "unit_5_notes_1.docx", "expected_extension": ".docx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_25", "query": "find data_cleaned_1.csv", "expected_file": "data_cleaned_1.csv", "expected_extension": ".csv", "category": "exact", "is_ambiguous": false}
+{"id": "exact_26", "query": "open architecture_diagram_1.png", "expected_file": "architecture_diagram_1.png", "expected_extension": ".png", "category": "exact", "is_ambiguous": false}
+{"id": "exact_27", "query": "where is slides_final_1.pptx", "expected_file": "slides_final_1.pptx", "expected_extension": ".pptx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_28", "query": "find config_1.json", "expected_file": "config_1.json", "expected_extension": ".json", "category": "exact", "is_ambiguous": false}
+{"id": "exact_29", "query": "open summary_1.txt", "expected_file": "summary_1.txt", "expected_extension": ".txt", "category": "exact", "is_ambiguous": false}
+{"id": "exact_40", "query": "find nlp_2.pdf", "expected_file": "nlp_2.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_41", "query": "open deep_learning_unit_1_2.pdf", "expected_file": "deep_learning_unit_1_2.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_42", "query": "where is report_2026_2.xlsx", "expected_file": "report_2026_2.xlsx", "expected_extension": ".xlsx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_43", "query": "locate main_2.py", "expected_file": "main_2.py", "expected_extension": ".py", "category": "exact", "is_ambiguous": false}
+{"id": "exact_44", "query": "find unit_5_notes_2.docx", "expected_file": "unit_5_notes_2.docx", "expected_extension": ".docx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_45", "query": "find data_cleaned_2.csv", "expected_file": "data_cleaned_2.csv", "expected_extension": ".csv", "category": "exact", "is_ambiguous": false}
+{"id": "exact_46", "query": "open architecture_diagram_2.png", "expected_file": "architecture_diagram_2.png", "expected_extension": ".png", "category": "exact", "is_ambiguous": false}
+{"id": "exact_47", "query": "where is slides_final_2.pptx", "expected_file": "slides_final_2.pptx", "expected_extension": ".pptx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_48", "query": "find config_2.json", "expected_file": "config_2.json", "expected_extension": ".json", "category": "exact", "is_ambiguous": false}
+{"id": "exact_49", "query": "open summary_2.txt", "expected_file": "summary_2.txt", "expected_extension": ".txt", "category": "exact", "is_ambiguous": false}
+{"id": "exact_60", "query": "find nlp_3.pdf", "expected_file": "nlp_3.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_61", "query": "open deep_learning_unit_1_3.pdf", "expected_file": "deep_learning_unit_1_3.pdf", "expected_extension": ".pdf", "category": "exact", "is_ambiguous": false}
+{"id": "exact_62", "query": "where is report_2026_3.xlsx", "expected_file": "report_2026_3.xlsx", "expected_extension": ".xlsx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_63", "query": "locate main_3.py", "expected_file": "main_3.py", "expected_extension": ".py", "category": "exact", "is_ambiguous": false}
+{"id": "exact_64", "query": "find unit_5_notes_3.docx", "expected_file": "unit_5_notes_3.docx", "expected_extension": ".docx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_65", "query": "find data_cleaned_3.csv", "expected_file": "data_cleaned_3.csv", "expected_extension": ".csv", "category": "exact", "is_ambiguous": false}
+{"id": "exact_66", "query": "open architecture_diagram_3.png", "expected_file": "architecture_diagram_3.png", "expected_extension": ".png", "category": "exact", "is_ambiguous": false}
+{"id": "exact_67", "query": "where is slides_final_3.pptx", "expected_file": "slides_final_3.pptx", "expected_extension": ".pptx", "category": "exact", "is_ambiguous": false}
+{"id": "exact_68", "query": "find config_3.json", "expected_file": "config_3.json", "expected_extension": ".json", "category": "exact", "is_ambiguous": false}
+{"id": "exact_69", "query": "open summary_3.txt", "expected_file": "summary_3.txt", "expected_extension": ".txt", "category": "exact", "is_ambiguous": false}
+{"id": "prefix_40", "query": "find nlp", "expected_file": "nlp_unit_1.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_41", "query": "search deep learning", "expected_file": "deep_learning_lecture_notes.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_42", "query": "where is report", "expected_file": "report_q1_final.xlsx", "expected_extension": ".xlsx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_43", "query": "find unit 5", "expected_file": "unit_5_nlp_notes.docx", "expected_extension": ".docx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_44", "query": "locate bench", "expected_file": "bench_router.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_45", "query": "find pow", "expected_file": "power_bi_sales_dashboard.pbix", "expected_extension": ".pbix", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_46", "query": "search lecture", "expected_file": "lecture_3_transformers.pptx", "expected_extension": ".pptx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_47", "query": "where is model", "expected_file": "model_weights_resnet.pt", "expected_extension": ".pt", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_48", "query": "find lab", "expected_file": "lab_assignment_2.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_49", "query": "locate exam", "expected_file": "exam_revision_guide.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_50", "query": "find nlp 1", "expected_file": "nlp_unit_1_1.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_51", "query": "search deep learning 1", "expected_file": "deep_learning_lecture_notes_1.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_52", "query": "where is report 1", "expected_file": "report_q1_final_1.xlsx", "expected_extension": ".xlsx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_53", "query": "find unit 5 1", "expected_file": "unit_5_nlp_notes_1.docx", "expected_extension": ".docx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_54", "query": "locate bench 1", "expected_file": "bench_router_1.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_55", "query": "find pow 1", "expected_file": "power_bi_sales_dashboard_1.pbix", "expected_extension": ".pbix", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_56", "query": "search lecture 1", "expected_file": "lecture_3_transformers_1.pptx", "expected_extension": ".pptx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_57", "query": "where is model 1", "expected_file": "model_weights_resnet_1.pt", "expected_extension": ".pt", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_58", "query": "find lab 1", "expected_file": "lab_assignment_2_1.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_59", "query": "locate exam 1", "expected_file": "exam_revision_guide_1.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_60", "query": "find nlp 2", "expected_file": "nlp_unit_1_2.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_61", "query": "search deep learning 2", "expected_file": "deep_learning_lecture_notes_2.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_62", "query": "where is report 2", "expected_file": "report_q1_final_2.xlsx", "expected_extension": ".xlsx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_63", "query": "find unit 5 2", "expected_file": "unit_5_nlp_notes_2.docx", "expected_extension": ".docx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_64", "query": "locate bench 2", "expected_file": "bench_router_2.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_65", "query": "find pow 2", "expected_file": "power_bi_sales_dashboard_2.pbix", "expected_extension": ".pbix", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_66", "query": "search lecture 2", "expected_file": "lecture_3_transformers_2.pptx", "expected_extension": ".pptx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_67", "query": "where is model 2", "expected_file": "model_weights_resnet_2.pt", "expected_extension": ".pt", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_68", "query": "find lab 2", "expected_file": "lab_assignment_2_2.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_69", "query": "locate exam 2", "expected_file": "exam_revision_guide_2.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_70", "query": "find nlp 3", "expected_file": "nlp_unit_1_3.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_71", "query": "search deep learning 3", "expected_file": "deep_learning_lecture_notes_3.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_72", "query": "where is report 3", "expected_file": "report_q1_final_3.xlsx", "expected_extension": ".xlsx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_73", "query": "find unit 5 3", "expected_file": "unit_5_nlp_notes_3.docx", "expected_extension": ".docx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_74", "query": "locate bench 3", "expected_file": "bench_router_3.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_75", "query": "find pow 3", "expected_file": "power_bi_sales_dashboard_3.pbix", "expected_extension": ".pbix", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_76", "query": "search lecture 3", "expected_file": "lecture_3_transformers_3.pptx", "expected_extension": ".pptx", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_77", "query": "where is model 3", "expected_file": "model_weights_resnet_3.pt", "expected_extension": ".pt", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_78", "query": "find lab 3", "expected_file": "lab_assignment_2_3.py", "expected_extension": ".py", "category": "prefix", "is_ambiguous": false}
+{"id": "prefix_79", "query": "locate exam 3", "expected_file": "exam_revision_guide_3.pdf", "expected_extension": ".pdf", "category": "prefix", "is_ambiguous": false}
+{"id": "ext_80", "query": "find nlp pdf", "expected_file": "nlp_syllabus.pdf", "expected_extension": ".pdf", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_81", "query": "find python scripts", "expected_file": "data_prep.py", "expected_extension": ".py", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_82", "query": "show my excel sheets", "expected_file": "budget_estimate.xlsx", "expected_extension": ".xlsx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_83", "query": "where are my word docs", "expected_file": "internship_report.docx", "expected_extension": ".docx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_84", "query": "locate powerpoint slides", "expected_file": "final_presentation.pptx", "expected_extension": ".pptx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_85", "query": "find dataset csv", "expected_file": "customers_100k.csv", "expected_extension": ".csv", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_86", "query": "find nlp pdf 1", "expected_file": "nlp_syllabus_1.pdf", "expected_extension": ".pdf", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_87", "query": "find python scripts 1", "expected_file": "data_prep_1.py", "expected_extension": ".py", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_88", "query": "show my excel sheets 1", "expected_file": "budget_estimate_1.xlsx", "expected_extension": ".xlsx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_89", "query": "where are my word docs 1", "expected_file": "internship_report_1.docx", "expected_extension": ".docx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_90", "query": "locate powerpoint slides 1", "expected_file": "final_presentation_1.pptx", "expected_extension": ".pptx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_91", "query": "find dataset csv 1", "expected_file": "customers_100k_1.csv", "expected_extension": ".csv", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_92", "query": "find nlp pdf 2", "expected_file": "nlp_syllabus_2.pdf", "expected_extension": ".pdf", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_93", "query": "find python scripts 2", "expected_file": "data_prep_2.py", "expected_extension": ".py", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_94", "query": "show my excel sheets 2", "expected_file": "budget_estimate_2.xlsx", "expected_extension": ".xlsx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_95", "query": "where are my word docs 2", "expected_file": "internship_report_2.docx", "expected_extension": ".docx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_96", "query": "locate powerpoint slides 2", "expected_file": "final_presentation_2.pptx", "expected_extension": ".pptx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_97", "query": "find dataset csv 2", "expected_file": "customers_100k_2.csv", "expected_extension": ".csv", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_98", "query": "find nlp pdf 3", "expected_file": "nlp_syllabus_3.pdf", "expected_extension": ".pdf", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_99", "query": "find python scripts 3", "expected_file": "data_prep_3.py", "expected_extension": ".py", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_100", "query": "show my excel sheets 3", "expected_file": "budget_estimate_3.xlsx", "expected_extension": ".xlsx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_101", "query": "where are my word docs 3", "expected_file": "internship_report_3.docx", "expected_extension": ".docx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_102", "query": "locate powerpoint slides 3", "expected_file": "final_presentation_3.pptx", "expected_extension": ".pptx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_103", "query": "find dataset csv 3", "expected_file": "customers_100k_3.csv", "expected_extension": ".csv", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_104", "query": "find nlp pdf 4", "expected_file": "nlp_syllabus_4.pdf", "expected_extension": ".pdf", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_105", "query": "find python scripts 4", "expected_file": "data_prep_4.py", "expected_extension": ".py", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_106", "query": "show my excel sheets 4", "expected_file": "budget_estimate_4.xlsx", "expected_extension": ".xlsx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_107", "query": "where are my word docs 4", "expected_file": "internship_report_4.docx", "expected_extension": ".docx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_108", "query": "locate powerpoint slides 4", "expected_file": "final_presentation_4.pptx", "expected_extension": ".pptx", "category": "extension_filter", "is_ambiguous": false}
+{"id": "ext_109", "query": "find dataset csv 4", "expected_file": "customers_100k_4.csv", "expected_extension": ".csv", "category": "extension_filter", "is_ambiguous": false}
+{"id": "typo_110", "query": "find nlpp pdf", "expected_file": "nlp.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_111", "query": "where is deeep learning notes", "expected_file": "deep_learning_notes.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_112", "query": "locate pyhton script", "expected_file": "script.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_113", "query": "find calclator.py", "expected_file": "calculator.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_114", "query": "open documnt.docx", "expected_file": "document.docx", "expected_extension": ".docx", "category": "typo", "is_ambiguous": false}
+{"id": "typo_115", "query": "find nlpp pdf", "expected_file": "nlp.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_116", "query": "where is deeep learning notes", "expected_file": "deep_learning_notes.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_117", "query": "locate pyhton script", "expected_file": "script.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_118", "query": "find calclator.py", "expected_file": "calculator.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_119", "query": "open documnt.docx", "expected_file": "document.docx", "expected_extension": ".docx", "category": "typo", "is_ambiguous": false}
+{"id": "typo_120", "query": "find nlpp pdf", "expected_file": "nlp.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_121", "query": "where is deeep learning notes", "expected_file": "deep_learning_notes.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_122", "query": "locate pyhton script", "expected_file": "script.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_123", "query": "find calclator.py", "expected_file": "calculator.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_124", "query": "open documnt.docx", "expected_file": "document.docx", "expected_extension": ".docx", "category": "typo", "is_ambiguous": false}
+{"id": "typo_125", "query": "find nlpp pdf", "expected_file": "nlp.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_126", "query": "where is deeep learning notes", "expected_file": "deep_learning_notes.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_127", "query": "locate pyhton script", "expected_file": "script.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_128", "query": "find calclator.py", "expected_file": "calculator.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_129", "query": "open documnt.docx", "expected_file": "document.docx", "expected_extension": ".docx", "category": "typo", "is_ambiguous": false}
+{"id": "typo_130", "query": "find nlpp pdf", "expected_file": "nlp.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_131", "query": "where is deeep learning notes", "expected_file": "deep_learning_notes.pdf", "expected_extension": ".pdf", "category": "typo", "is_ambiguous": false}
+{"id": "typo_132", "query": "locate pyhton script", "expected_file": "script.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_133", "query": "find calclator.py", "expected_file": "calculator.py", "expected_extension": ".py", "category": "typo", "is_ambiguous": false}
+{"id": "typo_134", "query": "open documnt.docx", "expected_file": "document.docx", "expected_extension": ".docx", "category": "typo", "is_ambiguous": false}
+{"id": "recency_135", "query": "find latest nlp pdf", "expected_file": "nlp_unit_5_recent.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_136", "query": "find the pdf i used yesterday", "expected_file": "yesterday_paper.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_137", "query": "show recent power bi files", "expected_file": "sales_recent.pbix", "expected_extension": ".pbix", "category": "recency", "is_ambiguous": false}
+{"id": "recency_138", "query": "find document from last week", "expected_file": "weekly_status.docx", "expected_extension": ".docx", "category": "recency", "is_ambiguous": false}
+{"id": "recency_139", "query": "locate recent python code", "expected_file": "bench_new.py", "expected_extension": ".py", "category": "recency", "is_ambiguous": false}
+{"id": "recency_140", "query": "find latest nlp pdf", "expected_file": "nlp_unit_5_recent.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_141", "query": "find the pdf i used yesterday", "expected_file": "yesterday_paper.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_142", "query": "show recent power bi files", "expected_file": "sales_recent.pbix", "expected_extension": ".pbix", "category": "recency", "is_ambiguous": false}
+{"id": "recency_143", "query": "find document from last week", "expected_file": "weekly_status.docx", "expected_extension": ".docx", "category": "recency", "is_ambiguous": false}
+{"id": "recency_144", "query": "locate recent python code", "expected_file": "bench_new.py", "expected_extension": ".py", "category": "recency", "is_ambiguous": false}
+{"id": "recency_145", "query": "find latest nlp pdf", "expected_file": "nlp_unit_5_recent.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_146", "query": "find the pdf i used yesterday", "expected_file": "yesterday_paper.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_147", "query": "show recent power bi files", "expected_file": "sales_recent.pbix", "expected_extension": ".pbix", "category": "recency", "is_ambiguous": false}
+{"id": "recency_148", "query": "find document from last week", "expected_file": "weekly_status.docx", "expected_extension": ".docx", "category": "recency", "is_ambiguous": false}
+{"id": "recency_149", "query": "locate recent python code", "expected_file": "bench_new.py", "expected_extension": ".py", "category": "recency", "is_ambiguous": false}
+{"id": "recency_150", "query": "find latest nlp pdf", "expected_file": "nlp_unit_5_recent.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_151", "query": "find the pdf i used yesterday", "expected_file": "yesterday_paper.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_152", "query": "show recent power bi files", "expected_file": "sales_recent.pbix", "expected_extension": ".pbix", "category": "recency", "is_ambiguous": false}
+{"id": "recency_153", "query": "find document from last week", "expected_file": "weekly_status.docx", "expected_extension": ".docx", "category": "recency", "is_ambiguous": false}
+{"id": "recency_154", "query": "locate recent python code", "expected_file": "bench_new.py", "expected_extension": ".py", "category": "recency", "is_ambiguous": false}
+{"id": "recency_155", "query": "find latest nlp pdf", "expected_file": "nlp_unit_5_recent.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_156", "query": "find the pdf i used yesterday", "expected_file": "yesterday_paper.pdf", "expected_extension": ".pdf", "category": "recency", "is_ambiguous": false}
+{"id": "recency_157", "query": "show recent power bi files", "expected_file": "sales_recent.pbix", "expected_extension": ".pbix", "category": "recency", "is_ambiguous": false}
+{"id": "recency_158", "query": "find document from last week", "expected_file": "weekly_status.docx", "expected_extension": ".docx", "category": "recency", "is_ambiguous": false}
+{"id": "recency_159", "query": "locate recent python code", "expected_file": "bench_new.py", "expected_extension": ".py", "category": "recency", "is_ambiguous": false}
+{"id": "context_160", "query": "open that file", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_161", "query": "open the second one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_162", "query": "the first one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_163", "query": "open that folder", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_164", "query": "the pdf", "expected_file": null, "expected_extension": ".pdf", "category": "context", "is_ambiguous": false}
+{"id": "context_165", "query": "open that file", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_166", "query": "open the second one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_167", "query": "the first one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_168", "query": "open that folder", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_169", "query": "the pdf", "expected_file": null, "expected_extension": ".pdf", "category": "context", "is_ambiguous": false}
+{"id": "context_170", "query": "open that file", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_171", "query": "open the second one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_172", "query": "the first one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_173", "query": "open that folder", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_174", "query": "the pdf", "expected_file": null, "expected_extension": ".pdf", "category": "context", "is_ambiguous": false}
+{"id": "context_175", "query": "open that file", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_176", "query": "open the second one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_177", "query": "the first one", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_178", "query": "open that folder", "expected_file": null, "expected_extension": null, "category": "context", "is_ambiguous": false}
+{"id": "context_179", "query": "the pdf", "expected_file": null, "expected_extension": ".pdf", "category": "context", "is_ambiguous": false}
+{"id": "semantic_180", "query": "find the document about batch normalization", "expected_file": "batch_norm_explained.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_181", "query": "where is the paper discussing attention mechanisms", "expected_file": "attention_is_all_you_need.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_182", "query": "notes explaining backpropagation algorithm", "expected_file": "neural_networks_intro.docx", "expected_extension": ".docx", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_183", "query": "document related to convolution filters and pooling", "expected_file": "cnn_architecture.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_184", "query": "tutorial on gradient descent optimization", "expected_file": "optimization_techniques.md", "expected_extension": ".md", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_185", "query": "paper about transformer encoders and decoders", "expected_file": "transformer_notes.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_186", "query": "find the document about batch normalization", "expected_file": "batch_norm_explained.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_187", "query": "where is the paper discussing attention mechanisms", "expected_file": "attention_is_all_you_need.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_188", "query": "notes explaining backpropagation algorithm", "expected_file": "neural_networks_intro.docx", "expected_extension": ".docx", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_189", "query": "document related to convolution filters and pooling", "expected_file": "cnn_architecture.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_190", "query": "tutorial on gradient descent optimization", "expected_file": "optimization_techniques.md", "expected_extension": ".md", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_191", "query": "paper about transformer encoders and decoders", "expected_file": "transformer_notes.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_192", "query": "find the document about batch normalization", "expected_file": "batch_norm_explained.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_193", "query": "where is the paper discussing attention mechanisms", "expected_file": "attention_is_all_you_need.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_194", "query": "notes explaining backpropagation algorithm", "expected_file": "neural_networks_intro.docx", "expected_extension": ".docx", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_195", "query": "document related to convolution filters and pooling", "expected_file": "cnn_architecture.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_196", "query": "tutorial on gradient descent optimization", "expected_file": "optimization_techniques.md", "expected_extension": ".md", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_197", "query": "paper about transformer encoders and decoders", "expected_file": "transformer_notes.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_198", "query": "find the document about batch normalization", "expected_file": "batch_norm_explained.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_199", "query": "where is the paper discussing attention mechanisms", "expected_file": "attention_is_all_you_need.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_200", "query": "notes explaining backpropagation algorithm", "expected_file": "neural_networks_intro.docx", "expected_extension": ".docx", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_201", "query": "document related to convolution filters and pooling", "expected_file": "cnn_architecture.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_202", "query": "tutorial on gradient descent optimization", "expected_file": "optimization_techniques.md", "expected_extension": ".md", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_203", "query": "paper about transformer encoders and decoders", "expected_file": "transformer_notes.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_204", "query": "find the document about batch normalization", "expected_file": "batch_norm_explained.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_205", "query": "where is the paper discussing attention mechanisms", "expected_file": "attention_is_all_you_need.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_206", "query": "notes explaining backpropagation algorithm", "expected_file": "neural_networks_intro.docx", "expected_extension": ".docx", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_207", "query": "document related to convolution filters and pooling", "expected_file": "cnn_architecture.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_208", "query": "tutorial on gradient descent optimization", "expected_file": "optimization_techniques.md", "expected_extension": ".md", "category": "semantic", "is_ambiguous": false}
+{"id": "semantic_209", "query": "paper about transformer encoders and decoders", "expected_file": "transformer_notes.pdf", "expected_extension": ".pdf", "category": "semantic", "is_ambiguous": false}
+{"id": "ambig_210", "query": "open nlp notes", "expected_file": "nlp_unit_4_notes.pdf", "expected_extension": ".pdf", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_211", "query": "find lab report", "expected_file": "lab_report_1.docx", "expected_extension": ".docx", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_212", "query": "where is unit test", "expected_file": "test_unit_a.py", "expected_extension": ".py", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_213", "query": "open nlp notes", "expected_file": "nlp_unit_4_notes.pdf", "expected_extension": ".pdf", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_214", "query": "find lab report", "expected_file": "lab_report_1.docx", "expected_extension": ".docx", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_215", "query": "where is unit test", "expected_file": "test_unit_a.py", "expected_extension": ".py", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_216", "query": "open nlp notes", "expected_file": "nlp_unit_4_notes.pdf", "expected_extension": ".pdf", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_217", "query": "find lab report", "expected_file": "lab_report_1.docx", "expected_extension": ".docx", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_218", "query": "where is unit test", "expected_file": "test_unit_a.py", "expected_extension": ".py", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_219", "query": "open nlp notes", "expected_file": "nlp_unit_4_notes.pdf", "expected_extension": ".pdf", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_220", "query": "find lab report", "expected_file": "lab_report_1.docx", "expected_extension": ".docx", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_221", "query": "where is unit test", "expected_file": "test_unit_a.py", "expected_extension": ".py", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_222", "query": "open nlp notes", "expected_file": "nlp_unit_4_notes.pdf", "expected_extension": ".pdf", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_223", "query": "find lab report", "expected_file": "lab_report_1.docx", "expected_extension": ".docx", "category": "ambiguous", "is_ambiguous": true}
+{"id": "ambig_224", "query": "where is unit test", "expected_file": "test_unit_a.py", "expected_extension": ".py", "category": "ambiguous", "is_ambiguous": true}
+{"id": "no_result_225", "query": "find non_existent_quantum_teleportation_file_xyz_99.pdf", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_226", "query": "where is imaginary_contract_2099.docx", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_227", "query": "locate fictional_dataset_42.csv", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_228", "query": "find non_existent_quantum_teleportation_file_xyz_99.pdf", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_229", "query": "where is imaginary_contract_2099.docx", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_230", "query": "locate fictional_dataset_42.csv", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_231", "query": "find non_existent_quantum_teleportation_file_xyz_99.pdf", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_232", "query": "where is imaginary_contract_2099.docx", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_233", "query": "locate fictional_dataset_42.csv", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_234", "query": "find non_existent_quantum_teleportation_file_xyz_99.pdf", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_235", "query": "where is imaginary_contract_2099.docx", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_236", "query": "locate fictional_dataset_42.csv", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_237", "query": "find non_existent_quantum_teleportation_file_xyz_99.pdf", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_238", "query": "where is imaginary_contract_2099.docx", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}
+{"id": "no_result_239", "query": "locate fictional_dataset_42.csv", "expected_file": null, "expected_extension": null, "category": "no_result", "is_ambiguous": false}

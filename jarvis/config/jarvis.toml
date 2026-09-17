@@ -1,0 +1,43 @@
+[server]
+host = "127.0.0.1"
+port = 8765
+workers = 1
+http_backend = "httptools"
+ws_backend = "websockets-sansio"
+ws_compression = false
+access_log = false
+
+[performance]
+event_queue_size = 1024
+persistence_queue_size = 4096
+metric_queue_size = 4096
+verify_poll_ms = 50
+verify_timeout_ms = 3000
+
+[database]
+journal_mode = "WAL"
+synchronous = "NORMAL"
+busy_timeout_ms = 3000
+
+[paths]
+db = "db/jarvis.db"
+logs = "logs/jarvis.jsonl"
+models = "models"
+
+[features]
+router_ai = false
+planner = false
+voice = false
+tts = false
+phone = false
+google = false
+browser = false
+vision = false
+
+[models]
+fast = ""
+planner = ""
+vision = ""
+
+[aliases]
+# Additional aliases must be absolute existing executable paths.
