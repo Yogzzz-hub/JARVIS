@@ -291,3 +291,47 @@ AudioHub (Single Capture Bus)
 4. **No Separate Voice Execution Path**: Spoken commands feed into `CommandService.handle()`, using the exact same Lane 0/1/2 routing, Phase 4 DAG planner, Phase 5 Policy Engine, and verification architecture as text commands.
 5. **VRAM Safety**: Whisper `base.en` consumes only 145 MB VRAM (int8), preventing contention with Ollama Qwen models on RTX 3050 (6GB). Wake word and VAD run entirely on CPU.
 
+---
+
+## 9. Phase 7 — Instant Voice Response Engine, Streaming Local TTS & Barge-In
+
+Phase 7 introduces the local speech output and response subsystem, prioritizing perceived instant responsiveness, truthful deterministic narration, and clean full-duplex barge-in.
+
+### 9.1 Component Pipeline
+
+```
+CommandService (Outcome / Event)
+  │
+  ▼
+ResponseEngine (Decision / Policy / Scheduling)
+  ├── AckCache (Pre-generated WAV clips in RAM, < 1ms lookup, no LLM)
+  │     └── Instant Query Bypass / Merge Window Cancellation
+  │
+  ├── ResponseFormatter (Deterministic fact formatting, no LLM hallucination)
+  │     └── File paths, numbers, percentages, bounded lists (<=3), truthful UNCERTAIN/PARTIAL
+  │
+  ├── TTSManager
+  │     ├── PiperEngine (Local ONNX neural TTS, en_US-lessac-medium, CPU)
+  │     ├── SAPIEngine (Windows native SAPI fallback)
+  │     └── Text-Only Fallback (Zero task failure on audio error)
+  │
+  └── AudioOutputManager (Dedicated playback worker thread)
+        ├── AudioOutputQueue (Priority min-heap, capacity 10, obsolete ACK drop, stale purge)
+        ├── sounddevice.OutputStream (22,050 Hz Mono PCM16)
+        │
+        └── BargeInController (Full-Duplex Interruption & Echo Gating)
+              ├── VAD interrupt signal -> playback stop (< 150ms p95)
+              ├── Wake-word detector gating while speaking
+              └── STT self-echo signature suppression
+```
+
+### 9.2 Architectural Invariants
+
+1. **Zero LLM in Response Flow**: Acknowledgements and basic final responses never invoke an LLM. Pre-generated audio clips and deterministic template formatters eliminate 500–1500 ms LLM latencies entirely.
+2. **Silent Execution**: Intermediate action narration ("Searching...", "Opening...") is strictly prohibited. Work proceeds silently between initial ACK and final verified response. At most one truthful progress cue ("Still working on it.") is spoken if execution exceeds 15 seconds.
+3. **Single Output Owner**: Exactly one background playback worker owns the sound output device. Competing engines or clips cannot interleave or produce audio collisions.
+4. **Separation of Concerns**: Audio playback failures never affect core task status. A successful command whose audio output fails remains tagged as `SUCCESS`.
+5. **Full Policy Preservation**: Spoken confirmation ("Yes", "No") passes directly into Phase 5 ticket validation; voice commands have zero capability to bypass security checks or escalate privileges.
+6. **Zero Dynamic Disk Audio**: Synthesized personal speech remains in volatile RAM buffers and is deleted immediately upon playback completion.
+
+

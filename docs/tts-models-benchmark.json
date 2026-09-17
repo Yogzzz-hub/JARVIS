@@ -1,0 +1,119 @@
+{
+  "benchmark": "Piper TTS Candidate Comparison",
+  "voices": {
+    "en_US-lessac-medium": {
+      "status": "ok",
+      "voice": "en_US-lessac-medium",
+      "type": "medium",
+      "model_size_mb": 60.27,
+      "load_ms": 3185.0,
+      "ram_delta_mb": 99.5,
+      "first_chunk_p50_ms": 144.79,
+      "first_chunk_p95_ms": 480.32,
+      "overall_rtf_p50": 0.111,
+      "overall_rtf_p95": 0.132,
+      "corpus_breakdown": {
+        "1_word": {
+          "first_chunk_p50_ms": 66.9412999850465,
+          "first_chunk_p95_ms": 73.44245499698445,
+          "total_synthesis_p50_ms": 67.02084999415092,
+          "total_synthesis_p95_ms": 73.55316498869797,
+          "audio_duration_s": 0.5294149659863944
+        },
+        "3_words": {
+          "first_chunk_p50_ms": 107.13609999220353,
+          "first_chunk_p95_ms": 116.65852499718312,
+          "total_synthesis_p50_ms": 107.26089999661781,
+          "total_synthesis_p95_ms": 116.78501999558648,
+          "audio_duration_s": 0.9253151927437642
+        },
+        "short_command": {
+          "first_chunk_p50_ms": 176.80210000253282,
+          "first_chunk_p95_ms": 214.3035949848126,
+          "total_synthesis_p50_ms": 176.99525000352878,
+          "total_synthesis_p95_ms": 214.4570249874959,
+          "audio_duration_s": 1.632362811791383
+        },
+        "medium_sentence": {
+          "first_chunk_p50_ms": 374.9718499893788,
+          "first_chunk_p95_ms": 398.80172998382477,
+          "total_synthesis_p50_ms": 375.29779999749735,
+          "total_synthesis_p95_ms": 399.1017699954682,
+          "audio_duration_s": 3.597931972789116
+        },
+        "planner_outcome": {
+          "first_chunk_p50_ms": 65.04780000250321,
+          "first_chunk_p95_ms": 98.71170999540477,
+          "total_synthesis_p50_ms": 532.1026000165148,
+          "total_synthesis_p95_ms": 568.3415249979589,
+          "audio_duration_s": 4.9028934240362805
+        },
+        "filenames": {
+          "first_chunk_p50_ms": 473.2903999974951,
+          "first_chunk_p95_ms": 502.2258349796175,
+          "total_synthesis_p50_ms": 473.6380500107771,
+          "total_synthesis_p95_ms": 502.68707498325966,
+          "audio_duration_s": 4.917986394557824
+        }
+      }
+    },
+    "en_US-lessac-low": {
+      "status": "ok",
+      "voice": "en_US-lessac-low",
+      "type": "lightweight",
+      "model_size_mb": 60.27,
+      "load_ms": 3145.9,
+      "ram_delta_mb": 82.2,
+      "first_chunk_p50_ms": 113.68,
+      "first_chunk_p95_ms": 444.46,
+      "overall_rtf_p50": 0.118,
+      "overall_rtf_p95": 0.152,
+      "corpus_breakdown": {
+        "1_word": {
+          "first_chunk_p50_ms": 58.22200000693556,
+          "first_chunk_p95_ms": 62.281674999394454,
+          "total_synthesis_p50_ms": 58.3314999967115,
+          "total_synthesis_p95_ms": 62.41458001168212,
+          "audio_duration_s": 0.4040272108843538
+        },
+        "3_words": {
+          "first_chunk_p50_ms": 86.50799999304581,
+          "first_chunk_p95_ms": 91.15305998857366,
+          "total_synthesis_p50_ms": 86.60019999661017,
+          "total_synthesis_p95_ms": 91.24781500431709,
+          "audio_duration_s": 0.6397097505668934
+        },
+        "short_command": {
+          "first_chunk_p50_ms": 146.65245001378935,
+          "first_chunk_p95_ms": 157.48744000447914,
+          "total_synthesis_p50_ms": 146.81045000907034,
+          "total_synthesis_p95_ms": 157.6315800077282,
+          "audio_duration_s": 1.260843537414966
+        },
+        "medium_sentence": {
+          "first_chunk_p50_ms": 289.0314499964006,
+          "first_chunk_p95_ms": 301.25763999385526,
+          "total_synthesis_p50_ms": 289.2097999865655,
+          "total_synthesis_p95_ms": 301.46463500132086,
+          "audio_duration_s": 2.655201814058957
+        },
+        "planner_outcome": {
+          "first_chunk_p50_ms": 55.96114999207202,
+          "first_chunk_p95_ms": 79.57048499811205,
+          "total_synthesis_p50_ms": 416.55249999894295,
+          "total_synthesis_p95_ms": 454.4176700044772,
+          "audio_duration_s": 3.6072199546485266
+        },
+        "filenames": {
+          "first_chunk_p50_ms": 425.9088000108022,
+          "first_chunk_p95_ms": 596.6204099997411,
+          "total_synthesis_p50_ms": 426.2229500018293,
+          "total_synthesis_p95_ms": 596.9091599952661,
+          "audio_duration_s": 3.849868480725624
+        }
+      }
+    }
+  },
+  "selected_voice": "en_US-lessac-medium",
+  "selection_rationale": "en_US-lessac-medium achieves superior clarity, natural cadence, and accurate technical pronunciation with sub-160ms first-chunk streaming on CPU and only ~63MB RAM footprint."
+}

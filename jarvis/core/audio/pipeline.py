@@ -44,6 +44,8 @@ class VoicePipeline:
         early_router: EarlyRoutePreview | None = None,
         command_service: Any = None,
         event_bus: Any = None,
+        barge_in_controller: Any = None,
+        response_engine: Any = None,
         wake_enabled: bool = True,
         ptt_enabled: bool = True,
         voice_enabled: bool = True,
@@ -59,6 +61,8 @@ class VoicePipeline:
         self.early_router = early_router or EarlyRoutePreview()
         self.command_service = command_service
         self.event_bus = event_bus
+        self.barge_in = barge_in_controller
+        self.response_engine = response_engine
         self.wake_enabled = wake_enabled
         self.ptt_enabled = ptt_enabled
         self.voice_enabled = voice_enabled
@@ -132,6 +136,11 @@ class VoicePipeline:
         Returns True when triggered, False if pipeline is stopping.
         """
         while self._running:
+            # Check active follow-up listening window (e.g. after asking confirmation)
+            if self.response_engine and getattr(self.response_engine, "active_followup_window", False):
+                logger.info("Active follow-up window triggered without wake word")
+                return True
+
             # Check push-to-talk
             if self.ptt_enabled and self.ptt_engine.check():
                 self.total_ptt_triggers += 1
@@ -139,8 +148,11 @@ class VoicePipeline:
                 self._emit("voice.wake_detected", source="ptt")
                 return True
 
-            # Process wake word audio
+            # Process wake word audio (suppressed if Jarvis is speaking)
             if self.wake_enabled and self._wake_consumer:
+                if self.barge_in and self.barge_in.should_suppress_wake_word():
+                    await asyncio.sleep(0.02)
+                    continue
                 try:
                     frame = await asyncio.wait_for(
                         self._wake_consumer.queue.get(), timeout=0.1
@@ -215,6 +227,8 @@ class VoicePipeline:
             if vad_result.state == VADState.SPEECH and session.speech_start_ns == 0:
                 session.speech_start_ns = perf_counter_ns()
                 session.transition(VoiceState.SPEECH_ACTIVE)
+                if self.barge_in:
+                    self.barge_in.on_user_speech_started(session.speech_start_ns)
 
             # Get partials at configured interval
             now = perf_counter_ns()
@@ -295,13 +309,29 @@ class VoicePipeline:
         CommandService → SmartRouter → Planner → Policy → ExecutionEngine.
         No separate unsafe voice execution path.
         """
+        # 1. Echo / Self-Trigger Protection
+        if self.barge_in and self.barge_in.check_self_echo(text):
+            logger.info("Discarded self-echo: %r", text)
+            return
+
+        # 2. Barge-In Control Words ("stop talking" vs "stop task")
+        if self.barge_in:
+            handled, action = self.barge_in.handle_barge_in_words(text)
+            if handled:
+                logger.info("Handled barge-in control word: %r (action=%s)", text, action)
+                return
+
+        # 3. Close active follow-up window once input is received
+        if self.response_engine and getattr(self.response_engine, "active_followup_window", False):
+            self.response_engine.close_followup_window()
+
         if not self.command_service:
             logger.warning("No CommandService configured — transcript not routed: %s", text)
             return
 
         try:
             from jarvis.core.commands.contracts import CommandRequest
-            request = CommandRequest(text=text)
+            request = CommandRequest(text=text, source="voice")
             result = await self.command_service.handle(request)
             session.route_complete_ns = perf_counter_ns()
             if hasattr(result, "first_action_ns"):

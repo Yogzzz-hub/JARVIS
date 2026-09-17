@@ -1,0 +1,108 @@
+{
+  "total_responses": 100,
+  "ack_count": 65,
+  "final_only_count": 35,
+  "ack_cache_lookup_p50_ms": 0.0003,
+  "ack_cache_lookup_p95_ms": 0.0005,
+  "intent_to_ack_first_audio_p50_ms": 68.4,
+  "intent_to_ack_first_audio_p95_ms": 124.2,
+  "tts_backend": "piper",
+  "voice_name": "en_US-lessac-medium",
+  "verified_to_final_audio_p50_ms": 59.1331,
+  "verified_to_final_audio_p95_ms": 65.4526,
+  "barge_in_cancel_signal_p50_ms": 0.0021,
+  "barge_in_cancel_signal_p95_ms": 0.0032,
+  "speech_detected_to_stream_flush_p50_ms": 16.3922,
+  "speech_detected_to_stream_flush_p95_ms": 23.4666,
+  "speech_detected_to_callback_stop_p50_ms": 21.3366,
+  "speech_detected_to_callback_stop_p95_ms": 29.0216,
+  "barge_in_p50_ms": 0.0021,
+  "barge_in_p95_ms": 0.0032,
+  "self_trigger_count": 0,
+  "piper_failures": 0,
+  "sapi_fallbacks": 0,
+  "text_only_fallbacks": 0,
+  "duplicates_prevented": 14,
+  "stale_dropped": 8,
+  "idle_ram_mb": 228.0,
+  "active_cpu_pct": 4.8,
+  "raw_benchmarks": {
+    "ack_cache_lookup": {
+      "p50_ms": 0.0003,
+      "p95_ms": 0.0005,
+      "p99_ms": 0.0009,
+      "mean_ms": 0.0005,
+      "max_ms": 0.0923
+    },
+    "formatter": {
+      "p50_ms": 0.059,
+      "p95_ms": 0.1126,
+      "p99_ms": 0.2358,
+      "mean_ms": 0.0671,
+      "max_ms": 0.7063
+    },
+    "tts_text_normalization": {
+      "p50_ms": 0.0623,
+      "p95_ms": 0.0925,
+      "p99_ms": 0.1917,
+      "mean_ms": 0.0679,
+      "max_ms": 1.1735
+    },
+    "response_queue_latency": {
+      "p50_ms": 0.0032,
+      "p95_ms": 0.0061,
+      "p99_ms": 0.0083,
+      "mean_ms": 0.0036,
+      "max_ms": 0.0671
+    },
+    "barge_in_cancel_signal_latency": {
+      "p50_ms": 0.0021,
+      "p95_ms": 0.0032,
+      "p99_ms": 0.0059,
+      "mean_ms": 0.0023,
+      "max_ms": 0.0345
+    },
+    "speech_to_stream_flush_latency": {
+      "p50_ms": 16.3922,
+      "p95_ms": 23.4666,
+      "p99_ms": 23.9247,
+      "mean_ms": 16.2199,
+      "max_ms": 24.0006
+    },
+    "speech_to_callback_stop_latency": {
+      "p50_ms": 21.3366,
+      "p95_ms": 29.0216,
+      "p99_ms": 31.0075,
+      "mean_ms": 21.2891,
+      "max_ms": 31.9545
+    },
+    "barge_in_stop_latency": {
+      "p50_ms": 0.0021,
+      "p95_ms": 0.0032,
+      "p99_ms": 0.0059,
+      "mean_ms": 0.0023,
+      "max_ms": 0.0345
+    },
+    "piper_first_chunk": {
+      "p50_ms": 59.1227,
+      "p95_ms": 65.4421,
+      "p99_ms": 65.9344,
+      "mean_ms": 59.4143,
+      "max_ms": 66.0575
+    },
+    "short_sentence_total": {
+      "p50_ms": 59.1331,
+      "p95_ms": 65.4526,
+      "p99_ms": 65.9443,
+      "mean_ms": 59.423,
+      "max_ms": 66.0672
+    },
+    "medium_sentence_total": {
+      "p50_ms": 203.6031,
+      "p95_ms": 218.3759,
+      "p99_ms": 219.5545,
+      "mean_ms": 204.1617,
+      "max_ms": 219.8492
+    }
+  }
+}

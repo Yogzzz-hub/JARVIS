@@ -32,6 +32,7 @@ class CommandService:
         self.active.add(current)
         tool_result, verification = None, None
         name = "unresolved"
+        is_voice = (getattr(request, "source", "") == "voice")
         self.bus.emit("request.received", task.request_id)
         self.writer.enqueue("requests", task.request_id, request.model_dump())
         self.tasks.transition(task, State.UNDERSTANDING)
@@ -44,19 +45,26 @@ class CommandService:
                 state, message = State.SUCCESS, "Control signal received: task stopped/cancelled."
                 tool_result = ToolResult(success=True, data={"control": decision.intent}, tool_name="control")
                 verification = VerificationResult(verified=True, confidence=1.0, evidence={"control": True})
-                return self._finalize(task, state, message, tool_result, verification, clock, current)
+                if hasattr(self.response, "handle_cancellation") and is_voice:
+                    self.response.handle_cancellation(task.request_id, is_voice=is_voice)
+                return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice)
 
             # Handle REJECT (e.g. Negated command)
             if decision.lane == RouteLane.REJECT:
                 state, message = State.FAILED, decision.clarification or "Command was negated. No action taken."
                 tool_result = ToolResult(success=False, error=message, tool_name="negation_guard")
-                return self._finalize(task, state, message, tool_result, None, clock, current)
+                return self._finalize(task, state, message, tool_result, None, clock, current, is_voice=is_voice)
 
             # Handle CLARIFY (ambiguous app, missing slots, low confidence)
             if decision.lane == RouteLane.CLARIFY:
                 state, message = State.FAILED, decision.clarification or "Could you please clarify your request?"
                 tool_result = ToolResult(success=False, error=message, tool_name="clarification")
-                return self._finalize(task, state, message, tool_result, None, clock, current)
+                return self._finalize(task, state, message, tool_result, None, clock, current, is_voice=is_voice)
+
+            # Schedule ACK or skip for valid execution intents
+            if hasattr(self.response, "schedule_ack_or_skip") and is_voice:
+                is_complex = (decision.lane == RouteLane.LANE_2 or decision.needs_planner or decision.complexity == ComplexityLevel.COMPOUND)
+                await self.response.schedule_ack_or_skip(task.request_id, decision.intent, is_complex=is_complex, is_voice=is_voice)
 
             # Handle LANE 2 (Planner required)
             if decision.lane == RouteLane.LANE_2 or decision.needs_planner:
@@ -159,6 +167,8 @@ class CommandService:
         except asyncio.CancelledError:
             task.cancellation.set()
             state, message = State.CANCELLED, "Cancelled; any native action already started may have completed."
+            if hasattr(self.response, "handle_cancellation") and getattr(task, "source", "") == "voice":
+                self.response.handle_cancellation(task.request_id, is_voice=True)
         except (ValueError, OSError, TimeoutError, ValidationError) as exc:
             state, message = State.FAILED, str(exc) or type(exc).__name__
             tool_result = ToolResult(success=False, error=message, tool_name=name)
@@ -169,10 +179,21 @@ class CommandService:
             raise
         return self._finalize(task, state, message, tool_result, verification, clock, current)
 
-    def _finalize(self, task, state, message, tool_result, verification, clock, current):
+    def _finalize(self, task, state, message, tool_result, verification, clock, current, is_voice: bool = False):
         try:
             self.tasks.transition(task, state)
             clock.response_ready_ns = now_ns()
+
+            # Handle spoken final output for voice requests
+            is_voice = (getattr(task, "source", "") == "voice")
+            if hasattr(self.response, "handle_final_result") and is_voice:
+                try:
+                    spoken = self.response.handle_final_result(task.request_id, tool_result, verification, is_voice=is_voice)
+                    if spoken and spoken.text:
+                        message = spoken.text
+                except Exception as resp_err:
+                    logging.getLogger("jarvis.commands").warning("Voice response rendering error: %s", resp_err)
+
             result = CommandResult(request_id=task.request_id, state=state.value, message=message,
                                    tool_result=tool_result, verification=verification, metrics=clock.metrics())
             task.result = result

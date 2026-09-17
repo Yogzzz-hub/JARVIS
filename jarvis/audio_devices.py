@@ -10,7 +10,7 @@ import sys
 
 
 def list_devices() -> None:
-    """Print formatted audio devices."""
+    """Print formatted audio devices separated into Input and Output."""
     try:
         import sounddevice as sd
     except ImportError:
@@ -20,51 +20,62 @@ def list_devices() -> None:
     devices = sd.query_devices()
     default_in, default_out = sd.default.device
 
-    print("=" * 60)
-    print("        JARVIS EDGE -- AUDIO DEVICES")
-    print("=" * 60)
-    print(f"{'ID':<4} {'Name':<35} {'In':<4} {'Out':<4} {'Default Rate':<12}")
-    print("-" * 60)
-
+    print("=" * 65)
+    print("        JARVIS EDGE -- AUDIO DEVICES INSPECTOR")
+    print("=" * 65)
+    
+    # Input Devices
+    print("\n--- INPUT DEVICES (Microphones) ---")
+    print(f"{'ID':<4} {'Name':<38} {'Channels':<10} {'Default Rate':<12}")
+    print("-" * 65)
     for i, dev in enumerate(devices):
-        is_default_in = (i == default_in)
-        is_default_out = (i == default_out)
-        tag = ""
-        if is_default_in and is_default_out:
-            tag = " [DEFAULT IN/OUT]"
-        elif is_default_in:
-            tag = " [DEFAULT IN]"
-        elif is_default_out:
-            tag = " [DEFAULT OUT]"
+        if dev["max_input_channels"] > 0:
+            is_default = (i == default_in)
+            tag = " [DEFAULT IN]" if is_default else ""
+            name = dev["name"][:35] + ("..." if len(dev["name"]) > 35 else "")
+            print(f"{i:<4} {name:<38} {dev['max_input_channels']:<10} {int(dev['default_samplerate']):<12}{tag}")
 
-        name = dev["name"][:32] + ("..." if len(dev["name"]) > 32 else "")
-        print(
-            f"{i:<4} {name:<35} {dev['max_input_channels']:<4} "
-            f"{dev['max_output_channels']:<4} {int(dev['default_samplerate']):<12}{tag}"
-        )
+    # Output Devices
+    print("\n--- OUTPUT DEVICES (Speakers / Headphones) ---")
+    print(f"{'ID':<4} {'Name':<38} {'Channels':<10} {'Default Rate':<12}")
+    print("-" * 65)
+    for i, dev in enumerate(devices):
+        if dev["max_output_channels"] > 0:
+            is_default = (i == default_out)
+            tag = " [DEFAULT OUT]" if is_default else ""
+            name = dev["name"][:35] + ("..." if len(dev["name"]) > 35 else "")
+            print(f"{i:<4} {name:<38} {dev['max_output_channels']:<10} {int(dev['default_samplerate']):<12}{tag}")
 
-    print("=" * 60)
+    print("\n" + "=" * 65)
     hostapis = sd.query_hostapis()
     print("Host APIs:")
     for api in hostapis:
         print(f"  [{api['name']}] default in: {api.get('default_input_device', 'none')}, out: {api.get('default_output_device', 'none')}")
-    print("=" * 60)
+    print("=" * 65)
 
 
-def get_default_input_device_info() -> dict:
-    """Get dictionary of default input device info."""
+def get_device_info() -> dict:
+    """Get dictionary of default input and output device info."""
     try:
         import sounddevice as sd
-        device_id = sd.default.device[0]
-        if device_id < 0:
-            return {"status": "none"}
-        info = sd.query_devices(device_id)
+        default_in, default_out = sd.default.device
+        in_info = sd.query_devices(default_in) if default_in >= 0 else None
+        out_info = sd.query_devices(default_out) if default_out >= 0 else None
+
         return {
             "status": "ok",
-            "id": device_id,
-            "name": info["name"],
-            "channels": info["max_input_channels"],
-            "samplerate": int(info["default_samplerate"]),
+            "input": {
+                "id": default_in,
+                "name": in_info["name"] if in_info else "none",
+                "channels": in_info["max_input_channels"] if in_info else 0,
+                "samplerate": int(in_info["default_samplerate"]) if in_info else 0,
+            } if in_info else None,
+            "output": {
+                "id": default_out,
+                "name": out_info["name"] if out_info else "none",
+                "channels": out_info["max_output_channels"] if out_info else 0,
+                "samplerate": int(out_info["default_samplerate"]) if out_info else 0,
+            } if out_info else None,
         }
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
@@ -77,7 +88,7 @@ def main() -> None:
 
     if args.json:
         import json
-        print(json.dumps(get_default_input_device_info(), indent=2))
+        print(json.dumps(get_device_info(), indent=2))
     else:
         list_devices()
 

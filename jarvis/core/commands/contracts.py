@@ -6,7 +6,7 @@ from jarvis.tools.base import Contract, ToolResult, VerificationResult
 class CommandRequest(Contract):
     text: str = Field(min_length=1, max_length=4096)
     request_id: str = Field(default_factory=lambda: uuid4().hex, pattern=r"^[a-zA-Z0-9_-]{1,64}$")
-    source: Literal["http", "cli", "websocket", "benchmark", "test"] = "http"
+    source: Literal["http", "cli", "websocket", "benchmark", "test", "voice"] = "http"
 
 class CommandResult(Contract):
     request_id: str

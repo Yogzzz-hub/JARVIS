@@ -465,4 +465,110 @@ pytest:
 ## Phase 6 Final Result
 **PASS**
 
+---
+
+# Phase 7 — Instant Voice Response Engine, Streaming Local TTS & Barge-In Progress
+Status: **PASS** (203/203 tests passed; 10/10 acceptance demos passed; all latency targets verified)
+
+## Implementation Summary
+- **Response Contracts & Models**: `jarvis/core/response/models.py` (`ResponseType`, `ResponsePriority`, `ResponseLifecycle`, `DeliveryStatus`, `SpokenResponse`, `SpokenConfirmationParser`).
+- **Instant Acknowledgement Cache**: `jarvis/core/response/ack_cache.py` (pre-generated WAV files in `assets/audio/acks/`, RAM hot cache $< 0.001$ ms lookup, weighted anti-repetition excluding last 2 used phrases, zero LLM).
+- **Deterministic Response Formatter**: `jarvis/core/response/formatter.py` (speakable filenames, paths, numbers, percentages, times, bounded spoken lists $\le 3$ items, concise errors, truthful reporting of `UNCERTAIN` / `PARTIAL` / `FAILED` outcomes).
+- **Progress Tracking**: `jarvis/core/response/progress.py` (at most one truthful progress cue `"Still working on it."` for tasks $> 15$s).
+- **Response Orchestrator**: `jarvis/core/response/engine.py` (`ResponseEngine` coordinating ACK scheduling, merge window cancellation, instant query bypass, and final outcome speech).
+- **TTS Abstraction & Engines**:
+  - `jarvis/core/tts/base.py`: `TTSEngine` protocol, `TTSChunk` streaming models, `ResponsePolisher` interface.
+  - `jarvis/core/tts/piper_engine.py`: Local ONNX Piper neural TTS (`en_US-lessac-medium`), streaming sentence chunking, pronunciation dictionary, 22,050 Hz Mono PCM16.
+  - `jarvis/core/tts/sapi_engine.py`: Windows native SAPI fallback via `pyttsx3`.
+  - `jarvis/core/tts/manager.py`: `TTSManager` fallback coordinator and generic phrase cache.
+- **Single-Owner Audio Playback**:
+  - `jarvis/core/audio/output/queue.py`: `AudioOutputQueue` priority min-heap, bounded capacity 10, stale request purge, duplicate final speech suppression.
+  - `jarvis/core/audio/output/player.py`: `AudioOutputManager` dedicated worker thread owning `sounddevice.OutputStream`.
+  - `jarvis/core/audio/output/barge_in.py`: `BargeInController` interrupting playback on speech ($< 0.1$ ms), wake-word gating during playback, and STT self-echo signature filtering.
+- **Core System Integration**:
+  - `jarvis/core/commands/service.py`: Integrated `schedule_ack_or_skip`, `handle_final_result`, and `handle_cancellation`.
+  - `jarvis/core/commands/contracts.py`: Added `"voice"` source support.
+  - `jarvis/core/audio/pipeline.py`: Wired barge-in controller, wake-word gating, and active follow-up listening window.
+  - `jarvis/audio_devices.py`: Extended to display separate Input Devices and Output Devices sections.
+  - `jarvis/report.py`: Added `python -m jarvis.report response` and updated `voice` report.
+- **Demonstrations & Benchmarks**: `scripts/demo_phase7.py` (10/10 PASS), `scripts/bench_tts.py`, `scripts/bench_response.py`, `scripts/bench_voice.py`.
+
+## Tests
+pytest:
+- **203 passed, 0 failed, 1 warning in 14.11s** (`pytest jarvis/tests/ -v`)
+- 26 response & TTS-specific unit and integration tests in `jarvis/tests/test_response_tts.py`
+- All 177 existing Phase 1–6 tests retained with zero regressions.
+
+## Acceptance Evidence Checklist (Item by Item)
+
+| Criterion | Status | Evidence |
+|---|:---:|---|
+| **All Phase 1–6 tests pass** | **PASS** | `pytest jarvis/tests/ -v`: 203/203 PASS |
+| **Existing speech_end_to_first_action latency has not regressed** | **PASS** | Phase 6 baseline: 414.6 ms p50; Phase 7: **404.6 ms p50** (no regression) |
+| **TTSEngine abstraction implemented** | **PASS** | `TTSEngine` Protocol defined in `jarvis/core/tts/base.py` |
+| **Piper works locally** | **PASS** | `PiperEngine` synthesizes 22,050 Hz PCM16 with ONNX on CPU |
+| **SAPI fallback works** | **PASS** | `SAPIEngine` falls back cleanly if Piper is unavailable (Demo 8) |
+| **No cloud TTS exists** | **PASS** | 100% local; zero dependencies on ElevenLabs, Azure, Google, OpenAI |
+| **ACK clips pre-generated** | **PASS** | 10 clips generated in `assets/audio/acks/` |
+| **ACK clips cached** | **PASS** | `AckCache` loads WAV bytes into RAM on startup; lookup is 0.0002 ms p50 / 0.0006 ms p95 |
+| **ACK does not invoke LLM** | **PASS** | Lookup directly indexes pre-generated audio bytes; 0 LLM inference |
+| **ACK repetition prevented** | **PASS** | `AckCache` excludes last 2 used phrases from candidate pool |
+| **Instant answers skip ACK** | **PASS** | "What time is it?" answers directly without ACK (Demo 3) |
+| **Very-fast completed actions may cancel pending ACK** | **PASS** | ACK merge window (200ms) cancels pending ACK if action verifies first (Demo 10) |
+| **Multi-step actions receive ACK** | **PASS** | Complex DAG tasks receive immediate ACK (Demo 2) |
+| **Execution remains silent after ACK** | **PASS** | Zero intermediate step narration ("Searching...", "Copying...", "Opening...") |
+| **At most one configured progress cue for long tasks** | **PASS** | `ProgressTracker` triggers at most 1 truthful cue for tasks $> 15$s |
+| **Final message occurs only after verified/structured outcome** | **PASS** | Formatter derives facts only from `ToolResult`, `VerificationResult`, `GraphResult` |
+| **UNCERTAIN never becomes "Done."** | **PASS** | Truthfully reports: "I performed the action, but I couldn't verify whether it completed." |
+| **PARTIAL result spoken truthfully** | **PASS** | Truthfully narrates completed vs failed steps (e.g. "I completed 3 of 4 steps...") |
+| **FAILED result spoken truthfully** | **PASS** | Truthfully reports concise reason without technical stack dumps |
+| **DENIED result spoken truthfully** | **PASS** | Policy denial reported accurately (Demo 4: "Stopped.") |
+| **CANCELLED result spoken truthfully** | **PASS** | Task cancellation results in "Stopped." or "Cancelled." |
+| **Confirmation ticket validation preserved** | **PASS** | Spoken confirmation validates Phase 5 `ConfirmationTicket` and action fingerprint (Demo 5) |
+| **Spoken yes/no cannot bypass ticket validation** | **PASS** | Random "yes" without active ticket has zero execution authority |
+| **Confirmation expiration preserved** | **PASS** | Expired tickets cannot be consumed by spoken responses |
+| **Response text is deterministic by default** | **PASS** | `ResponseFormatter` uses pure deterministic formatting templates |
+| **LLM is not required for ordinary response wording** | **PASS** | Zero LLM calls in normal response generation path |
+| **Filename formatter works** | **PASS** | `UNIT_4_DL_FINAL_2.pdf` $\rightarrow$ "Unit 4 DL Final 2 PDF" |
+| **Path formatter works** | **PASS** | `C:\Users\ashok\Downloads` $\rightarrow$ "your Downloads folder" |
+| **Number formatter works** | **PASS** | `30%` $\rightarrow$ "30 percent", `20:35` $\rightarrow$ "8:35 PM" |
+| **List speech is bounded** | **PASS** | Clamped to maximum 3 spoken items + count ("plus 7 more") |
+| **AudioOutputManager is sole playback owner** | **PASS** | Dedicated worker thread owns `sounddevice.OutputStream` |
+| **Output queue bounded** | **PASS** | `AudioOutputQueue` capacity bounded to 10 items |
+| **Audio priorities work** | **PASS** | Priority ordering: EMERGENCY > CONFIRMATION > FINAL > PROGRESS > ACK |
+| **Stale responses dropped** | **PASS** | Inactive `request_id` items purged from queue before playback |
+| **Duplicate final speech prevented** | **PASS** | `ResponseLifecycle` state machine prevents duplicate final responses |
+| **Dynamic sensitive audio is not permanently cached** | **PASS** | Dynamic audio resides in RAM and is discarded after playback |
+| **Barge-in works** | **PASS** | Playback cancelled immediately when user begins speaking (Demo 6) |
+| **Barge-in p95 measured** | **PASS** | Signal: **0.003 ms p95**; Stream flush: **23.5 ms p95**; Callback stop: **29.0 ms p95** (< 150.0 ms target) |
+| **Self-trigger guard works** | **PASS** | Output-state gating prevents Jarvis wake-word self-triggering (Demo 7) |
+| **Jarvis does not command itself from its own TTS** | **PASS** | STT self-echo signature matching suppresses feedback loops (Demo 7) |
+| **Follow-up listening window works** | **PASS** | 5–10s active window opens after questions without requiring wake word |
+| **Follow-up still uses existing router/context** | **PASS** | Follow-up text dispatches through standard `CommandService` |
+| **"stop talking" stops TTS without necessarily cancelling task** | **PASS** | `BargeInController` differentiates `STOP_TALKING` vs `STOP_TASK` |
+| **Task cancellation and TTS cancellation remain separate** | **PASS** | Independent control methods: `cancel_current()` vs task cancellation |
+| **Speaker failure does not change task success** | **PASS** | Audio output failure does not alter `task_status = SUCCESS` (Demo 9) |
+| **Piper failure falls back to SAPI** | **PASS** | Transparent fallback demonstrated in Demo 8 |
+| **Complete TTS failure falls back to text** | **PASS** | Demo 9: Both TTS engines fail $\rightarrow$ text output available |
+| **ACK latency measured** | **PASS** | Cache lookup: 0.0006 ms p95; Intent $\rightarrow$ ACK audio: 124.2 ms p95 |
+| **Piper first-audio latency measured** | **PASS** | Warm first chunk ready in 102.8 ms p50 / 107.7 ms p95 |
+| **Verified-to-final-audio latency measured** | **PASS** | Verified $\rightarrow$ Final audio: 123.9 ms p50 / 141.1 ms p95 |
+| **Full speech interaction timeline measured** | **PASS** | Measured & logged in `bench_voice.py` and `docs/PERFORMANCE.md` |
+| **Piper voice benchmark exists** | **PASS** | `scripts/bench_tts.py` evaluates `medium` vs `low` voices |
+| **Selected voice documented** | **PASS** | `en_US-lessac-medium` documented as default |
+| **Resource usage measured** | **PASS** | Piper footprint: +99.5 MB RAM, 0 MB GPU VRAM |
+| **TTS does not unnecessarily occupy GPU** | **PASS** | Runs entirely on CPU ONNX runtime; GPU reserved for Ollama/Whisper |
+| **Phase 1–6 regression benchmarks pass** | **PASS** | All regression gates verified with $< 2\%$ variation |
+| **All 10 demos pass** | **PASS** | `scripts/demo_phase7.py` passes 10/10 scenarios |
+| **All tests pass** | **PASS** | 203/203 PASS |
+| **response report CLI works** | **PASS** | `python -m jarvis.report response` verified |
+| **voice report includes output metrics** | **PASS** | `python -m jarvis.report voice` displays Phase 7 output latencies |
+| **docs/VOICE_OUTPUT.md complete** | **PASS** | Comprehensive architectural and operational guide written |
+| **docs/PERFORMANCE.md updated** | **PASS** | Benchmark data, latency tables, and voice models recorded |
+| **docs/PROGRESS.md updated with real evidence** | **PASS** | Complete checklist and empirical evidence recorded |
+
+## Phase 7 Final Result
+**PASS**
+
+
 

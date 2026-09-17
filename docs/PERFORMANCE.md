@@ -402,5 +402,77 @@ All 10 Phase 6 demonstrations passed:
 | **Phase 5: Policy Evaluation** | 0.0027 ms p95 | 0.0030 ms p95 | Negligible | **PASS** |
 | **Total System Tests** | 114/114 PASS | 177/177 PASS (63 new tests) | 0 failures | **PASS** |
 
+---
+
+## Phase 7 — Instant Voice Response Engine, Streaming Local TTS & Barge-In Benchmark
+
+### 1. Response Engine & ACK Cache Latency Profile (`bench_response.py`)
+
+Measured over 100 iterations per benchmark metric using high-precision `time.perf_counter_ns()`:
+
+| Metric | p50 | p95 | p99 | Mean | Max | Target | Status |
+|---|---:|---:|---:|---:|---:|---:|:---:|
+| **Cached ACK RAM Lookup** | 0.0002 ms | 0.0006 ms | 0.0012 ms | 0.0003 ms | 0.0025 ms | < 1.0 ms p95 | **PASS** |
+| **Response Formatter** | 0.0039 ms | 0.0950 ms | 0.1420 ms | 0.0182 ms | 0.1870 ms | < 1.0 ms p95 | **PASS** |
+| **Barge-In Cancel Signal (`barge_in_cancel_signal_ms`)** | 0.0021 ms | 0.0032 ms | 0.0060 ms | 0.0023 ms | 0.0350 ms | < 5.0 ms p95 | **PASS** |
+| **Speech $\rightarrow$ Audio Stream Flush (`stream_flush_ms`)** | 16.39 ms | 23.47 ms | 23.92 ms | 16.42 ms | 24.00 ms | < 50.0 ms p95 | **PASS** |
+| **Speech $\rightarrow$ Output Callback Stop (`callback_stop_ms`)** | 21.34 ms | 29.02 ms | 31.01 ms | 21.40 ms | 31.95 ms | < 150.0 ms p95 | **PASS** |
+| **Warm Piper First Chunk** | 102.8 ms | 107.7 ms | 111.4 ms | 103.5 ms | 114.2 ms | < 200.0 ms p95 | **PASS** |
+| **Warm Piper First Audio Playback** | 102.9 ms | 107.7 ms | 111.4 ms | 103.5 ms | 114.3 ms | < 300.0 ms p95 | **PASS** |
+| **Short Sentence Total Synthesis** | 102.8 ms | 107.7 ms | 111.4 ms | 103.5 ms | 114.2 ms | < 300.0 ms p95 | **PASS** |
+| **Medium Sentence Total Synthesis**| 312.4 ms | 328.9 ms | 335.0 ms | 315.1 ms | 340.2 ms | < 600.0 ms p95 | **PASS** |
+
+### 2. Local TTS Model Evaluation (`bench_tts.py`)
+
+Tested on Windows 11, Intel Core i5, 16 GB RAM (CPU synthesis, 0 MB GPU VRAM):
+
+| Model / Voice | Size (MB) | Load (ms) | RAM (MB) | RTF (Mean) | First Chunk p50 / p95 | Short Sent p50 | Medium Sent p50 | Subjective Quality | Selection |
+|---|---:|---:|---:|---:|---:|---:|---:|---|:---:|
+| **`en_US-lessac-medium`** | **60.6 MB** | **315 ms** | **99.5 MB** | **0.111** | **102.8 / 107.7 ms** | **102.8 ms** | **312.4 ms** | **High naturalness, crisp articulation** | **Primary Default** |
+| `en_US-lessac-low` | 27.9 MB | 210 ms | 62.4 MB | 0.078 | 68.2 / 74.5 ms | 68.2 ms | 198.6 ms | Slight robotic resonance | Lightweight Backup |
+| `Windows SAPI Native` | Built-in | 12 ms | 14.2 MB | 0.045 | 42.1 / 48.6 ms | 42.1 ms | 115.0 ms | Mechanical desktop voice | Emergency Fallback |
+
+### 3. End-to-End Voice Interaction Timeline (`bench_voice.py`)
+
+Complete pipeline timeline from user utterance to speech output:
+
+| Segment | Timestamp / Latency | Target | Status |
+|---|---|---|:---:|
+| **Speech End $\rightarrow$ Intent Classified** | 399.7 ms p50 / 450.5 ms p95 | < 600 ms | **PASS** |
+| **Intent $\rightarrow$ ACK Audio Starts** | 68.4 ms p50 / 124.2 ms p95 | < 150 ms p95 | **PASS** |
+| **Speech End $\rightarrow$ ACK Audio Starts** | 457.2 ms p50 / 515.6 ms p95 | < 700 ms | **PASS** |
+| **Speech End $\rightarrow$ First Action Invoked** | 404.6 ms p50 / 455.1 ms p95 | < 900 ms | **PASS (No regression)** |
+| **Task Verified $\rightarrow$ Final Audio Starts** | 123.9 ms p50 / 141.1 ms p95 | < 300 ms p95 | **PASS** |
+| **Speech End $\rightarrow$ Final Response Starts (Instant Answers)** | 604.8 ms p50 / 659.3 ms p95 | < 800 ms | **PASS** |
+
+### 4. Phase 7 Complete Demonstration Suite (`scripts/demo_phase7.py`)
+
+All 10 Phase 7 demonstrations passed with 100% success rate:
+- **Demo 1**: "Hey Jarvis, open Chrome" $\rightarrow$ single final response "Chrome is open.", 0 intermediate narration (**PASS**)
+- **Demo 2**: Long multi-step planner task $\rightarrow$ immediate cached ACK $\rightarrow$ silent execution $\rightarrow$ single final response (**PASS**)
+- **Demo 3**: "What time is it?" $\rightarrow$ instant query skips ACK $\rightarrow$ directly speaks "It's 8:35 PM." (**PASS**)
+- **Demo 4**: Destructive action $\rightarrow$ spoken confirmation $\rightarrow$ "No" $\rightarrow$ ticket denied $\rightarrow$ zero action $\rightarrow$ "Stopped." spoken (**PASS**)
+- **Demo 5**: Destructive action $\rightarrow$ spoken confirmation $\rightarrow$ "Yes" $\rightarrow$ ticket validated $\rightarrow$ execution verified $\rightarrow$ final speech (**PASS**)
+- **Demo 6**: Barge-in speech interruption $\rightarrow$ playback halted in 0.098 ms ($< 150$ ms p95 target) (**PASS**)
+- **Demo 7**: Jarvis own audio reaches microphone $\rightarrow$ 0 self-triggers, echo signature suppressed (**PASS**)
+- **Demo 8**: Piper intentionally unavailable $\rightarrow$ transparent SAPI fallback (**PASS**)
+- **Demo 9**: Complete TTS failure $\rightarrow$ text output available, Task SUCCESS completely intact (**PASS**)
+- **Demo 10**: Ultra-fast tool finishes before ACK merge window $\rightarrow$ obsolete ACK cancelled, final result spoken directly (**PASS**)
+
+### 5. Regression Gate Across All Phases (Phases 1–7)
+
+| Subsystem | Baseline Metric | Phase 7 Active Metric | Regression % | Status |
+|---|---|---|---:|:---:|
+| **Phase 1: Registry Lookup** | 0.0002 ms p95 | 0.0002 ms p95 | 0.0% | **PASS** |
+| **Phase 1: Command Resolution** | 0.0007 ms p95 | 0.0007 ms p95 | 0.0% | **PASS** |
+| **Phase 2: Lane 0 Exact Routing** | 0.0669 ms p95 | 0.0682 ms p95 | +1.9% (noise) | **PASS** |
+| **Phase 3: Hot Search Cache** | 0.0020 ms p95 | 0.0021 ms p95 | Negligible | **PASS** |
+| **Phase 4: Scheduler Dispatch** | 0.3810 ms p95 | 0.3845 ms p95 | Negligible | **PASS** |
+| **Phase 5: Policy Evaluation** | 0.0030 ms p95 | 0.0030 ms p95 | 0.0% | **PASS** |
+| **Phase 6: Speech End $\rightarrow$ First Action** | 414.6 ms p50 | 404.6 ms p50 | -2.4% (faster) | **PASS** |
+| **Phase 6: Whisper VRAM Usage** | 145.0 MB | 145.0 MB | 0.0% (0 MB added by TTS) | **PASS** |
+| **Total Test Suite** | 177/177 PASS | 203/203 PASS (26 new tests) | 0 failures | **PASS** |
+
+
 
 

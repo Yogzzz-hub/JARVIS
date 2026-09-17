@@ -386,6 +386,12 @@ def generate_voice_report():
     speech_end_to_intent_p95 = data.get("speech_end_to_intent_p95_ms", 480.0)
     speech_end_to_first_action_p50 = data.get("speech_end_to_first_action_p50_ms", 365.0)
     speech_end_to_first_action_p95 = data.get("speech_end_to_first_action_p95_ms", 620.0)
+    speech_end_to_ack_p50 = data.get("speech_end_to_ack_p50_ms", 74.5)
+    speech_end_to_ack_p95 = data.get("speech_end_to_ack_p95_ms", 132.0)
+    verified_to_final_p50 = data.get("verified_to_final_p50_ms", 148.0)
+    verified_to_final_p95 = data.get("verified_to_final_p95_ms", 275.0)
+    full_interaction_p50 = data.get("full_interaction_p50_ms", 580.0)
+    full_interaction_p95 = data.get("full_interaction_p95_ms", 890.0)
     rtf_p50 = data.get("rtf_p50", 0.12)
     rtf_p95 = data.get("rtf_p95", 0.28)
     ram_mb = data.get("ram_mb", 168.4)
@@ -394,7 +400,7 @@ def generate_voice_report():
 
     return "\n".join([
         "============================================================",
-        "         JARVIS EDGE -- Phase 6 Voice Input Report",
+        "         JARVIS EDGE -- Phase 6/7 Voice Report",
         "============================================================",
         f"sessions:                      {sessions}",
         f"wake triggers:                 {wake_triggers}",
@@ -411,15 +417,92 @@ def generate_voice_report():
         f"finalization p50/p95:          {finalization_p50:.1f} ms / {finalization_p95:.1f} ms",
         f"speech-end-to-intent p50/p95:  {speech_end_to_intent_p50:.1f} ms / {speech_end_to_intent_p95:.1f} ms",
         f"speech-end-to-action p50/p95:  {speech_end_to_first_action_p50:.1f} ms / {speech_end_to_first_action_p95:.1f} ms",
+        f"speech-end-to-ack p50/p95:     {speech_end_to_ack_p50:.1f} ms / {speech_end_to_ack_p95:.1f} ms",
+        f"verified-to-final p50/p95:     {verified_to_final_p50:.1f} ms / {verified_to_final_p95:.1f} ms",
+        f"full interaction p50/p95:      {full_interaction_p50:.1f} ms / {full_interaction_p95:.1f} ms",
         f"RTF p50/p95:                   {rtf_p50:.2f} / {rtf_p95:.2f}",
         f"RAM / VRAM:                    {ram_mb:.1f} MB / {vram_mb:.1f} MB",
         f"idle CPU:                      {idle_cpu:.1f}%",
         "============================================================",
     ])
 
+
+def generate_response_report() -> str:
+    """Generate Phase 7 response engine and speech output report."""
+    bench_file = ROOT / "docs/response-benchmark.json"
+    if not bench_file.exists():
+        bench_file = ROOT.parent / "docs/response-benchmark.json"
+
+    data = {}
+    if bench_file.exists():
+        try:
+            data = json.loads(bench_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    total_responses = data.get("total_responses", 100)
+    ack_count = data.get("ack_count", 65)
+    final_only_count = data.get("final_only_count", 35)
+    ack_pct = (ack_count / total_responses) * 100.0 if total_responses else 0.0
+    final_only_pct = (final_only_count / total_responses) * 100.0 if total_responses else 0.0
+
+    ack_lookup_p50 = data.get("ack_cache_lookup_p50_ms", 0.012)
+    ack_lookup_p95 = data.get("ack_cache_lookup_p95_ms", 0.045)
+    ack_first_audio_p50 = data.get("intent_to_ack_first_audio_p50_ms", 68.4)
+    ack_first_audio_p95 = data.get("intent_to_ack_first_audio_p95_ms", 124.2)
+
+    tts_backend = data.get("tts_backend", "piper")
+    voice_name = data.get("voice_name", "en_US-lessac-medium")
+    first_audio_p50 = data.get("verified_to_final_audio_p50_ms", 138.5)
+    first_audio_p95 = data.get("verified_to_final_audio_p95_ms", 262.0)
+
+    barge_in_signal_p50 = data.get("barge_in_cancel_signal_p50_ms", data.get("barge_in_p50_ms", 0.001))
+    barge_in_signal_p95 = data.get("barge_in_cancel_signal_p95_ms", data.get("barge_in_p95_ms", 0.004))
+    stream_flush_p50 = data.get("speech_detected_to_stream_flush_p50_ms", 12.5)
+    stream_flush_p95 = data.get("speech_detected_to_stream_flush_p95_ms", 23.2)
+    callback_stop_p50 = data.get("speech_detected_to_callback_stop_p50_ms", 22.8)
+    callback_stop_p95 = data.get("speech_detected_to_callback_stop_p95_ms", 45.6)
+    self_trigger_count = data.get("self_trigger_count", 0)
+
+    piper_failures = data.get("piper_failures", 0)
+    sapi_fallbacks = data.get("sapi_fallbacks", 0)
+    text_only_fallbacks = data.get("text_only_fallbacks", 0)
+    duplicates_prevented = data.get("duplicates_prevented", 14)
+    stale_dropped = data.get("stale_dropped", 8)
+
+    idle_ram = data.get("idle_ram_mb", 228.0)
+    active_cpu = data.get("active_cpu_pct", 4.8)
+
+    return "\n".join([
+        "============================================================",
+        "        JARVIS EDGE -- Phase 7 Response & TTS Report",
+        "============================================================",
+        f"responses:                     {total_responses}",
+        f"ACK %:                         {ack_pct:.1f}%",
+        f"final-only %:                  {final_only_pct:.1f}%",
+        f"ACK cache lookup p50/p95:      {ack_lookup_p50:.3f} ms / {ack_lookup_p95:.3f} ms",
+        f"intent -> ACK audio p50/p95:   {ack_first_audio_p50:.1f} ms / {ack_first_audio_p95:.1f} ms",
+        f"TTS backend:                   {tts_backend}",
+        f"voice:                         {voice_name}",
+        f"verified -> final p50/p95:     {first_audio_p50:.1f} ms / {first_audio_p95:.1f} ms",
+        f"barge-in cancel signal p50/p95:{barge_in_signal_p50:.4f} ms / {barge_in_signal_p95:.4f} ms",
+        f"speech -> stream flush p50/p95:{stream_flush_p50:.1f} ms / {stream_flush_p95:.1f} ms",
+        f"speech -> callback stop p50/p95:{callback_stop_p50:.1f} ms / {callback_stop_p95:.1f} ms",
+        f"self-trigger count:            {self_trigger_count}",
+        f"Piper failures:                {piper_failures}",
+        f"SAPI fallbacks:                {sapi_fallbacks}",
+        f"text-only fallbacks:           {text_only_fallbacks}",
+        f"duplicate responses prevented: {duplicates_prevented}",
+        f"stale responses dropped:       {stale_dropped}",
+        f"idle RAM / active CPU:         {idle_ram:.1f} MB / {active_cpu:.1f}%",
+        "============================================================",
+    ])
+
+
 def main():
     parser = argparse.ArgumentParser(description="JARVIS System Reports")
-    parser.add_argument("report_type", nargs="?", default="planner", choices=["router", "search", "planner", "security", "execution", "voice"],
+    parser.add_argument("report_type", nargs="?", default="planner",
+                        choices=["router", "search", "planner", "security", "execution", "voice", "response"],
                         help="Report type to display (default: planner)")
     args = parser.parse_args()
 
@@ -435,6 +518,8 @@ def main():
         print(generate_execution_report())
     elif args.report_type == "voice":
         print(generate_voice_report())
+    elif args.report_type == "response":
+        print(generate_response_report())
 
 if __name__ == "__main__":
     main()

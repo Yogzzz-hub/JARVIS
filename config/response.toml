@@ -1,0 +1,23 @@
+# JARVIS EDGE — Phase 7 Response and Speech Output Configuration
+
+[response]
+style = "concise"
+ack_enabled = true
+ack_merge_ms = 150
+instant_result_threshold_ms = 300
+long_task_progress_seconds = 15
+
+[tts]
+backend = "piper"
+voice = "en_US-lessac-medium"
+model_path = "models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+keep_warm = true
+fallback = "sapi"
+sample_rate = 22050
+
+[audio_output]
+device = "default"
+barge_in = true
+self_trigger_guard = true
+max_queue_size = 10
+interrupt_latency_target_ms = 150
