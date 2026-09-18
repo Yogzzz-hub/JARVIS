@@ -1,0 +1,124 @@
+{
+  "phase": 12,
+  "timestamp": "2026-09-18 07:56:33",
+  "scale_memory_items": 1000,
+  "benchmarks": [
+    {
+      "operation": "working_memory_lookup",
+      "iterations": 300,
+      "p50_ms": 0.0002,
+      "p95_ms": 0.0003,
+      "p99_ms": 0.0003,
+      "mean_ms": 0.0002,
+      "max_ms": 0.0009
+    },
+    {
+      "operation": "context_assembly_fastpath",
+      "iterations": 300,
+      "p50_ms": 0.0059,
+      "p95_ms": 0.0063,
+      "p99_ms": 0.0065,
+      "mean_ms": 0.006,
+      "max_ms": 0.0285
+    },
+    {
+      "operation": "context_assembly_contextual",
+      "iterations": 300,
+      "p50_ms": 0.011,
+      "p95_ms": 0.0166,
+      "p99_ms": 0.0527,
+      "mean_ms": 0.0122,
+      "max_ms": 0.1151
+    },
+    {
+      "operation": "memory_structured_lookup",
+      "iterations": 300,
+      "p50_ms": 1.3592,
+      "p95_ms": 2.2878,
+      "p99_ms": 10.0125,
+      "mean_ms": 1.5431,
+      "max_ms": 12.9664
+    },
+    {
+      "operation": "memory_fts",
+      "iterations": 300,
+      "p50_ms": 3.901,
+      "p95_ms": 5.006,
+      "p99_ms": 11.1118,
+      "mean_ms": 3.8741,
+      "max_ms": 12.4823
+    },
+    {
+      "operation": "reference_resolution_ordinal",
+      "iterations": 300,
+      "p50_ms": 0.0031,
+      "p95_ms": 0.0033,
+      "p99_ms": 0.0038,
+      "mean_ms": 0.0032,
+      "max_ms": 0.0174
+    },
+    {
+      "operation": "reference_resolution_pronoun",
+      "iterations": 300,
+      "p50_ms": 0.0063,
+      "p95_ms": 0.01,
+      "p99_ms": 0.0128,
+      "mean_ms": 0.0067,
+      "max_ms": 0.0215
+    },
+    {
+      "operation": "workflow_match",
+      "iterations": 300,
+      "p50_ms": 0.0007,
+      "p95_ms": 0.0012,
+      "p99_ms": 0.0014,
+      "mean_ms": 0.0007,
+      "max_ms": 0.0015
+    },
+    {
+      "operation": "workflow_bind",
+      "iterations": 300,
+      "p50_ms": 0.0032,
+      "p95_ms": 0.0035,
+      "p99_ms": 0.0055,
+      "mean_ms": 0.0033,
+      "max_ms": 0.0117
+    },
+    {
+      "operation": "adaptive_route_workflow_fastpath",
+      "iterations": 300,
+      "p50_ms": 0.0008,
+      "p95_ms": 0.0014,
+      "p99_ms": 0.0017,
+      "mean_ms": 0.0008,
+      "max_ms": 0.0018
+    },
+    {
+      "operation": "prefetch_policy_overhead",
+      "iterations": 300,
+      "p50_ms": 0.002,
+      "p95_ms": 0.0021,
+      "p99_ms": 0.0023,
+      "mean_ms": 0.002,
+      "max_ms": 0.0031
+    },
+    {
+      "operation": "resource_governor_decision",
+      "iterations": 300,
+      "p50_ms": 0.0006,
+      "p95_ms": 0.0006,
+      "p99_ms": 0.0008,
+      "mean_ms": 0.0006,
+      "max_ms": 0.0011
+    },
+    {
+      "operation": "specialist_fanout_and_merge",
+      "iterations": 100,
+      "p50_ms": 0.0488,
+      "p95_ms": 0.0614,
+      "p99_ms": 0.0648,
+      "mean_ms": 0.0494,
+      "max_ms": 0.0648
+    }
+  ]
+}

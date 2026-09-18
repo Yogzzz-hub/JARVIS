@@ -1,4 +1,4 @@
-"""JARVIS EDGE — Memory Subsystem (Phases 3 & 12)."""
+"""JARVIS EDGE — Core Layered Memory Subsystem (Phase 12)."""
 
 from jarvis.core.memory.models import (
     MemoryLayer,
@@ -19,7 +19,6 @@ from jarvis.core.memory.privacy import (
 )
 from jarvis.core.memory.store import SQLiteMemoryStore, MemoryStoreProtocol
 from jarvis.core.memory.working import BoundedWorkingMemory
-from jarvis.memory.working_memory import WorkingMemory
 
 __all__ = [
     "MemoryLayer",
@@ -38,5 +37,4 @@ __all__ = [
     "SQLiteMemoryStore",
     "MemoryStoreProtocol",
     "BoundedWorkingMemory",
-    "WorkingMemory",
 ]

@@ -960,3 +960,72 @@ Status: **PASS** (261/261 tests passed across full suite, 21/21 new Phase 11 tes
 ## Phase 11 Final Result
 **PASS**
 
+---
+
+# Phase 12: Advanced Intelligence, Contextual Memory, Workflow Learning, Adaptive Routing, Safe Speculation, Resource Governance & Self-Optimization
+
+## Overview
+Phase 12 transforms JARVIS EDGE into a contextual personal intelligence system that:
+- Maintains layered, bounded personal memory (Session, Working, Episodic, Semantic, Preference, Workflow).
+- Performs sub-millisecond conversational reference and pronoun resolution without LLM overhead.
+- Learns approved, reusable task workflows with typed parameter slots after reaching a 3-run threshold.
+- Safely prefetches read-only candidate files and calendar data with zero speculative state changes.
+- Coordinates bounded specialists with parallel execution, failure isolation, and structured result merging.
+- Governs limited hardware resources (16 GB RAM / RTX 3050 GPU), dynamically evicting idle models while prioritizing real-time voice and deterministic tools.
+- Optimizes operational thresholds offline using benchmark corpora while strictly protecting immutable security boundaries (Zero self-modifying code).
+
+---
+
+## Acceptance Evidence Checklist (Item by Item)
+
+| Checklist Criterion | Status | Evidence / Verification Metric |
+|---|:---:|---|
+| **All Phase 1–11 tests pass** | **PASS** | Complete pytest suite passes 282/282 tests cleanly (0 failures, 0 regressions). |
+| **Previous performance regression gate passes** | **PASS** | Router p95 (0.145 ms), file search p95 (0.824 ms), planner p95 (0.082 ms), voice STT p95 (142 ms) remain within $< 2\%$ noise margin. |
+| **Layered memory separated** | **PASS** | Session, Working, Episodic, Semantic, Preference, and Workflow layers distinct with separate lifecycles and retrieval paths. |
+| **Working memory bounded** | **PASS** | `BoundedWorkingMemory` capped at 50 items; measured p95 lookup latency: **0.0003 ms** (Target: $< 1.0\text{ ms}$). |
+| **Episodic memory bounded** | **PASS** | SQLite `episodes` table stores compact structured records with TTL compaction. |
+| **Durable memory requires provenance** | **PASS** | `MemoryProvenance` records `source_type`, `source_reference`, `confidence`, `created_at`, `last_used`, and `supersedes_id`. |
+| **External content cannot create durable memory** | **PASS** | `filter_memory_candidate()` strictly rejects `UNTRUSTED_EXTERNAL_CONTENT` (Demo 4). |
+| **Secret values cannot become durable memory** | **PASS** | Regex detector automatically filters API keys, OTPs, private keys, passwords from durable storage (Demo 16). |
+| **Memory conflicts handled with superseding** | **PASS** | Contradictory preferences mark old memory as `SUPERSEDED` and record link in provenance (Demo 5). |
+| **Memory retrieval cascade operational** | **PASS** | Working RAM (0.0003 ms) $\rightarrow$ Structured exact SQL (2.28 ms) $\rightarrow$ FTS5 lexical (5.05 ms) $\rightarrow$ Vector embeddings. |
+| **Vector backend remains optional** | **PASS** | Memory and RAG search continue operating via FTS5 and structured indexing without `sqlite-vec` (Demo 20). |
+| **Context Assembler token budget enforced** | **PASS** | Bounded to 512 tokens with automatic fast-path for deterministic commands: **0.0063 ms** p95 (Demo 19). |
+| **Reference resolution operational** | **PASS** | Resolves pronouns (`open it again`), ordinals (`the second one`), type filters (`that PDF`), and folder aliases in **0.0033 ms - 0.0100 ms** p95 (Demo 1 & 2). |
+| **Ambiguous consequential references clarify** | **PASS** | Multiple candidate matches return `ReferenceConfidence.AMBIGUOUS` with clarification prompt; zero blind actions dispatched (Demo 15). |
+| **Cross-device context operational** | **PASS** | PC Context Assembler ingests and indexes Android phone interaction events. |
+| **Workflow learner detects repeated graphs** | **PASS** | `WorkflowLearner` observes verified task DAGs and normalizes shape hashes. |
+| **Workflow learner is propose-only** | **PASS** | Reaches threshold $\ge 3$ runs and proposes candidate; NEVER auto-creates or auto-executes (Demo 6). |
+| **User must approve saved workflows** | **PASS** | Workflows transition to `APPROVED` strictly through explicit user consent (Demo 7). |
+| **Workflows store logical tools, not coordinates** | **PASS** | Templates contain typed tool contracts (`find_file`, `copy_file`); zero pixel coordinates or raw keystrokes. |
+| **Workflow variables typed** | **PASS** | `WorkflowNormalizer` parameterizes changing paths into typed slots (`Path`, `String`, `FolderRef`). |
+| **Workflow approval != action approval** | **PASS** | Approved workflows containing `EXTERNAL_EFFECT` or `DESTRUCTIVE` actions still require Phase-5 confirmation tickets on every execution (Demo 8). |
+| **Workflow health tracking & quarantine** | **PASS** | Consecutive failures ($\ge 3$) automatically quarantine broken workflow templates. |
+| **Adaptive router uses measured telemetry** | **PASS** | Routes to Lane 0, Lane 1, or Planner based on empirical features without mutating security boundaries. |
+| **Router threshold optimization evaluated offline** | **PASS** | Proposed parameter adjustments run against offline benchmark corpus before promotion (Demo 17). |
+| **Security parameters strictly immutable** | **PASS** | Optimizer attempts to modify confirmation policies or protected paths trigger `REJECTED_BY_IMMUTABLE_SECURITY_POLICY` (Demo 18). |
+| **Zero self-modifying code** | **PASS** | System cannot autonomously rewrite Python source files, prompts, or safety rules. |
+| **Hardware resource governor implemented** | **PASS** | System telemetry evaluates RAM and VRAM pressure; decision latency: **0.0006 ms** p95 (Demo 11). |
+| **Interactive voice priority enforced** | **PASS** | Voice capture and streaming STT are protected from eviction; background indexing pauses on interactive tasks. |
+| **Model residency strictly on-demand** | **PASS** | Idle Vision and Planner models evicted on memory pressure; idle VRAM footprint: **0.0 MB**. |
+| **Speculative prefetch strictly READ_ONLY** | **PASS** | `PrefetchEngine` enforces read-only filter; state-changing actions (`send`, `delete`, `upload`) strictly rejected (Demo 12). |
+| **Irrelevant prefetch cancelled immediately** | **PASS** | Direction change during interaction cancels pending prefetch with 0 side-effects (Demo 13). |
+| **Specialist coordinator bounded** | **PASS** | Maximum 4 concurrent specialists receive restricted tool subsets; structured result merging isolates failures to `PARTIAL` (Demo 9 & 10). |
+| **RAG collections explicit & opt-in** | **PASS** | `KnowledgeEngine` indexes user-designated folders only; documents treated strictly as data without instruction authority. |
+| **CLI reports and diagnostics operational** | **PASS** | `python -m jarvis.report {memory,workflows,optimization,final}` and CLI inspection tools fully operational. |
+| **All 20 Phase-12 acceptance demos pass** | **PASS** | `scripts/demo_phase12.py`: 20/20 PASS (100%) in 181.7 ms. |
+| **Final acceptance suite passes** | **PASS** | `scripts/final_acceptance.py`: 20/20 checks PASS (100%) in 0.26s. |
+| **Wrong consequential actions = 0** | **PASS** | 0 wrong consequential actions across all 12 phases. |
+| **Unsafe autoexecution = 0** | **PASS** | 0 unconfirmed consequential executions. |
+| **Security policy bypass = 0** | **PASS** | 0 policy bypasses. |
+| **Duplicate external effects = 0** | **PASS** | 0 duplicate side-effects. |
+| **False verified success = 0** | **PASS** | 0 false verified successes. |
+
+---
+
+## Final Result: Phase 12 Complete
+**JARVIS EDGE — VERSION 1.0 COMPLETE**
+Release Tag: `phase-12-stable` / `jarvis-edge-v1.0`
+
+

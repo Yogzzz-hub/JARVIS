@@ -482,3 +482,55 @@ Controlled Pointer Dispatch & Postcondition Verification (Image-difference fast 
 3. **Multi-Monitor & DPI Transform**: Deterministic translation pipeline handles negative virtual coordinates and per-monitor display scaling without coordinate guessing.
 4. **Visual Privacy & Redaction**: Screenshots reside in RAM only, credentials are redacted, and login/UAC/CAPTCHA screens trigger `PAUSE_FOR_USER`.
 5. **Cold Model Lifecycle**: The local VLM is cold during normal operation ($0.0\text{ MB VRAM}$ idle) and loads only on demand, preserving GPU memory for core tasks and active STT.
+
+---
+
+## 13. Phase 12: Advanced Intelligence, Contextual Memory, Workflows & Resource Governance
+
+### 13.1 Layered Memory & Context Assembly Pipeline
+```
+USER INTENT (Voice / Text / Phone Client)
+   │
+   ▼
+ContextAssembler (Bounded 512-token packet; sub-millisecond fast-path)
+   ├─ BoundedWorkingMemory (Last 50 files, folders, apps, search results; p95 < 0.001 ms)
+   ├─ ReferenceResolver (Resolves pronouns, ordinals, and project context)
+   ├─ SQLiteMemoryStore (Layered durable storage: Preference, Semantic, Episodic)
+   └─ OperationalMode (Default, Coding, Study, Presentation)
+   │
+   ▼
+AdaptiveRoutingPolicy (Matches approved workflows on fast-path; tunes non-security parameters offline)
+   ├─ WorkflowLibrary (Hot-cached approved templates; parameter binding; failure quarantine)
+   └─ SpecialistCoordinator (Bounded parallel read tasks: File, Google, Browser, Vision)
+   │
+   ▼
+Validated TaskGraph (Phase-4 validator)
+   │
+   ▼
+Phase-5 Policy Engine (ConfirmationTickets & ActionLedger; approval != action permission)
+   │
+   ▼
+Execution & Postcondition Verification
+   │
+   ▼
+Memory Commit Gate (Secret filter; untrusted external data quarantine; conflict superseding)
+   │
+   ▼
+Response & Telemetry
+```
+
+### 13.2 Resource Governor Priority Hierarchy
+```
+Level 1: EMERGENCY_STOP / CANCEL
+Level 2: Real-time Voice Capture
+Level 3: Streaming STT (Silero VAD / Whisper)
+Level 4: Deterministic Command Execution (Fast-path tools)
+Level 5: Router Lane 0 & Lane 1
+Level 6: Active Planner
+Level 7: UI & Browser Automation
+Level 8: Local Vision Grounding
+Level 9: Background Embeddings & Indexing
+Level 10: Optimization & Offline Evaluation
+```
+Under system memory pressure ($\ge 85\%$ RAM or $\ge 3,200\text{ MB}$ VRAM), idle Vision and Planner models are evicted immediately while active STT and interactive tools are protected. Speculative prefetch is strictly bound to `READ_ONLY` tasks and aborted on direction change.
+

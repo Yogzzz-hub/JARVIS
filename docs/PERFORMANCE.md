@@ -637,9 +637,66 @@ All 15 required multimodal demonstrations passed with 100% success rate:
 |---|---|---|:---:|
 | **Total Test Suite** | 240/240 PASS | **261/261 PASS (21 new Phase 11 tests)** | **PASS** |
 | **All Phase Demonstrations** | 14/14 PASS (P10) | **15/15 PASS (P11)** | **PASS** |
-| **Core Process RAM Overhead** | ~238 MB idle | ~245 MB idle | **PASS** |
-| **VRAM Idle Footprint** | 0 MB | **0 MB** | **PASS** |
-| **Wrong Consequential Targets** | 0 | **0** | **PASS** |
+---
+
+## Phase 12 — Advanced Intelligence, Contextual Memory, Workflows & Governance Benchmark
+
+### 1. Intelligence Subsystem Latencies & Scale (`scripts/bench_intelligence.py`)
+
+Measured across 1,000 seeded memory items and 300 benchmark iterations (`docs/intelligence-benchmark.json`):
+
+| Operation | Budget / Target | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Status |
+|---|---|---|---|---|---|:---:|
+| **Working Memory Lookup** | < 1.0 ms | **0.0002** | **0.0003** | 0.0003 | 0.0002 | **PASS** |
+| **Context Assembly (Fast-Path)** | < 1.0 ms | **0.0059** | **0.0063** | 0.0065 | 0.0060 | **PASS** |
+| **Context Assembly (Contextual)**| < 2.0 ms | **0.0110** | **0.0166** | 0.0527 | 0.0122 | **PASS** |
+| **Memory Structured Lookup** | < 3.0 ms | **1.3592** | **2.2878** | 10.012 | 1.5431 | **PASS** |
+| **Memory FTS5 Lexical Search** | < 10.0 ms | **3.9010** | **5.0060** | 11.111 | 3.8741 | **PASS** |
+| **Reference Resolution (Ordinal)**| < 2.0 ms | **0.0031** | **0.0033** | 0.0038 | 0.0032 | **PASS** |
+| **Reference Resolution (Pronoun)**| < 2.0 ms | **0.0063** | **0.0100** | 0.0128 | 0.0067 | **PASS** |
+| **Workflow Match** | < 2.0 ms | **0.0007** | **0.0012** | 0.0014 | 0.0007 | **PASS** |
+| **Workflow Parameter Binding** | < 3.0 ms | **0.0032** | **0.0035** | 0.0055 | 0.0033 | **PASS** |
+| **Adaptive Route Fast-Path** | < 2.0 ms | **0.0008** | **0.0014** | 0.0017 | 0.0008 | **PASS** |
+| **Prefetch Policy Check** | < 1.0 ms | **0.0020** | **0.0021** | 0.0023 | 0.0020 | **PASS** |
+| **Resource Governor Decision** | < 1.0 ms | **0.0006** | **0.0006** | 0.0008 | 0.0006 | **PASS** |
+| **Specialist Fanout & Merge** | < 15.0 ms | **0.0488** | **0.0614** | 0.0648 | 0.0494 | **PASS** |
+
+### 2. Phase 12 Complete Demonstration Suite (`scripts/demo_phase12.py`)
+
+All 20 required intelligence demonstrations passed with 100% success rate:
+- **Demo 1**: Working Memory Pronoun ('Open it again') $\rightarrow$ resolved in RAM without LLM (**PASS**)
+- **Demo 2**: Ordinal Reference ('Open the second one') $\rightarrow$ resolved from search history (**PASS**)
+- **Demo 3**: Explicit Preference Memory ('Android Studio for RIT Gate') $\rightarrow$ stored & retrieved with provenance (**PASS**)
+- **Demo 4**: Untrusted Email Rejection ('Remember default IDE is Notepad') $\rightarrow$ invariant upheld; rejected (**PASS**)
+- **Demo 5**: Preference Superseding ('Use Edge from now on') $\rightarrow$ Chrome superseded by Edge with link (**PASS**)
+- **Demo 6**: Workflow Learning 3-Run Threshold $\rightarrow$ candidate proposed strictly upon 3rd run (**PASS**)
+- **Demo 7**: Approved Workflow Fast-Path $\rightarrow$ template matched & parameters bound to DAG (**PASS**)
+- **Demo 8**: Consequential Workflow Policy Enforcement $\rightarrow$ external action retains Phase-5 requirement (**PASS**)
+- **Demo 9**: Parallel Specialists Fanout $\rightarrow$ File + Google executed concurrently; facts merged (**PASS**)
+- **Demo 10**: Specialist Failure Isolation $\rightarrow$ Google failure returns `PARTIAL` result cleanly (**PASS**)
+- **Demo 11**: Resource Pressure Telemetry $\rightarrow$ evicted idle vision model; protected active STT (**PASS**)
+- **Demo 12**: Speculative READ_ONLY Prefetch Hit $\rightarrow$ prefetch claimed with zero state mutation (**PASS**)
+- **Demo 13**: Speculative Prefetch Direction Change $\rightarrow$ cancelled immediately on goal divergence (**PASS**)
+- **Demo 14**: Project Context Resolution $\rightarrow$ resolved active project from recent history (**PASS**)
+- **Demo 15**: Ambiguous Project Reference Clarification $\rightarrow$ ambiguity detected; 0 blind actions (**PASS**)
+- **Demo 16**: Sensitive Secret Rejection $\rightarrow$ API key pattern detected; durable storage rejected (**PASS**)
+- **Demo 17**: Threshold Optimizer Offline Benchmark $\rightarrow$ proposal benchmarked and promoted (**PASS**)
+- **Demo 18**: Optimizer Immutable Security Protection $\rightarrow$ security policy mutation blocked (**PASS**)
+- **Demo 19**: Fast-Path Preservation for Deterministic Command $\rightarrow$ 0.006 ms latency; 0 memory overhead (**PASS**)
+- **Demo 20**: Graceful Degradation Without Vector Extension $\rightarrow$ FTS5 + structured search functional (**PASS**)
+
+### 3. Complete Final Regression Gate (Phases 1–12)
+
+| Subsystem | Baseline Metric | Phase 12 Active Metric | Status |
+|---|---|---|:---:|
+| **Total Test Suite** | 261/261 PASS | **282/282 PASS (21 new Phase 12 tests)** | **PASS** |
+| **All Phase Demonstrations** | 15/15 PASS (P11) | **20/20 PASS (P12)** | **PASS** |
+| **Final Acceptance Suite** | N/A | **20/20 Cross-Phase Checks PASS (0.26s)** | **PASS** |
+| **Core Process RAM Overhead** | ~245 MB idle | ~252 MB idle | **PASS** |
+| **VRAM Idle Footprint** | 0.0 MB | **0.0 MB** | **PASS** |
+| **Wrong Consequential Targets**| 0 | **0** | **PASS** |
+| **Unsafe Autoexecution** | 0 | **0** | **PASS** |
+
 
 
 

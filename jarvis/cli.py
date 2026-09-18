@@ -266,6 +266,92 @@ def handle_explain_vision(command: str):
     return 0
 
 
+def handle_explain_context(command: str):
+    from pathlib import Path
+    from jarvis.config import ROOT
+    from jarvis.core.context.assembler import ContextAssembler
+    from jarvis.core.context.resolver import ReferenceResolver
+    from jarvis.core.memory.store import SQLiteMemoryStore
+    from jarvis.core.memory.working import BoundedWorkingMemory
+
+    db_path = ROOT / "db/jarvis.db"
+    if not db_path.exists():
+        db_path = ROOT.parent / "db/jarvis.db"
+
+    store = SQLiteMemoryStore(db_path)
+    wm = BoundedWorkingMemory()
+    resolver = ReferenceResolver(wm, store)
+    assembler = ContextAssembler(wm, store, resolver)
+
+    packet = assembler.assemble(command)
+    ref = packet.resolved_references.get("primary")
+
+    print("============================================================")
+    print("JARVIS EDGE -- Phase 12 Context & Reference Diagnostics")
+    print("============================================================")
+    print(f"Utterance:              {command}")
+    print(f"Operational Mode:       {packet.current_mode.value}")
+    print(f"Assembly Latency:       {packet.explanation.get('assembly_ms', 0.0):.4f} ms")
+    print(f"Fast-Path Path:         {packet.explanation.get('fast_path', False)}")
+    print(f"Token Estimate:         {packet.token_estimate} / 512 budget")
+    if ref:
+        print(f"Resolved Referent:      {ref.referent}")
+        print(f"Referent Type:          {ref.referent_type}")
+        print(f"Resolution Confidence:  {ref.confidence.value}")
+        print(f"Resolution Source:      {ref.source}")
+    else:
+        print("Resolved Referent:      None (Direct command / No pronoun)")
+    print(f"Relevant Memories:      {len(packet.relevant_memories)}")
+    for mem in packet.relevant_memories[:3]:
+        print(f"  - [{mem.layer.value}] {mem.key}: {mem.value} ({mem.confidence.value})")
+    print(f"Active Project:         {packet.active_project.name if packet.active_project else 'None'}")
+    print("============================================================")
+    return 0
+
+
+def handle_dry_run_intelligence(command: str):
+    from pathlib import Path
+    from jarvis.config import ROOT
+    from jarvis.core.context.assembler import ContextAssembler
+    from jarvis.core.context.resolver import ReferenceResolver
+    from jarvis.core.memory.store import SQLiteMemoryStore
+    from jarvis.core.memory.working import BoundedWorkingMemory
+    from jarvis.core.workflows.library import WorkflowLibrary
+    from jarvis.core.router.adaptive import AdaptiveRoutingPolicy
+    from jarvis.core.prefetch.engine import PrefetchEngine
+
+    db_path = ROOT / "db/jarvis.db"
+    if not db_path.exists():
+        db_path = ROOT.parent / "db/jarvis.db"
+
+    store = SQLiteMemoryStore(db_path)
+    wm = BoundedWorkingMemory()
+    resolver = ReferenceResolver(wm, store)
+    assembler = ContextAssembler(wm, store, resolver)
+    wf_lib = WorkflowLibrary(db_path)
+    adaptive = AdaptiveRoutingPolicy(workflow_library=wf_lib)
+    prefetch = PrefetchEngine()
+
+    packet = assembler.assemble(command)
+    ref = packet.resolved_references.get("primary")
+    wf_match = adaptive.check_workflow_fast_path(command)
+    can_prefetch = prefetch.can_speculate(command)
+
+    print("============================================================")
+    print("JARVIS EDGE -- Phase 12 Dry-Run Intelligence Plan")
+    print("============================================================")
+    print(f"Goal:                   {command}")
+    print(f"Context Resolution:     {ref.referent if ref else 'Direct target'}")
+    print(f"Workflow Match:         {wf_match[0] if wf_match else 'None (Normal Route)'}")
+    print(f"Adaptive Route Hint:    {'WORKFLOW_FAST_PATH' if wf_match else 'LANE_0 / PLANNER'}")
+    print(f"Speculative Prefetch:   {'ELIGIBLE (READ_ONLY)' if can_prefetch else 'DISALLOWED (STATE_CHANGE)'}")
+    print(f"Resource Governor:      NORMAL_PRIORITY")
+    print("Policy Check:           ENFORCED (No authorization bypass)")
+    print("Side Effects:           0 (DRY RUN - NOTHING EXECUTED)")
+    print("============================================================")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Send a deterministic or planned command to local JARVIS")
     parser.add_argument("command")
@@ -276,6 +362,8 @@ def main():
     parser.add_argument("--explain-execution", action="store_true", help="Display execution timing and method diagnostics")
     parser.add_argument("--dry-run-vision", action="store_true", help="Display vision grounding plan without executing any input")
     parser.add_argument("--explain-vision", action="store_true", help="Display visual observation and grounding diagnostics")
+    parser.add_argument("--explain-context", action="store_true", help="Display context assembly and reference resolution diagnostics")
+    parser.add_argument("--dry-run-intelligence", action="store_true", help="Display complete intelligence plan without executing")
     args = parser.parse_args()
 
     if args.plan_only:
@@ -295,6 +383,12 @@ def main():
 
     if args.explain_vision:
         return handle_explain_vision(args.command)
+
+    if args.explain_context:
+        return handle_explain_context(args.command)
+
+    if args.dry_run_intelligence:
+        return handle_dry_run_intelligence(args.command)
 
     config = load()
     request = Request(

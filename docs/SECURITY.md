@@ -395,3 +395,32 @@ External data from Gmail, Google Calendar, and Google Drive is classified as `UN
 - **Fresh Pre-Click Revalidation**: Immediately before clicking, the input controller re-validates that the target window has not moved and the screen has not transitioned. If window coordinates shift, `STALE_VISUAL_OBSERVATION` aborts the click to prevent misplaced interactions.
 - **ActionLedger & Anti-Duplicate**: Executed visual actions register a cryptographic fingerprint in `ActionLedger`. Actions with ambiguous or timed-out outcomes yield `UNCERTAIN` and strictly prohibit blind retries.
 
+---
+
+## 14. Phase 12 — Intelligence, Layered Memory & Governance Invariants
+
+### 14.1 Memory $\neq$ Authorization
+- **Context Hints Only**: Durable memory entries (preferences, project context, aliases) provide hints and candidate referents. Memory NEVER confers authorization or bypasses Phase-5 policies.
+- **Fresh Evaluation**: Every command—even when relying on retrieved memory—is evaluated independently against current policy.
+
+### 14.2 Workflow Approval $\neq$ Action Approval
+- **Permanent Permission Prohibited**: Approving a workflow containing `EXTERNAL_EFFECT` or `DESTRUCTIVE` actions does NOT create permanent permission.
+- **Ticket Requirement**: Every execution of an approved workflow node with side-effects pauses for an explicit Phase-5 user confirmation ticket.
+
+### 14.3 Untrusted External Content Quarantine
+- **Strict Data Boundary**: Content retrieved from email bodies, downloaded web pages, Drive documents, or screen OCR is classified as `UNTRUSTED_EXTERNAL_CONTENT`.
+- **Zero Memory Mutation**: External content is strictly prohibited from creating durable memories or modifying user preferences.
+
+### 14.4 Credential & Secret Filtering
+- **Automated Regex Detection**: Memory candidate extraction applies strict patterns matching API keys (`sk-[a-zA-Z0-9_\-]{20,}`, `AIza[0-9A-Za-z_\-]{20,}`), private keys (`-----BEGIN PRIVATE KEY-----`), OTPs (`\b\d{6}\b`), and passwords.
+- **Rejection**: Any candidate containing secret patterns is unconditionally rejected with `REJECT: sensitive secret or credential pattern detected`.
+
+### 14.5 Speculation Strictly READ_ONLY
+- **Zero State Mutation**: Speculative prefetch is restricted to idempotent read operations (`find_file`, `get_calendar_events`). Actions starting with `send`, `delete`, `upload`, `create`, `modify`, or `launch` are denied.
+- **Immediate Cancellation**: User direction divergence cancels in-flight prefetch tasks immediately with zero side-effects.
+
+### 14.6 Immutable Security Parameters & Zero Self-Modifying Code
+- **Zero Source Modification**: JARVIS has no capability or authority to edit its own Python source files, prompts, or test suites.
+- **Immutable Guard**: Parameters governing destructive confirmations, protected file paths, UAC policies, and authentication handling cannot be modified by the optimization engine or adaptive router.
+
+
