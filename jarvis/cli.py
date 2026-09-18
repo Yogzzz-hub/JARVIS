@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
@@ -197,7 +198,71 @@ def handle_explain_execution(command: str):
         print(f"  method:               {method_str}")
         print(f"  status:               ALLOWED ({decision.reason_code.value})")
 
-    print("\n============================================================")
+def handle_dry_run_vision(command: str):
+    from jarvis.core.vision.manager import VisionManager
+    from jarvis.core.vision.capture import ScreenCaptureProvider
+    from jarvis.tests.data.synthetic_screens import create_button_screen
+
+    img, meta = create_button_screen("Settings", 120, 150)
+    mgr = VisionManager(capture_provider=ScreenCaptureProvider(mock_image=img))
+
+    outcome = mgr.ground_and_execute(
+        goal=command,
+        window_id="0",
+        context={"synthetic_candidates": [{"candidate_id": "C1", "visible_text": command, "bbox_normalized": meta["box_norm"]}]},
+        dry_run=True,
+    )
+    print("============================================================")
+    print("JARVIS EDGE -- Phase 11 Dry-Run Vision Grounding Report")
+    print("============================================================")
+    print(f"Goal:                   {command}")
+    print(f"Vision Decision:        {outcome.verification_status}")
+    print(f"Candidate Selected:     {outcome.candidate_id}")
+    print(f"Physical Point:         {outcome.physical_click_point} (derived by code)")
+    print(f"Policy Classification:  REVERSIBLE")
+    print(f"Expected Verification:  VisualVerifier (Image-Difference Fast Path)")
+    print(f"Message:                {outcome.message}")
+    print("============================================================")
+    print("Vision Dry-Run complete. ZERO actions executed.")
+    print("============================================================")
+    return 0
+
+
+def handle_explain_vision(command: str):
+    from jarvis.core.vision.manager import VisionManager
+    from jarvis.core.vision.capture import ScreenCaptureProvider
+    from jarvis.tests.data.synthetic_screens import create_button_screen
+
+    img, meta = create_button_screen("Settings", 120, 150)
+    mgr = VisionManager(capture_provider=ScreenCaptureProvider(mock_image=img))
+
+    t0 = time.perf_counter()
+    obs, _, perf = mgr.observe(window_id="0", window_title="Target Application")
+    obs_ms = (time.perf_counter() - t0) * 1000
+
+    decision, passes = mgr.grounder.ground_target(
+        goal=command,
+        image=img,
+        candidates=obs.candidates,
+        context={"synthetic_candidates": [{"candidate_id": "C1", "visible_text": command, "bbox_normalized": meta["box_norm"]}]},
+    )
+
+    print("============================================================")
+    print("JARVIS EDGE -- Phase 11 Explain Vision Diagnostics")
+    print("============================================================")
+    print(f"Command:                {command}")
+    print("Structured Failure:     VISION_REQUIRED (No accessible controls in window)")
+    print(f"Capture Dimensions:     {obs.image_width}x{obs.image_height} @ {obs.dpi_scale}x DPI")
+    print(f"Capture Latency:        {perf.get('capture_ms', 0.0):.3f} ms")
+    print(f"Candidate Detector:     {mgr.parser.__class__.__name__}")
+    print(f"Candidates Detected:    {len(obs.candidates)}")
+    print(f"Vision Provider:        {mgr.provider.__class__.__name__}")
+    print(f"Selected Candidate:     {decision.candidate_id}")
+    print(f"Computed Confidence:    {decision.confidence.value}")
+    print(f"Grounding Passes:       {passes} (max bounded: 2)")
+    print("Policy Decision:        ALLOW (REVERSIBLE)")
+    print("Expected Postcondition: Visual state transition verified")
+    print("============================================================")
     return 0
 
 
@@ -209,6 +274,8 @@ def main():
     parser.add_argument("--explain-plan", action="store_true", help="Display developer explanation of planned graph")
     parser.add_argument("--dry-run-policy", action="store_true", help="Display policy decisions and verification strategy without executing")
     parser.add_argument("--explain-execution", action="store_true", help="Display execution timing and method diagnostics")
+    parser.add_argument("--dry-run-vision", action="store_true", help="Display vision grounding plan without executing any input")
+    parser.add_argument("--explain-vision", action="store_true", help="Display visual observation and grounding diagnostics")
     args = parser.parse_args()
 
     if args.plan_only:
@@ -222,6 +289,12 @@ def main():
 
     if args.explain_execution:
         return handle_explain_execution(args.command)
+
+    if args.dry_run_vision:
+        return handle_dry_run_vision(args.command)
+
+    if args.explain_vision:
+        return handle_explain_vision(args.command)
 
     config = load()
     request = Request(

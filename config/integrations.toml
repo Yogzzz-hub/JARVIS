@@ -1,0 +1,39 @@
+# JARVIS EDGE Google Integrations Configuration
+# Phase 9 Secure Workspace Connectors
+
+[auth]
+# Path to downloaded Google Cloud OAuth 2.0 client configuration.
+# This file must NOT be committed to git.
+client_secret_file = "config/google_client_secret.json"
+token_store = "keyring"  # "keyring" (OS Keyring / Windows Credential Manager) or "in_memory"
+auth_host = "127.0.0.1"
+auth_port_range = [8080, 8090]
+allow_silent_scope_upgrade = false
+
+[gmail]
+email_send_mode = "draft_first"  # "draft_first" (safest) or "direct_send"
+max_attachment_download_mb = 50
+quarantine_external_content = true
+detect_prompt_injection = true
+max_results_default = 10
+
+[calendar]
+default_duration_minutes = 60
+default_timezone = "UTC"
+prevent_duplicate_events = true
+require_confirmation_for_attendees = true
+
+[drive]
+max_download_size_mb = 50
+resumable_upload_threshold_mb = 5
+chunk_size_kb = 512
+prefer_narrow_file_scope = true
+
+[reliability]
+max_retries = 3
+base_backoff_seconds = 0.5
+max_backoff_seconds = 5.0
+jitter = true
+circuit_breaker_threshold = 5
+cache_ttl_seconds = 60
+thread_pool_workers = 4

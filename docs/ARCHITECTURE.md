@@ -334,4 +334,151 @@ ResponseEngine (Decision / Policy / Scheduling)
 5. **Full Policy Preservation**: Spoken confirmation ("Yes", "No") passes directly into Phase 5 ticket validation; voice commands have zero capability to bypass security checks or escalate privileges.
 6. **Zero Dynamic Disk Audio**: Synthesized personal speech remains in volatile RAM buffers and is deleted immediately upon playback completion.
 
+---
 
+## 10. Phase 9 — Secure Google Workspace Connectors (Gmail + Calendar + Drive)
+
+Phase 9 integrates Google Workspace directly into JARVIS EDGE via official Google APIs and OAuth 2.0 Installed-Desktop Loopback flow. Every Google connector is an independent service adapter guarded by Phase 5 policy, typed contracts, and ActionLedger reconciliation.
+
+### 10.1 Connector Architecture Pipeline
+
+```
+USER INTENT (Text / Voice / Phone)
+  │
+  ▼
+Existing Router / Planner (Lane 0 / Lane 1 / Lane 2)
+  │
+  ▼
+Typed Jarvis Tool (Gmail / Calendar / Drive)
+  │
+  ▼
+ScopeGuard (Validates GoogleCapability in ScopeRegistry)
+  ├── Granted -> Proceed
+  └── Missing -> AUTHORIZATION_REQUIRED (Zero silent widening)
+  │
+  ▼
+Phase-5 Policy (Risk Evaluation & Confirmation)
+  ├── READ_ONLY -> Auto-Allow
+  └── EXTERNAL_EFFECT / DESTRUCTIVE -> ActionTicket Prompt
+        └── Diff Preview (Recipient/Subject/Event Time/File Path)
+  │
+  ▼
+Google Integration Client (GmailClient / CalendarClient / DriveClient)
+  ├── GoogleAuthManager (Per-account lock, automatic token refresh)
+  ├── SecureTokenStore (Windows Credential Manager / Keyring; 0 plaintext files)
+  ├── ConnectedContentCache (Bounded LRU, TTL, prefix invalidation on writes)
+  └── execute_with_retry (Bounded backoff, jitter, no blind resend on write)
+  │
+  ▼
+Official Google API (v1 / v3)
+  │
+  ▼
+Provider Result Reconciliation (GmailVerifier / CalendarVerifier / DriveVerifier)
+  │
+  ▼
+ActionLedger (ActionReceipt with Provider ID, Fingerprinted)
+  │
+  ▼
+External Content Quarantine (ExternalData: trust=UNTRUSTED_EXTERNAL_CONTENT)
+  │
+  ▼
+Verified Truthful Response (Text / Voice / Phone Notification)
+```
+
+### 10.2 Architectural Invariants
+
+1. **Zero Credential Leakage**: Refresh tokens reside strictly in the OS Keyring / Windows Credential Manager. Access tokens reside only in process memory. Credentials never enter logs, planner prompts, phone clients, or audit records.
+2. **Untrusted External Content Boundary**: Emails and Drive file contents are strictly tagged `UNTRUSTED_EXTERNAL_CONTENT`. Instructions contained within external emails/files possess ZERO command execution authority.
+3. **No Double-Send / Idempotency Protection**: External writes (e.g. Gmail send) never blindly retry on uncertain network timeouts. Reconciliation queries provider state to confirm delivery before reporting status.
+4. **Least-Privilege Progressive Scopes**: Jarvis never requests broad scopes upon initial connection. Missing scopes trigger `AUTHORIZATION_REQUIRED` and open desktop browser loopback authorization only upon explicit user intent.
+5. **ResourceRef Segregation**: Google Drive file IDs are wrapped in `ResourceRef(resource_type=GOOGLE_DRIVE_FILE)` to ensure cloud IDs are never mistaken for local Windows paths.
+6. **Offline Independence**: Outages or disconnection of Google services result in graceful `NETWORK_UNAVAILABLE` responses; local voice, app control, file search, and security enforcement remain 100% operational.
+
+---
+
+## 11. Phase 10: Structured Computer & Browser Agent Architecture
+
+### 11.1 Interaction Pipeline
+```
+USER REQUEST
+  │
+  ▼
+Router / Planner (Lane 0 / Lane 1 / Lane 2)
+  │
+  ▼
+Automation Priority Selector (API -> Native -> CLI -> Playwright DOM -> Windows UIA -> Keyboard -> Vision)
+  │
+  ├── Web Application -> Playwright Semantic DOM (get_by_role, get_by_label, get_by_text)
+  └── Desktop Application -> Microsoft Windows UI Automation (Invoke, Value, Toggle, Selection)
+  │
+  ▼
+Observation Snapshot (Bounded Control View / DOM Reduction, Ephemeral IDs B1, L2, I3)
+  │
+  ▼
+Target Resolution (Strict Unique Matching, Ambiguous -> Halt/Clarify, WRONG_TARGET = 0)
+  │
+  ▼
+Phase-5 Policy Check (Reversible local state vs Consequential EXTERNAL_EFFECT)
+  │
+  ▼
+Structured Action Execution (UIA Patterns / Playwright Auto-Wait)
+  │
+  ▼
+Postcondition Verification (Value match, toggle state, navigation transition, ActionReceipt)
+  │
+  ├── Success -> DONE
+  └── Unaccessible -> Structured Fallback: VISION_REQUIRED (Phase 11)
+```
+
+### 11.2 Core Architectural Principles
+1. **Zero Pixel Coordinate Clicking**: Automation interacts strictly through structured UI Automation patterns and Playwright semantic locators. Screen coordinates are strictly prohibited.
+2. **Untrusted External Content Boundary**: All webpage text and UI labels are tagged `UNTRUSTED_EXTERNAL_CONTENT`. Content cannot generate goals, bypass confirmation, or authorize actions.
+3. **Sensitive Field & Elevated UI Handoff**: Password fields, credential prompts, OTPs, UAC elevations, and CAPTCHAs trigger `PAUSE_FOR_USER`.
+4. **Dedicated Browser Profile**: The browser agent uses an isolated profile (`data/browser/jarvis-profile/`) and never attaches to the user's personal Chrome profile.
+5. **Bounded Interaction Loop**: Step limits (max 12), replan limits (max 2), and loop stall detection prevent runaway autonomous execution.
+
+---
+
+## 12. Phase 11: Local Vision Fallback & Screen Grounding Subsystem
+
+### 12.1 Visual Automation Pipeline
+```
+Phase-10 Failure: VISION_REQUIRED
+  │
+  ▼
+Window-Scoped Screen Capture (On-Demand only, zero continuous recording)
+  │
+  ▼
+Privacy & Prompt-Injection Gate (Ephemeral RAM, password/OTP masking, prompt-injection quarantine)
+  │
+  ▼
+Visual Candidate Detector (SimpleRegionsParser / OmniParserAdapter -> C1, C2, C3...)
+  │
+  ▼
+Local VLM Grounder (Qwen3-VL 2B, selects candidate ID, zero coordinate guessing)
+  │
+  ▼
+Structured Anchor Cross-Check (Correlate with UIA/DOM, prefer structured control if rediscovered)
+  │
+  ▼
+Deterministic Target Resolver (Fuse confidence: HIGH / MEDIUM / AMBIGUOUS / LOW)
+  │
+  ▼
+Phase-5 Policy Check (ConfirmationTicket & ActionLedger for consequential actions)
+  │
+  ▼
+Pre-Click Revalidation (Window active, not stale, bounds within viewport)
+  │
+  ▼
+Physical Coordinate Derivation (Code-derived OS point via window offset & DPI scaling)
+  │
+  ▼
+Controlled Pointer Dispatch & Postcondition Verification (Image-difference fast path + transition check)
+```
+
+### 12.2 Architectural Invariants
+1. **Vision as Last Resort**: Vision triggers exclusively upon `VISION_REQUIRED` or explicit user screen queries. Structured UIA and DOM automation always take precedence.
+2. **Candidate-First Grounding**: The VLM selects candidate IDs (`C1`, `C2`, etc.). Physical OS coordinates are derived strictly by code from candidate bounds, window offsets, and DPI scaling.
+3. **Multi-Monitor & DPI Transform**: Deterministic translation pipeline handles negative virtual coordinates and per-monitor display scaling without coordinate guessing.
+4. **Visual Privacy & Redaction**: Screenshots reside in RAM only, credentials are redacted, and login/UAC/CAPTCHA screens trigger `PAUSE_FOR_USER`.
+5. **Cold Model Lifecycle**: The local VLM is cold during normal operation ($0.0\text{ MB VRAM}$ idle) and loads only on demand, preserving GPU memory for core tasks and active STT.

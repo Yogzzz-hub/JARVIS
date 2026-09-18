@@ -1,0 +1,16 @@
+{
+  "benchmark_timestamp": 1789665162.108724,
+  "window_lookup_p50_ms": 0.000400003045797348,
+  "window_lookup_p95_ms": 0.000500003807246685,
+  "uia_snapshot_p50_ms": 0.01780001912266016,
+  "uia_snapshot_p95_ms": 0.04291999212000508,
+  "uia_target_resolution_p50_ms": 0.000700005330145359,
+  "uia_target_resolution_p95_ms": 0.000800006091594696,
+  "browser_semantic_locator_p50_ms": 1.486649998696521,
+  "browser_semantic_locator_p95_ms": 2.5904200068907812,
+  "action_dispatch_p50_ms": 0.0016999838408082724,
+  "action_dispatch_p95_ms": 0.001800013706088066,
+  "wrong_target_actions": 0,
+  "tool_hallucinations": 0,
+  "vision_required_triggers": 1
+}
