@@ -140,8 +140,39 @@ are fixed templates; no arbitrary shell. Connect the phone with USB debugging, o
 shown in the UI (`reminder.due` event) and pushed to the phone when notifications are configured.
 Stored in `data/reminders.json`.
 
-## 9. Tests
+## 9. Latency
+
+What a spoken question costs, and what removes each part:
+
+| Stage | Optimisation |
+| --- | --- |
+| Model load | `warm_on_start` loads the fast model **and** the chat model and pre-evaluates the assistant prompt; `keep_alive = "30m"` keeps them resident. |
+| Prompt prefill | The assistant system prompt is identical between requests (the clock is its last line), so Ollama reuses its KV cache and only processes the new turn. |
+| Generation | Answers are **streamed**: `jarvis/core/llm/streaming.py` splits tokens into sentences, and PULSE speaks the first sentence while the rest is still being written (`PulseEngine.open_speech_stream`). A long first clause is released at a comma. Barge-in drops the rest. |
+| UI | `assistant.partial` events show the answer typing live in the desktop UI. |
+| Routing | Lane-1 classifications are cached (LRU, 15 min) per normalised utterance + candidate set; the classifier prompt carries fixed few-shot examples for accuracy. |
+| RAG | Skipped outright while the knowledge base is empty; query embeddings are cached (LRU 128); chunk/vector stats are cached and refreshed on writes. |
+
+`CommandResult.metrics["first_token_ms"]` records time-to-first-token for chat answers.
+
+## 10. Desktop UI
+
+`python -m jarvis.ui` (started by `start.bat`). The home screen shows a real-time **3D reactor**
+(Qt Quick 3D: HDR core with bloom, holographic rings built from procedural meshes in `jarvis/ui/geometry.py`,
+a particle halo) whose colour, spin and energy follow the assistant state and your voice; drag the mouse over it
+to tilt it, click it to talk. Next to it: the live conversation (answers stream in), quick-action chips and the
+command bar.
+
+Shortcuts: **Ctrl+Space** talk / finish, **Ctrl+K** type, **Esc** stop talking, **Up/Down** command history.
+
+The 3D view falls back to a GPU vector (2D) reactor automatically when Qt Quick 3D is missing or the software
+renderer is active. Turn it off in *Settings > 3D Reactor*, or for one session with `set JARVIS_UI_2D=1`.
+*Low Resource Mode* stops all animation.
+
+## 11. Tests
 
 * `jarvis/tests/fake_ollama.py`: in-process fake Ollama server (no network) used by all AI tests.
 * `jarvis/tests/ai_harness.py`: full stack (router, planner, agent, RAG, WhatsApp AI) for end-to-end tests.
 * Generalization benchmark (deterministic, no model): `python tests/generalization/benchmark_runner.py`.
+* `test_streaming_answers.py`, `test_latency_caches.py`: streamed speech, caches.
+* `test_desktop_ui.py`: UI state/controller and a compile check of every QML file (skipped without PySide6).

@@ -32,6 +32,10 @@ python -m jarvis.cli "open notepad"
 python -m jarvis.cli "ask rahul if he is free tonight on whatsapp"
 ```
 
+The desktop UI centres on a real-time 3D reactor that reacts to your voice and to what JARVIS is doing, with the
+conversation streaming in beside it. In the UI: **Ctrl+Space** talk, **Ctrl+K** type, **Esc** stop talking, or click
+the reactor. Answers start being spoken after the first sentence instead of after the whole reply.
+
 ## What you can say
 
 | Area | Examples |

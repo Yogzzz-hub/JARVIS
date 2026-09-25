@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -45,6 +46,7 @@ class KnowledgeService:
         # Optional OllamaClient used for dense (embedding) retrieval; lexical search works without it.
         self.embedder = embedder
         self._embed_task: Optional[asyncio.Task] = None
+        self._query_vectors: "OrderedDict[tuple[str, str], list[float]]" = OrderedDict()
 
     @property
     def engine(self) -> KnowledgeEngine:
@@ -62,8 +64,18 @@ class KnowledgeService:
             model = await asyncio.wait_for(self.embedder.resolve("embed"), 3.0)
             if model not in models:
                 return None, None
+            key = (model, " ".join(text.lower().split()))
+            cached = self._query_vectors.get(key)
+            if cached is not None:
+                self._query_vectors.move_to_end(key)
+                return cached, model
             vectors = await asyncio.wait_for(self.embedder.embed([text], model=model), 4.0)
-            return (vectors[0] if vectors else None), model
+            vector = vectors[0] if vectors else None
+            if vector is not None:
+                self._query_vectors[key] = vector
+                while len(self._query_vectors) > 128:
+                    self._query_vectors.popitem(last=False)
+            return vector, model
         except Exception as exc:
             logger.debug("Query embedding unavailable: %s", exc)
             return None, None
@@ -117,8 +129,14 @@ class KnowledgeService:
             "memory": [],
         }
 
-        # 1. RAG Chunks and WhatsApp Ingested Documents
+        # 1. RAG Chunks and WhatsApp Ingested Documents (skipped outright while nothing is indexed)
         try:
+            chunk_count = (await asyncio.to_thread(self.knowledge_engine.stats))[0]
+        except Exception:
+            chunk_count = 1
+        try:
+            if not chunk_count:
+                raise LookupError("knowledge base is empty")
             query_vector, vector_model = await self._query_vector(clean_query)
             chunk_results = await asyncio.to_thread(
                 self.knowledge_engine.search_hybrid,

@@ -253,6 +253,14 @@ class Runtime:
             self.bus.emit("llm.status", "", reachable=True, roles=roles)
             if self.config.models.warm_on_start:
                 await self.llm.warm("fast")
+                # Load the chat model and evaluate the (static) assistant prompt once, so the first
+                # spoken answer starts streaming immediately instead of paying for model load + prefill.
+                try:
+                    await self.llm.chat(
+                        [{"role": "system", "content": self.assistant.system_prompt(True)}, {"role": "user", "content": "hi"}],
+                        role="chat", max_tokens=1, timeout=120.0)
+                except Exception as exc:
+                    log.debug("Chat model warm-up skipped: %s", exc)
             if roles.get("embed"):
                 self.knowledge_service.schedule_embedding()
         except asyncio.CancelledError:

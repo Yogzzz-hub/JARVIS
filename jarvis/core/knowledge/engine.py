@@ -79,6 +79,7 @@ class KnowledgeEngine:
         self._lock = threading.RLock()
         self._vector_cache: dict[str, tuple[int, list[str], np.ndarray]] = {}
         self._write_version = 0
+        self._stats_cache: Optional[tuple[int, float, tuple[int, tuple[str, ...]]]] = None
         self._ensure_tables()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -336,8 +337,22 @@ class KnowledgeEngine:
             return conn.execute("SELECT COUNT(*) FROM rag_vectors").fetchone()[0]
 
     def vector_models(self) -> list[str]:
+        return list(self.stats()[1])
+
+    def stats(self, max_age_s: float = 30.0) -> tuple[int, tuple[str, ...]]:
+        """(chunk count, embedding models) - cached so the hot query path skips two table scans.
+
+        Refreshed after every local write and at least every ``max_age_s`` (another process may index).
+        """
+        cached = self._stats_cache
+        now = time.monotonic()
+        if cached and cached[0] == self._write_version and now - cached[1] < max_age_s:
+            return cached[2]
         with self._get_connection() as conn:
-            return [r[0] for r in conn.execute("SELECT DISTINCT model FROM rag_vectors").fetchall()]
+            count = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
+            models = tuple(r[0] for r in conn.execute("SELECT DISTINCT model FROM rag_vectors").fetchall())
+        self._stats_cache = (self._write_version, now, (int(count), models))
+        return int(count), models
 
     async def embed_pending(self, client: Any, model: str | None = None, batch_size: int = 32, max_batches: int = 50) -> int:
         """Embed chunks that have no vector yet (runs in the background after ingestion)."""

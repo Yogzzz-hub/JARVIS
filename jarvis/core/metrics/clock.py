@@ -15,6 +15,7 @@ class Clock:
     verification_started_ns: int = 0
     verification_finished_ns: int = 0
     response_ready_ns: int = 0
+    first_token_ns: int = 0
 
     def metrics(self) -> dict[str, float | None]:
         def elapsed(a, b):
@@ -28,4 +29,5 @@ class Clock:
             "tool_return_ms": elapsed(self.tool_started_ns, self.tool_returned_ns),
             "verification_ms": elapsed(self.verification_started_ns, self.verification_finished_ns),
             "total_ms": elapsed(self.received_ns, self.response_ready_ns),
+            "first_token_ms": elapsed(self.received_ns, self.first_token_ns),
         }

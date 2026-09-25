@@ -50,6 +50,8 @@ class JarvisUIController(QObject):
 
         # Wire Metrics
         self.metrics.metricsSampled.connect(self._on_metrics_sampled)
+        self.state.set_ui3d(self.settings.get("ui_3d", True) is not False)
+        self.state.set_low_resource_mode(bool(self.settings.get("low_resource_mode", False)))
 
     # --- UI Actions callable from QML ---
 
@@ -61,6 +63,8 @@ class JarvisUIController(QObject):
             return
 
         self.state.set_transcript_final(clean_text)
+        self.state.set_response("")
+        self.state.add_turn("user", clean_text)
         self.state.set_assistant_state(AssistantState.EXECUTING.value)
         self.state.set_status_message(f"Executing: {clean_text}")
 
@@ -75,6 +79,14 @@ class JarvisUIController(QObject):
         self.state.set_assistant_state(AssistantState.LISTENING.value)
         self.showVoiceOverlayRequested.emit()
         self.bridge.send_control("ptt_start")
+
+    @Slot()
+    def toggleTalk(self) -> None:
+        """One button / hotkey for voice: start listening, or finish the current utterance."""
+        if self.state.isListening:
+            self.stopPTT()
+        else:
+            self.startPTT()
 
     @Slot()
     def stopPTT(self) -> None:
@@ -113,6 +125,8 @@ class JarvisUIController(QObject):
     def updateSetting(self, key: str, value: Any) -> None:
         """Safely update and persist a UI setting."""
         self.settings.set(key, value)
+        if key == "ui_3d":
+            self.state.set_ui3d(bool(value))
         if key == "low_resource_mode":
             self.state.set_low_resource_mode(bool(value))
             if bool(value):
@@ -167,6 +181,7 @@ class JarvisUIController(QObject):
             self.state.set_assistant_state(AssistantState.LISTENING.value)
             self.state.set_status_message("Listening...")
         elif ev_type == UIEventType.LISTENING_STARTED:
+            self.state.set_voice_status("READY")
             self.state.set_transcript_partial("")
             self.state.set_status_message("Listening...")
             self.state.set_assistant_state(AssistantState.LISTENING.value)
@@ -181,6 +196,18 @@ class JarvisUIController(QObject):
         elif ev_type == UIEventType.TRANSCRIPT_FINAL:
             text = event.payload.get("text", "")
             self.state.set_transcript_final(text)
+            self.state.set_response("")
+            self.state.add_turn("user", text)
+        elif ev_type == UIEventType.RESPONSE_PARTIAL:
+            text = event.payload.get("text", "")
+            if text.strip():
+                self.state.set_response(text)
+                self.state.add_turn("assistant", text, streaming=True)
+                if self.state.assistantState not in (AssistantState.SPEAKING.value, AssistantState.LISTENING.value):
+                    self.state.set_status_message("Answering...")
+        elif ev_type == UIEventType.MODEL_STATE:
+            if "reachable" in event.payload:
+                self.state.set_llm_status("ONLINE" if event.payload.get("reachable") else "OFFLINE")
         elif ev_type == UIEventType.AUDIO_LEVEL:
             self.state.set_audio_levels(event.payload.get("levels", []))
         elif ev_type == UIEventType.TASK_STARTED:
@@ -188,10 +215,13 @@ class JarvisUIController(QObject):
         elif ev_type == UIEventType.TTS_STARTED:
             self.state.set_assistant_state(AssistantState.SPEAKING.value)
         elif ev_type in (UIEventType.TTS_STOPPED, UIEventType.VOICE_IDLE):
+            if ev_type == UIEventType.VOICE_IDLE:
+                self.state.set_voice_status("READY")
             if not self.state.isListening and self.state.assistantState != AssistantState.ERROR.value:
                 self.state.set_assistant_state(AssistantState.IDLE.value)
                 self.state.set_status_message("Ready")
         elif ev_type == UIEventType.VOICE_ERROR:
+            self.state.set_voice_status("ERROR")
             self.state.set_assistant_state(AssistantState.ERROR.value)
             err = event.payload.get("error", "Audio unavailable")
             self.state.set_status_message(err)
@@ -243,6 +273,7 @@ class JarvisUIController(QObject):
         req_text = self.state.transcriptFinal or "Command"
 
         self.state.set_response(msg)
+        self.state.add_turn("assistant", msg, streaming=False, state=state_str)
 
         if state_str == "SUCCESS" and self.state.assistantState != AssistantState.SPEAKING.value:
             self.state.set_assistant_state(AssistantState.SUCCESS.value)

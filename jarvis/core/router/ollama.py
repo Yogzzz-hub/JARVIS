@@ -1,5 +1,7 @@
+import copy
 import json
 import time
+from collections import OrderedDict
 from typing import Any, Protocol
 from jarvis.core.router.catalog import IntentDefinition
 from jarvis.core.router.models import (
@@ -49,7 +51,18 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "- Set is_multi_step=true when the request needs two or more different actions in sequence.\n"
     "- Never invent argument values; list required arguments you could not find in missing_slots.\n"
     "- Speech-recognition errors are common: interpret misheard words by meaning (\"crome\" = chrome).\n"
-    "- confidence is your probability (0-1) that the chosen tool and arguments are correct."
+    "- confidence is your probability (0-1) that the chosen tool and arguments are correct.\n"
+    "- Only use tool names from the list you are given; the examples below only show the format.\n"
+    "Examples:\n"
+    "\"could you fire up crome\" -> {\"intent\": \"open_app\", \"slots\": {\"name\": \"chrome\"}, \"missing_slots\": [], "
+    "\"confidence\": 0.93, \"is_multi_step\": false, \"is_command\": true, \"unknown\": false}\n"
+    "\"message priya that I'm running late\" -> {\"intent\": \"send_whatsapp_message\", \"slots\": {\"recipient\": \"priya\", "
+    "\"message\": \"I'm running late\"}, \"missing_slots\": [], \"confidence\": 0.9, \"is_multi_step\": false, "
+    "\"is_command\": true, \"unknown\": false}\n"
+    "\"why is the sky blue\" -> {\"intent\": \"none\", \"slots\": {}, \"missing_slots\": [], \"confidence\": 0.95, "
+    "\"is_multi_step\": false, \"is_command\": false, \"unknown\": true}\n"
+    "\"download the report and email it to my boss\" -> {\"intent\": \"none\", \"slots\": {}, \"missing_slots\": [], "
+    "\"confidence\": 0.8, \"is_multi_step\": true, \"is_command\": true, \"unknown\": false}"
 )
 
 
@@ -85,10 +98,34 @@ class OllamaProvider:
         self.capability_retriever = capability_retriever
         self.capability_registry = capability_registry
         self.tool_registry = tool_registry
+        self._cache: "OrderedDict[tuple, tuple[float, Any]]" = OrderedDict()
 
     @property
     def client(self):
         return self._client or self._get_llm()
+
+    # ------------------------------------------------------------------ result cache
+    # Repeated phrasings ("open my mail", "pause music") are classified once; temperature is 0,
+    # so the answer for the same text and candidate set is deterministic anyway.
+    CACHE_SIZE = 256
+    CACHE_TTL_S = 900.0
+
+    def _cache_get(self, key):
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        stored_at, value = entry
+        if time.monotonic() - stored_at > self.CACHE_TTL_S:
+            self._cache.pop(key, None)
+            return None
+        self._cache.move_to_end(key)
+        return copy.deepcopy(value)
+
+    def _cache_put(self, key, value) -> None:
+        self._cache[key] = (time.monotonic(), copy.deepcopy(value))
+        self._cache.move_to_end(key)
+        while len(self._cache) > self.CACHE_SIZE:
+            self._cache.popitem(last=False)
 
     @property
     def base_url(self) -> str:
@@ -214,19 +251,27 @@ class OllamaProvider:
             {"role": "user", "content": self._render(text, described)},
         ]
         model_used = self.model
+        cache_key = (" ".join(text.lower().split()), tuple(names))
         try:
-            result = await self.client.chat(
-                messages,
-                role=self.role,
-                model=self.model,
-                schema=self._schema(names),
-                temperature=0.0,
-                max_tokens=220,
-                timeout=self.timeout,
-            )
-            model_used = result.model
-            breakdown.update({f"model_{k}": v for k, v in result.timings_ms.items()})
-            parsed = result.data if isinstance(result.data, dict) else {}
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                parsed, model_used = cached
+                breakdown["classifier_cache_hit"] = 1.0
+            else:
+                result = await self.client.chat(
+                    messages,
+                    role=self.role,
+                    model=self.model,
+                    schema=self._schema(names),
+                    temperature=0.0,
+                    max_tokens=220,
+                    timeout=self.timeout,
+                )
+                model_used = result.model
+                breakdown.update({f"model_{k}": v for k, v in result.timings_ms.items()})
+                parsed = result.data if isinstance(result.data, dict) else {}
+                if parsed:
+                    self._cache_put(cache_key, (parsed, model_used))
 
             intent = parsed.get("intent")
             if intent in ("none", "null", ""):

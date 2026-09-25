@@ -46,6 +46,7 @@ class PulseEngine:
         self._active_interactions: set[str] = set()
         self._speech_tasks: set[asyncio.Task] = set()
         self._ack_pcm: "OrderedDict[str, tuple[bytes, int]]" = OrderedDict()  # recent micro-ACK audio
+        self._streams: dict[str, "SpeechStream"] = {}  # requests whose answer is spoken while it is generated
 
     # Sources whose feedback must never be spoken on the PC (remote or background channels).
     SILENT_SOURCES = frozenset({"whatsapp", "test_silent", "benchmark", "test"})
@@ -68,6 +69,42 @@ class PulseEngine:
             elif sentence:
                 chunks.append(sentence)
         return chunks or ([text.strip()] if text and text.strip() else [])
+
+    def open_speech_stream(self, request_id: str) -> Optional["SpeechStream"]:
+        """Speak an answer while the model is still writing it (first sentence plays immediately)."""
+        if not (self.audio_output and self.tts):
+            return None
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        stream = SpeechStream(self, request_id)
+        self._streams[request_id] = stream
+        return stream
+
+    def close_speech_stream(self, request_id: str) -> None:
+        stream = self._streams.pop(request_id, None)
+        if stream is not None:
+            stream.close()
+
+    async def _speak_chunk(self, request_id: str, chunk: str, index: int) -> None:
+        if getattr(self.tts, "blocking", False):
+            pcm, _backend = await asyncio.to_thread(self.tts.synthesize, chunk)
+        else:
+            pcm, _backend = self.tts.synthesize(chunk)
+        if not pcm:
+            return
+        self.audio_output.play(SpokenResponse(
+            text=chunk,
+            type=ResponseType.FINAL,
+            request_id=request_id,
+            priority=ResponsePriority.FINAL,
+            interruptible=True,
+            audio_bytes=pcm,
+            sample_rate=getattr(self.tts, "sample_rate", 22050),
+            is_chunk=index > 0,
+            chunk_index=index,
+        ))
 
     def _synth_blocks_loop(self) -> bool:
         if not getattr(self.tts, "blocking", False):
@@ -322,7 +359,21 @@ class PulseEngine:
             self._active_interactions.discard(request_id)
             return
 
-        # 3. Final spoken response for voice requests or confirmation talk-back
+        # 3. The answer was already spoken sentence by sentence while it was generated.
+        stream = self._streams.pop(request_id, None)
+        if stream is not None:
+            stream.close()
+            if stream.spoke and not is_waiting_confirmation:
+                def _done(_task, rid=request_id):
+                    self.scheduler.cleanup(rid)
+                    self._active_interactions.discard(rid)
+                if stream.task is not None:
+                    stream.task.add_done_callback(_done)
+                else:
+                    _done(None)
+                return
+
+        # 4. Final spoken response for voice requests or confirmation talk-back
         if (is_voice or is_waiting_confirmation) and result_message and self.audio_output and self.tts:
             async def _speak_final():
                 try:
@@ -365,3 +416,53 @@ class PulseEngine:
                 self.play_earcon(EarconType.FAILED_UNCERTAIN, request_id)
             self.scheduler.cleanup(request_id)
             self._active_interactions.discard(request_id)
+
+
+class SpeechStream:
+    """Ordered sentence queue for one request: synthesizes and plays each sentence as it arrives."""
+
+    def __init__(self, engine: PulseEngine, request_id: str):
+        from time import perf_counter_ns
+        self.engine = engine
+        self.request_id = request_id
+        self.started_ns = perf_counter_ns()
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.spoke = False
+        self.closed = False
+        self.task: Optional[asyncio.Task] = asyncio.create_task(self._worker())
+        engine._speech_tasks.add(self.task)
+        self.task.add_done_callback(engine._speech_tasks.discard)
+
+    def push(self, sentence: str) -> None:
+        from jarvis.core.llm.assistant import to_speakable
+        text = to_speakable(sentence)
+        if self.closed or not text or not any(ch.isalnum() for ch in text):
+            return
+        if not self.spoke:
+            self.spoke = True
+            # The real answer is about to play: a pending "one moment" acknowledgement would only delay it.
+            try:
+                self.engine.scheduler.cancel_race_timer(self.request_id)
+            except Exception:
+                pass
+        self.queue.put_nowait(text)
+
+    def close(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self.queue.put_nowait(None)
+
+    async def _worker(self) -> None:
+        index = 0
+        audio = self.engine.audio_output
+        while True:
+            chunk = await self.queue.get()
+            if chunk is None:
+                break
+            if getattr(audio, "_cancel_ns", 0) > self.started_ns:
+                continue  # barge-in / "stop talking": drop the rest of this answer
+            try:
+                await self.engine._speak_chunk(self.request_id, chunk, index)
+                index += 1
+            except Exception as exc:
+                logger.warning("Streamed speech chunk failed (non-fatal): %s", exc)

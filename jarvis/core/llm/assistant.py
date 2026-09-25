@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-from jarvis.core.llm.client import LLMError, LLMUnavailable, OllamaClient, get_llm
+from jarvis.core.llm.client import ChatResult, LLMError, LLMUnavailable, OllamaClient, get_llm, strip_thinking
+from jarvis.core.llm.streaming import StreamSink, current_stream
 
 logger = logging.getLogger("jarvis.llm.assistant")
 
@@ -145,6 +146,7 @@ class Assistant:
         self.memory = memory or ConversationMemory()
         self.web_search = web_search
         self.owner_name = owner_name
+        self._caps_cache: tuple[tuple[int, int], str] | None = None
 
     @property
     def client(self) -> OllamaClient:
@@ -156,7 +158,12 @@ class Assistant:
 
         now = datetime.now().astimezone()
         who = f" for {self.owner_name}" if self.owner_name else ""
-        caps = available_capabilities_summary(self.registry) if self.registry is not None else ""
+        caps = ""
+        if self.registry is not None:
+            key = (id(self.registry), len(self.registry.list()))
+            if self._caps_cache is None or self._caps_cache[0] != key:
+                self._caps_cache = (key, available_capabilities_summary(self.registry))
+            caps = self._caps_cache[1]
         style = (
             "You are speaking out loud: answer in one to three short, natural sentences. "
             "No markdown, no lists, no URLs, no emojis."
@@ -165,7 +172,6 @@ class Assistant:
         )
         parts = [
             f"You are JARVIS, a helpful, friendly and precise personal AI assistant running locally{who} on a Windows PC.",
-            f"Current local date and time: {now.strftime('%A, %d %B %Y, %I:%M %p %Z')}.",
             style,
             "Be truthful. If you are not sure, or the answer needs live information you were not given, say so briefly "
             "and offer to search the web. Never claim you performed an action - in this reply you only talk; actions are "
@@ -178,6 +184,9 @@ class Assistant:
             parts.append("This conversation happens over WhatsApp with the owner of this PC.")
         if caps:
             parts.append("Things JARVIS can do on request (tools):\n" + caps)
+        # The clock goes last: everything above is identical between requests, so Ollama reuses
+        # its evaluated prompt prefix (KV cache) and only the new tokens are processed.
+        parts.append(f"Current local date and time: {now.strftime('%A, %d %B %Y, %I:%M %p %Z')}.")
         return "\n".join(parts)
 
     async def _knowledge_context(self, query: str, scopes: Optional[set[str]] = None, limit: int = 4) -> list[dict[str, Any]]:
@@ -233,6 +242,23 @@ class Assistant:
         lines.append("</context>")
         return "\n".join(lines)
 
+    async def _stream(self, messages: list[dict[str, str]], sink: StreamSink, max_tokens: int) -> ChatResult:
+        """Stream the answer into ``sink`` (speech starts at the first sentence); returns the full text."""
+        client = self.client
+        model = await client.resolve("chat")
+        try:
+            async for delta in client.stream_chat(messages, role="chat", model=model, temperature=0.4, max_tokens=max_tokens):
+                sink.feed(delta)
+        except LLMUnavailable:
+            raise
+        except LLMError:
+            if not sink.text.strip():
+                raise
+            logger.warning("Answer stream ended early; using the partial answer")
+        finally:
+            sink.close()
+        return ChatResult(text=strip_thinking(sink.text), model=model)
+
     # ------------------------------------------------------------------ public API
     async def respond(
         self,
@@ -268,13 +294,17 @@ class Assistant:
             user_content = "\n\n".join(p for p in (extra_context, context_block, f"User: {query}") if p)
         messages.append({"role": "user", "content": user_content})
 
+        sink = current_stream.get()
         try:
-            result = await self.client.chat(
-                messages,
-                role="chat",
-                temperature=0.4,
-                max_tokens=max_tokens or (180 if speakable else 600),
-            )
+            if sink is not None:
+                result = await self._stream(messages, sink, max_tokens or (180 if speakable else 600))
+            else:
+                result = await self.client.chat(
+                    messages,
+                    role="chat",
+                    temperature=0.4,
+                    max_tokens=max_tokens or (180 if speakable else 600),
+                )
         except LLMUnavailable as exc:
             return AssistantReply(
                 text="My local AI model isn't running right now, so I can only handle direct commands. "

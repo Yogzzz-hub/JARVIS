@@ -608,23 +608,30 @@ class OllamaClient:
                     except json.JSONDecodeError:
                         continue
                     delta = (chunk.get("message") or {}).get("content", "")
-                    if delta:
-                        if "<think>" in delta:
-                            in_think = True
-                            delta = delta.split("<think>", 1)[0]
-                        if in_think:
-                            if "</think>" in delta:
-                                in_think = False
-                                delta = delta.split("</think>", 1)[1]
-                            else:
-                                delta = ""
-                        if delta:
-                            yield delta
+                    out = ""
+                    while delta:
+                        tag = "</think>" if in_think else "<think>"
+                        idx = delta.find(tag)
+                        if idx < 0:
+                            out += "" if in_think else delta
+                            break
+                        if not in_think:
+                            out += delta[:idx]
+                        delta = delta[idx + len(tag):]
+                        in_think = not in_think
+                    if out:
+                        yield out
                     if chunk.get("done"):
                         break
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             self._trip(exc)
             raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}") from exc
+        except httpx.TimeoutException as exc:
+            self.total_failures += 1
+            raise LLMError(f"Model {model} timed out while streaming") from exc
+        except httpx.HTTPError as exc:
+            self.total_failures += 1
+            raise LLMError(f"Streaming from {model} failed: {exc}") from exc
 
     async def embed(self, texts: list[str], model: str | None = None) -> list[list[float]]:
         if not texts:
@@ -723,6 +730,10 @@ class OllamaClient:
             if await self.available(refresh=True):
                 return True
         return False
+
+    def seems_up(self) -> bool:
+        """Cheap, non-blocking guess: models were listed at some point and the breaker is closed."""
+        return bool(self._models) and not self._breaker_open()
 
     def status(self) -> dict[str, Any]:
         return {

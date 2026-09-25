@@ -184,6 +184,8 @@ class BridgeWorker(QObject):
                         "tts.error": UIEventType.VOICE_ERROR,
                         "whatsapp.status": UIEventType.INTEGRATION_STATE,
                         "confirmation.required": UIEventType.CONFIRMATION_REQUIRED,
+                        "assistant.partial": UIEventType.RESPONSE_PARTIAL,
+                        "llm.status": UIEventType.MODEL_STATE,
                     }
                     event_type = mapping.get(data.get("event"))
                     if event_type:

@@ -26,6 +26,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "show_notifications": True,
     "ui_scale": 1.0,
     "metrics_interval_ms": 1000,
+    "ui_3d": True,  # real-time 3D reactor (falls back to 2D automatically)
 }
 
 
@@ -61,6 +62,10 @@ class UISettings:
     def set(self, key: str, value: Any) -> None:
         self._settings[key] = value
         self.save()
+
+    def override(self, key: str, value: Any) -> None:
+        """Change a setting for this session only (not written to disk)."""
+        self._settings[key] = value
 
     def all(self) -> dict[str, Any]:
         return dict(self._settings)

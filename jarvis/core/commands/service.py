@@ -770,8 +770,20 @@ class CommandService:
         if self.pulse:
             self.pulse.on_execution_started(task.request_id)
         clock.tool_started_ns = now_ns()
-        res = await self.executor.execute(tool, args, task)
+        sink, token = self._open_answer_stream(task, is_voice)
+        try:
+            res = await self.executor.execute(tool, args, task)
+        finally:
+            if token is not None:
+                from jarvis.core.llm.streaming import current_stream
+                current_stream.reset(token)
+            if sink is not None:
+                sink.close()
         clock.tool_returned_ns = now_ns()
+        if sink is not None and sink.first_delta_at is not None:
+            clock.first_token_ns = sink.first_delta_at
+        if (not res.success or res.data.get("status") == "error") and self.pulse:
+            self.pulse.close_speech_stream(task.request_id)  # speak the error message normally instead
         if self.pulse:
             self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "ollama_chat")
         self.tasks.transition(task, State.VERIFYING)
@@ -791,6 +803,18 @@ class CommandService:
         verification = VerificationResult(verified=True, confidence=0.9, evidence={
             "model": res.data.get("model", ""), "sources": len(res.data.get("sources", []) or []), "used_web": bool(res.data.get("used_web"))})
         return self._finalize(task, State.SUCCESS, message, res, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+    def _open_answer_stream(self, task, is_voice):
+        """Stream the chat answer: speech starts at the first sentence and the UI shows text as it is written."""
+        from jarvis.core.llm.streaming import StreamSink, current_stream
+        speech = self.pulse.open_speech_stream(task.request_id) if (is_voice and self.pulse is not None) else None
+        request_id = task.request_id
+
+        def on_text(text: str) -> None:
+            self.bus.emit("assistant.partial", request_id, text=text)
+
+        sink = StreamSink(on_sentence=speech.push if speech is not None else None, on_text=on_text)
+        return sink, current_stream.set(sink)
 
     async def _run_agent(self, request, task, clock, current, is_voice, predicted_ms, goal=None, state=None, confirmed=False):
         """Tool-using agent for open-ended requests; pauses for confirmation on risky steps."""

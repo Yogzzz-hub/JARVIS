@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import "../components"
+import "../components/palette.js" as Palette
 
 Window {
     id: root
@@ -36,10 +37,14 @@ Window {
     Rectangle {
         anchors.fill: parent
         anchors.margins: 4
-        radius: 12
-        color: "#0F141E"
-        border.color: stateModel && stateModel.assistantState === "LISTENING" ? "#00E5FF" : "#222D3E"
+        radius: 16
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#EE101A2A" }
+            GradientStop { position: 1.0; color: "#F0070B13" }
+        }
+        border.color: Palette.stateColor(stateModel ? stateModel.assistantState : "IDLE")
         border.width: 1.5
+        Behavior on border.color { ColorAnimation { duration: 200 } }
 
         Column {
             anchors.fill: parent
@@ -52,7 +57,8 @@ Window {
                 spacing: 10
 
                 JarvisOrb {
-                    orbSize: 24
+                    orbSize: 30
+                    level: stateModel ? stateModel.audioLevel : 0
                     assistantState: stateModel ? stateModel.assistantState : "IDLE"
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -68,7 +74,7 @@ Window {
                         if (stateModel.assistantState === "IDLE") return "Ready";
                         return stateModel.statusMessage ? stateModel.statusMessage : "Ready";
                     }
-                    color: "#00E5FF"
+                    color: Palette.stateColor(stateModel ? stateModel.assistantState : "IDLE")
                     font.pixelSize: 12
                     font.bold: true
                     anchors.verticalCenter: parent.verticalCenter
