@@ -263,6 +263,9 @@ class SendWhatsAppMessageTool(Tool):
 # Read WhatsApp Messages Tool
 # =====================================================================
 
+_COMMAND_ECHO = re.compile(r"^\s*(?:approve|reject|confirm|cancel|yes|no)\b.*\btkt_\w+|\btkt_[0-9a-f]{6,}\b", re.I)
+
+
 class ReadWhatsAppMessagesInput(Contract):
     filter: str = Field(default="needs_reply", description="Filter: 'needs_reply', 'urgent', 'unread', or 'all'")
     limit: int = Field(default=5, ge=1, le=50, description="Max messages to retrieve")
@@ -315,7 +318,10 @@ class ReadWhatsAppMessagesTool(Tool):
         else:  # "needs_reply"
             raw_msgs = self.inbox.get_messages_needing_reply(limit=lim)
 
-        msg_dicts = [m.to_dict() for m in raw_msgs]
+        # Hide JARVIS plumbing stored before owner messages were tagged (commands, approvals).
+        msg_dicts = [m.to_dict() for m in raw_msgs
+                     if not m.is_from_me and not _COMMAND_ECHO.search(m.text or "")
+                     and (m.sender_display_name or "").strip().casefold() not in ("owner", "me", "jarvis")]
         count = len(msg_dicts)
 
         if count == 0:

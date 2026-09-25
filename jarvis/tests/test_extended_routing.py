@@ -118,3 +118,19 @@ def test_move_and_copy_never_take_the_destination_as_the_source():
 async def test_browsing_goals_go_to_the_web_agent(router, text, goal):
     decision = await router.route(text)
     assert decision.intent == "web_task" and decision.slots["goal"] == goal
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,intent,slots", [
+    ("turn volume down to 30, no wait, 20", "volume_set", {"percent": 20}),
+    ("set brightness to 70, actually 50", "brightness_set", {"level": 50}),
+    ("too loud in here", "volume_down", {}),
+    ("can't hear anything from the speakers", "volume_up", {}),
+    ("total silence please", "volume_mute", {}),
+    ("open file explorer", "open_app", {"name": "file explorer"}),
+])
+async def test_everyday_phrasing_and_self_corrections(router, text, intent, slots):
+    decision = await router.route(text)
+    assert decision.intent == intent, (text, decision)
+    for k, v in slots.items():
+        assert decision.slots.get(k) == v

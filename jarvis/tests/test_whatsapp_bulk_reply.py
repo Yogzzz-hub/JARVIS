@@ -139,3 +139,15 @@ async def test_owner_can_ask_about_their_whatsapp_chats(tmp_path):
         assert not scoped
     finally:
         await h.close()
+
+
+def test_unread_messages_never_list_the_owners_own_commands(tmp_path):
+    from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
+    from jarvis.tools.system.whatsapp_tools import ReadWhatsAppMessagesTool
+
+    inbox = WhatsAppInbox(tmp_path / "i.db")
+    inbox.add_message(_msg("919999999999@s.whatsapp.net", "919999999999@s.whatsapp.net", "Owner", "Open Notepad", "o1", 60))
+    inbox.add_message(_msg("919999999999@s.whatsapp.net", "919999999999@s.whatsapp.net", "Owner", "APPROVE tkt_264fc79809cb", "o2", 50))
+    inbox.add_message(_msg("919000000003@s.whatsapp.net", "919000000003@s.whatsapp.net", "Rahul", "Are you coming for lunch?", "d1", 40))
+    res = ReadWhatsAppMessagesTool(inbox=inbox).run({"filter": "unread", "limit": 10})
+    assert res["count"] == 1 and "Rahul" in res["spoken_summary"] and "Notepad" not in res["spoken_summary"]
