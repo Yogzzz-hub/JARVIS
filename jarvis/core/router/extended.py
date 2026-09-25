@@ -243,6 +243,28 @@ def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
     return None
 
 
+_CORRECTION = re.compile(r"(?:,|\u2014|-)?\s*(?:no wait|no no|no|wait|actually|sorry|i mean|make (?:that|it)|rather)\b[, ]*(?:make (?:that|it)\s+)?(?:to\s+)?(?P<n>\d{1,3})\s*(?:%|percent)?$")
+
+
+def match_everyday(t: str, request_id: str) -> Optional[RouteDecision]:
+    """Implicit everyday phrasings and spoken self-corrections ("volume 30, no wait, 20")."""
+    m = _CORRECTION.search(t)
+    if m and re.search(r"\b(volume|sound|brightness)\b", t[: m.start()]):
+        n = max(0, min(100, int(m.group("n"))))
+        if "brightness" in t[: m.start()]:
+            return _decision(request_id, t, "brightness_set", {"level": n})
+        return _decision(request_id, t, "volume_set", {"percent": n})
+    if re.match(r"^(?:it'?s\s+)?(?:way\s+|too\s+|so\s+|very\s+)+loud(?:\s+in\s+here)?$|^(?:that'?s|this is)\s+too\s+loud$", t):
+        return _decision(request_id, t, "volume_down", {})
+    if re.match(r"^(?:i\s+)?can'?t hear (?:anything|you|it|a thing)(?:\s+from the speakers?)?$|^(?:it'?s\s+)?too (?:quiet|soft|low)$", t):
+        return _decision(request_id, t, "volume_up", {})
+    if re.match(r"^(?:total |complete )?silence(?: please)?$|^(?:mute|silence) everything$|^shut (?:it|the sound) off$", t):
+        return _decision(request_id, t, "volume_mute", {})
+    if re.match(r"^(?:open|launch|show|start)\s+(?:the\s+|my\s+)?(?:windows\s+)?(?:file explorer|file manager|explorer|my computer|this pc)$", t):
+        return _decision(request_id, t, "open_app", {"name": "file explorer"})
+    return None
+
+
 def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     """Return a routing decision for the extended domains, or None to continue normal routing."""
     raw = text.strip()
@@ -257,6 +279,9 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     software = match_software(re.sub(r"^(?:please|kindly|jarvis|hey jarvis|can you|could you|would you|just)\s+", "", t), request_id)
     if software:
         return software
+    everyday = match_everyday(t, request_id)
+    if everyday:
+        return everyday
     m = re.match(r"^(?:send|push)\s+(?:a\s+|an\s+)?(?:notification|alert|reminder|note)\s+to\s+(?:my\s+|the\s+)?" + PHONE_WORDS +
                  r"(?:\s+(?:saying|that says|with|:)\s+(?P<body>.+))?$", t)
     if m:
