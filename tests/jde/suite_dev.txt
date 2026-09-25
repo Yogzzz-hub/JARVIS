@@ -1,0 +1,375 @@
+# JDE development suite (350). FAMILY[+FAM..] | flags | text | context
+# flags: a=action l=llm p=planner c=context w=web x=external d=destructive m=ambiguous u=unsupported, digit=complexity
+# ---------------- APP
+APP | a1 | Could you bring the calculator up for me?
+APP | a1 | get Chrome running
+APP | a1 | I want to write something, open notepad
+APP | a1 | pop open spotify real quick
+APP | a1 | launch visual studio code
+APP | a1 | can you get rid of the discord window, close it
+APP | a1 | shut down edge browser
+APP | a1 | open up telegram please
+APP | a1 | start the camera app
+APP | a1 | need excel open now
+APP | a1 | kill zoom, it's frozen
+APP | a1 | fire up obs for recording
+APP | a2 | open chrome and calculator
+APP | a1 | bring notepad to the front
+APP | a1 | get me into microsoft word
+APP | a1 | start paint
+APP | a1 | open task manager
+APP | a1 | close all the chrome windows
+# ---------------- SYSTEM
+SYSTEM | a1 | turn the sound down a notch
+SYSTEM | a1 | volume to thirty
+SYSTEM | a1 | it is way too loud in here
+SYSTEM | a1 | I can barely hear the speakers
+SYSTEM | a1 | kill the sound completely
+SYSTEM | a1 | make the screen brighter
+SYSTEM | a1 | what's the time right now
+SYSTEM | a1 | which day is it today
+SYSTEM | a1 | capture my screen
+SYSTEM | a1 | how's my laptop doing, cpu and memory
+SYSTEM | a1 | how much battery is left on the laptop
+SYSTEM | a1 | lock my computer
+SYSTEM | ad1 | power off the pc
+SYSTEM | ad1 | reboot the laptop
+SYSTEM | a1 | enable night light
+SYSTEM | a1 | open the sound settings
+SYSTEM | a1 | is the wifi connected
+SYSTEM | a1 | what processes are eating my ram
+# ---------------- FILE
+FILE | a1 | where did I save my resume
+FILE | a1 | dig up the tax pdf from last month
+FILE | a1 | show me what's in my downloads
+FILE | a1 | tidy up the downloads folder
+FILE | a1 | open the budget spreadsheet
+FILE | a1 | make a new folder named college stuff on the desktop
+FILE | a1 | rename report_final to report_v2
+FILE | a1 | move the invoice into documents
+FILE | a1 | copy the presentation to my desktop
+FILE | a1 | look for duplicate pictures in my photos folder
+FILE | ad1 | trash the old screenshots folder
+FILE | ad1 | wipe everything in the temp folder
+FILE | ad1 | get rid of report_old.docx
+FILE | a1 | how big is the videos folder
+FILE | a1 | find all pdfs from this week
+FILE | a1 | open my documents folder
+FILE | a1 | which file did I edit last
+FILE | a1 | show the properties of assignment.pdf
+# ---------------- RAG
+RAG | al1 | What did my CNN notes say about pooling?
+RAG | al1 | according to the lease pdf, when is rent due
+RAG | al1 | go through my study notes and tell me the exam date
+RAG | al1 | what does the company handbook say about sick leave
+RAG | al1 | pull the key points about backprop from my lecture notes
+RAG | al1 | my notes mention a wifi password somewhere, what is it
+RAG | al1 | summarize chapter 4 from my uploaded textbook
+RAG | al1 | what did Rahul tell me about the Goa trip in our chats
+RAG | a1 | add my research folder to your knowledge
+RAG | a1 | read and remember everything in D:\Notes
+RAG | al1 | in my meeting notes, who owns the budget task
+RAG | al1 | based on my documents, what's the project deadline
+RAG | al1 | from my resume, list my skills
+RAG | al1 | search my notes for anything about docker volumes
+RAG | al1 | check my papers folder, what accuracy did the model reach
+RAG | al1 | what did my professor's slides say about overfitting
+# ---------------- KNOWLEDGE
+KNOWLEDGE | l1 | What is CUDA?
+KNOWLEDGE | l1 | what does ollama do
+KNOWLEDGE | l1 | explain transformers to me simply
+KNOWLEDGE | l1 | How does WhatsApp encryption work?
+KNOWLEDGE | l1 | what's the difference between ram and storage
+KNOWLEDGE | l1 | why is the sky blue
+KNOWLEDGE | l1 | write a haiku about monsoon
+KNOWLEDGE | l1 | give me three tips for a job interview
+KNOWLEDGE | l1 | what is Chrome
+KNOWLEDGE | l1 | how do I install Ollama
+KNOWLEDGE | l1 | can I delete system32
+KNOWLEDGE | l1 | what does the delete key do
+KNOWLEDGE | l1 | how do I close a frozen app on windows
+KNOWLEDGE | l1 | how does git rebase work
+KNOWLEDGE | l2 | write a detailed architecture for distributed inference
+KNOWLEDGE | l1 | who invented the telephone
+KNOWLEDGE | l1 | convert 5 miles to kilometers
+KNOWLEDGE | l1 | what's 18 percent of 2400
+KNOWLEDGE | l1 | tell me something funny
+KNOWLEDGE | l1 | how are you doing today
+KNOWLEDGE | l1 | what can you do for me
+KNOWLEDGE | l1 | rewrite this sentence to sound polite: send me the file now
+KNOWLEDGE | l1 | is python good for beginners
+KNOWLEDGE | l1 | what is the capital of australia
+KNOWLEDGE | l1 | explain what an api is
+KNOWLEDGE | l1 | thanks, that helped
+# ---------------- WEB
+WEB | alw1 | What is the latest TensorFlow release?
+WEB | alw1 | will it rain in bangalore tomorrow
+WEB | alw1 | who won last night's IPL match
+WEB | alw1 | what's the gold rate today in chennai
+WEB | alw1 | any big tech news this morning
+WEB | alw1 | current price of the pixel 9
+WEB | alw1 | how is the nifty doing right now
+WEB | alw1 | when does the next spacex launch happen
+WEB | alw1 | what's the newest version of node
+WEB | alw1 | is there a holiday this friday in tamil nadu
+WEB | alw1 | latest updates on the chennai metro
+WEB | alw1 | what movies released this week
+WEB | alw1 | search the internet for the best budget laptops of this year
+WEB | alw1 | look up the current dollar to rupee rate
+# ---------------- BROWSER
+BROWSER | a1 | look up the official TensorFlow docs for CNN
+BROWSER | a2 | Open YouTube and search for study music
+BROWSER | a1 | find running shoes on flipkart
+BROWSER | a1 | head over to github
+BROWSER | a1 | use the browser to check the price of airpods on amazon
+BROWSER | a1 | fill in the contact form on this page with my details
+BROWSER | a1 | go to wikipedia and look up alan turing
+BROWSER | a1 | open a fresh tab
+BROWSER | a1 | scroll down on this page
+BROWSER | a1 | go back to the previous page in the browser
+BROWSER | a1 | search reddit for mechanical keyboard recommendations
+BROWSER | a1 | play lofi beats on youtube
+BROWSER | a1 | open irctc and check trains to madurai
+BROWSER | a1 | visit stackoverflow.com
+BROWSER | a1 | continue the browser task, I've logged in
+BROWSER | a1 | on linkedin, search for data science jobs in chennai
+# ---------------- DESKTOP
+DESKTOP | ac1 | press send | app=Antigravity
+DESKTOP | a1 | click the save button
+DESKTOP | a1 | hit the ok button on that popup
+DESKTOP | al1 | what does this error on my screen mean
+DESKTOP | al1 | look at my screen and tell me which button to press
+DESKTOP | a1 | type my email address into the box
+DESKTOP | a1 | snap this window to the right
+DESKTOP | a1 | minimize everything and show the desktop
+DESKTOP | a1 | switch to the other window
+DESKTOP | a1 | maximize this window
+DESKTOP | a2 | in settings, switch on dark mode
+DESKTOP | a2 | use my computer to change the wallpaper
+DESKTOP | a1 | close this dialog box
+DESKTOP | a1 | press ctrl plus z
+DESKTOP | a1 | right-click on the recycle bin
+DESKTOP | a1 | start typing | app=Notepad
+DESKTOP | al1 | read what's written in this window
+# ---------------- MEDIA
+MEDIA | a0 | pause the song
+MEDIA | a0 | resume playback
+MEDIA | a0 | next track please
+MEDIA | a0 | go back to the previous song
+MEDIA | ac0 | pause it | res=MediaResource
+MEDIA | a0 | stop the music
+MEDIA | a1 | play something relaxing
+MEDIA | a0 | skip this one
+MEDIA | a0 | play the music again
+MEDIA | ac0 | turn it off | res=MediaResource
+# ---------------- PHONE
+PHONE | a1 | lock my mobile
+PHONE | a1 | turn the volume up on my phone
+PHONE | a1 | open instagram on my phone
+PHONE | a1 | dial 9876543210 on my phone
+PHONE | a1 | what notifications do I have on my phone
+PHONE | a1 | tap the allow button on my phone
+PHONE | a1 | switch off wifi on the phone
+PHONE | a1 | is the phone plugged in
+PHONE | a1 | show my phone screen on the pc
+PHONE | a1 | how much charge does my phone have
+PHONE | a1 | put my phone on do not disturb
+PHONE | a1 | take a screenshot of the phone
+PHONE | a1 | go to the home screen on my phone
+PHONE | a1 | call mom from my phone
+# ---------------- TRANSFER
+TRANSFER | ac1 | send this PDF to my phone | res=FileResource
+TRANSFER | ac1 | send it to my phone | res=FileResource
+TRANSFER | a1 | grab the latest photo off my phone
+TRANSFER | a1 | copy my last three screenshots from the phone to the laptop
+TRANSFER | a1 | put report.pdf on my phone
+TRANSFER | a1 | bring the videos from my phone to the pc
+TRANSFER | a1 | transfer my resume to my mobile
+TRANSFER | a1 | pull the recording from my phone
+TRANSFER | ac1 | copy that to my phone | res=FileResource
+TRANSFER | a1 | send the budget spreadsheet to my phone
+# ---------------- WHATSAPP
+WHATSAPP | a1 | Show me what Arun sent.
+WHATSAPP | a1 | any unread whatsapp messages?
+WHATSAPP | a1 | give me a summary of my whatsapp chats
+WHATSAPP | a1 | did priya message me
+WHATSAPP | a1 | what's the latest in the family group
+WHATSAPP | alx1 | tell arun I'll call him after lunch
+WHATSAPP | alx1 | ask priya whether she finished the slides
+WHATSAPP | alx1 | reply to karthik saying sounds good
+WHATSAPP | alx1 | wish divya a happy birthday on whatsapp
+WHATSAPP | alx1 | let the team know the standup is cancelled
+WHATSAPP | alx1 | tell everyone who texted me that I'm in class
+WHATSAPP | acx1 | send him the PDF | res=FileResource,ContactResource
+WHATSAPP+FILE | acx2 | Send the PDF I found to Arun | res=FileResource
+WHATSAPP | al1 | draft a message to my boss about taking friday off
+WHATSAPP | al1 | write a reply for rahul but don't send it yet
+WHATSAPP | alx1 | message mom that I reached safely
+WHATSAPP | alx1 | whatsapp sarah saying the documents are ready
+WHATSAPP | alx1 | remind dad on whatsapp to take his tablets
+# ---------------- GOOGLE
+GOOGLE | a1 | any new mail in my inbox
+GOOGLE | a1 | what meetings do I have tomorrow
+GOOGLE | a1 | read my latest email
+GOOGLE | a1 | search my google drive for the thesis draft
+GOOGLE | alx1 | email the professor that I'll submit on monday
+GOOGLE | alx1 | set up a meeting with sarah on thursday at 3
+GOOGLE | alx1 | add dentist appointment to my calendar for 5pm friday
+GOOGLE | al1 | draft an email to HR asking about my payslip
+GOOGLE | alx1 | reply to the last email and say thanks
+GOOGLE | a1 | am I free on friday afternoon
+# ---------------- REMINDER
+REMINDER | a1 | remind me in 15 minutes to stretch
+REMINDER | a1 | set an alarm for 6 am
+REMINDER | a1 | ping me at 7 to call dad
+REMINDER | a1 | what reminders do I have
+REMINDER | a1 | make a note that the car service is on saturday
+REMINDER | a1 | start a 25 minute timer
+REMINDER | a1 | don't let me forget to pay rent tomorrow morning
+REMINDER | a1 | jot down: buy milk and eggs
+# ---------------- PACKAGE
+PACKAGE | a1 | install ollama
+PACKAGE | a1 | get vlc installed on this machine
+PACKAGE | a1 | set up python on my laptop
+PACKAGE | a1 | update all my software
+PACKAGE | a1 | is blender installed
+PACKAGE | ad1 | uninstall zoom
+PACKAGE | ad1 | remove the gimp app from this pc
+PACKAGE | ac1 | install it | topic=TopicRef;res=TopicRef
+PACKAGE | a1 | download and install docker desktop
+PACKAGE | a1 | update chrome
+PACKAGE | a1 | where is android studio installed
+# ---------------- DEVELOPMENT
+DEVELOPMENT | a1 | run the unit tests in my project
+DEVELOPMENT | a1 | what's the git status of this repo
+DEVELOPMENT | a1 | commit everything with message fix login
+DEVELOPMENT | a1 | open a powershell window
+DEVELOPMENT | a1 | run main.py
+DEVELOPMENT | al1 | why is my build failing
+DEVELOPMENT | a1 | pip install requests in my env
+DEVELOPMENT | al1 | explain the error in the terminal
+DEVELOPMENT | a1 | push my branch to github
+DEVELOPMENT | a1 | start the dev server
+# ---------------- WORKFLOW
+WORKFLOW | a1 | give me my morning briefing
+WORKFLOW | a1 | start my study session setup
+WORKFLOW | a1 | launch my coding workspace
+WORKFLOW | a1 | save my current workspace as project mode
+WORKFLOW | a1 | turn on focus mode for an hour
+WORKFLOW | a1 | what's my day looking like
+# ---------------- PLANNER
+PLANNER+FILE+RAG+BROWSER+TRANSFER+PHONE | alp4 | Find my latest object detection PDF, tell me which model it discusses, open the official docs and send the PDF to my phone.
+PLANNER+RAG+WEB | alpw3 | Check my notes and compare them with the newest official docs, then tell me what changed.
+PLANNER+FILE+WHATSAPP | alpx3 | find the invoice from march and whatsapp it to the accountant
+PLANNER+BROWSER+FILE | alp3 | search arxiv for diffusion papers, download the top two and put them in my research folder
+PLANNER+SYSTEM+WHATSAPP | alpx3 | take a screenshot and send it to rahul on whatsapp
+PLANNER+WEB+WHATSAPP | alpwx3 | check tomorrow's weather and tell mom if it's going to rain
+PLANNER+FILE+GOOGLE | alpx3 | find my resume and email it to the recruiter
+PLANNER+BROWSER+REMINDER | alp3 | open youtube, play focus music and set a 50 minute timer
+PLANNER+FILE+RAG | alp3 | go through all the pdfs in my downloads and make a summary document of each
+PLANNER+GOOGLE+WHATSAPP | alpx3 | if I have a meeting after 5 tell priya I'll be late
+PLANNER+WEB+FILE | alpw3 | compare the prices of the pixel 9 on amazon and flipkart and save the result in a note
+PLANNER+TRANSFER+FILE | alp3 | copy today's photos from my phone, put them in a new folder and rename them by date
+PLANNER+PACKAGE+APP | alp3 | install vlc and then open it
+PLANNER+RAG+KNOWLEDGE | alp3 | read my thesis draft, find weak arguments and suggest improvements
+# ---------------- CLARIFY
+CLARIFY | am1 | send that to him
+CLARIFY | acm1 | send it to my phone
+CLARIFY | am1 | open studio
+CLARIFY | am1 | delete them
+CLARIFY | am1 | reply to her
+CLARIFY | am1 | call him
+CLARIFY | am1 | move it over there
+CLARIFY | am1 | play it
+CLARIFY | am1 | open the file
+CLARIFY | am1 | forward this
+CLARIFY | acm1 | send him the pdf
+CLARIFY | am1 | install it
+# ---------------- UNKNOWN
+UNKNOWN | u1 | make me a cup of tea
+UNKNOWN | u1 | walk my dog
+UNKNOWN | u1 | zxqv plmn
+UNKNOWN | u1 | pick up my parcel from the post office
+UNKNOWN | u1 | break into my friend's instagram
+UNKNOWN | u1 | teleport me to goa
+UNKNOWN | u1 | fix my car engine
+UNKNOWN | u1 | uh
+UNKNOWN | u1 | iron my shirt
+UNKNOWN | u1 | order me a pizza from the shop down the road by walking there
+# ---------------- NEGATION / CORRECTIONS / MIXED (hard negatives)
+APP | 1 | don't open chrome
+KNOWLEDGE | l1 | explain whatsapp to me
+KNOWLEDGE | l1 | how do i send a file to my phone
+KNOWLEDGE | l1 | what happens if I uninstall python
+WHATSAPP | al1 | draft but don't send a message to arun about the meeting
+KNOWLEDGE | l1 | explain how sending emails works
+SYSTEM | a1 | volume 30 no wait 20
+WHATSAPP | alx1 | message Arun, no, Arun Kumar, that I'm on my way
+APP | a1 | open edge, not chrome
+KNOWLEDGE | l1 | should I close chrome to save battery
+KNOWLEDGE | l1 | what's whatsapp web
+KNOWLEDGE | l1 | how do I lock my phone remotely
+PACKAGE | 1 | don't install anything
+FILE | 1 | do not delete the report
+KNOWLEDGE | l1 | is it okay to delete temp files
+KNOWLEDGE | l1 | what does the uninstall button do
+BROWSER | a1 | open youtube not spotify
+FILE | a1 | open the file, not whatsapp | res=FileResource
+KNOWLEDGE | l1 | how do I reply to a message on whatsapp
+KNOWLEDGE | l1 | how do calendar invites work
+# ---------------- CONTEXT FOLLOW-UPS
+APP | ac1 | open it | res=ApplicationResource
+FILE | ac1 | open the second one | res=ResultSet,FileResource
+FILE | ac1 | delete the first one | res=ResultSet,FileResource
+PACKAGE | ac1 | set it up | res=TopicRef;topic=TopicRef
+MEDIA | ac0 | skip it | res=MediaResource
+KNOWLEDGE | cl1 | and how does it compare to opencl | topic=TopicRef;prev=KNOWLEDGE
+WEB | acwl1 | what about tomorrow | prev=WEB
+FILE | ac1 | show me the one from yesterday | res=ResultSet
+WHATSAPP | acx1 | send it to rahul | res=FileResource
+TRANSFER | ac1 | put that on my phone | res=FileResource
+# ---------------- MORE VARIETY
+APP | a1 | open whatsapp desktop
+WHATSAPP | a1 | read me the last message from mom
+KNOWLEDGE | l1 | what is whatsapp business
+BROWSER | a1 | search google for chennai tourist places
+WEB | alw1 | what's happening in the world today
+RAG | al1 | what are the action items in my notes from monday's meeting
+SYSTEM | a1 | mute
+SYSTEM | a1 | set brightness to 40
+DESKTOP | a1 | click on the blue download icon
+PHONE | a1 | open youtube on my phone
+TRANSFER | a1 | share the zip file with my phone
+GOOGLE | a1 | check calendar for next week
+KNOWLEDGE | l1 | summarize the plot of inception
+KNOWLEDGE | l1 | what is a mutual fund
+WEB | alw1 | is the chennai airport open now
+FILE | a1 | open yesterday's screenshot
+REMINDER | a1 | remind me about the webinar at 4 pm
+PACKAGE | a1 | check for app updates
+DEVELOPMENT | a1 | show the last five commits
+WORKFLOW | a1 | start my evening routine
+MEDIA | a0 | louder music please
+SYSTEM | a1 | turn bluetooth on
+DESKTOP | a1 | double click the setup file icon
+KNOWLEDGE | l1 | recommend a good book on habits
+KNOWLEDGE | l2 | write a cover letter for a junior data analyst job
+RAG | al1 | what were the formulas in my physics notes
+WEB | alw1 | best reviewed restaurants near me open now
+BROWSER | a1 | open my gmail in the browser
+PHONE | a1 | make my phone louder
+TRANSFER | a1 | move all photos from today off my phone
+WHATSAPP | alx1 | reply to the last whatsapp message saying okay
+GOOGLE | a1 | show emails from amazon
+KNOWLEDGE | l1 | how many planets are there
+APP | a1 | close the calculator
+SYSTEM | a1 | show battery status
+FILE | a1 | find the photo of my passport
+KNOWLEDGE | l1 | what does ram stand for
+DESKTOP | a1 | type hello world
+WEB | alw1 | score of the india match
+RAG | al1 | according to my notes what is dropout
+KNOWLEDGE | l1 | what is a vpn and do I need one
+SYSTEM | a1 | how much disk space do I have
+BROWSER | a1 | open the official python docs
+WHATSAPP | a1 | who messaged me today

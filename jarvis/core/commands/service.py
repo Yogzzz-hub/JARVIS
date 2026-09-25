@@ -37,6 +37,23 @@ class CommandService:
         self._last_decisions: dict[str, Any] = {}
         self._request_channels: dict[str, str] = {}
 
+    def _jde_observe(self, request, decision) -> None:
+        """Shadow mode: JDE decides in the background and logs; it never changes this request's route."""
+        try:
+            from jarvis.decision.runtime import get_runtime
+            get_runtime().observe(request.text, decision, self._channel(request),
+                                  pending_confirmation=self._pending_execution is not None)
+        except Exception:
+            pass
+
+    def _jde_prefers_chat(self, request) -> bool:
+        """Stage B only: an unmatched plain question goes to read-only chat instead of the tool-using agent."""
+        try:
+            from jarvis.decision.runtime import get_runtime
+            return get_runtime().answer_as_knowledge(request.text, self._channel(request))
+        except Exception:
+            return False
+
     # A pending confirmation older than this is dropped, so a later unrelated "yes" cannot approve it.
     PENDING_TTL_S = 120.0
 
@@ -103,6 +120,7 @@ class CommandService:
         try:
             decision = await self.router.route(request)
             self._last_decisions[task.request_id] = decision
+            self._jde_observe(request, decision)
             clock.resolved_ns = now_ns()
 
             # Handle CONTROL bypass
@@ -492,7 +510,8 @@ class CommandService:
             tool_name = tool.definition.name
             if tool_name == "ollama_chat":
                 ctx = decision.context_trace or {}
-                if ctx.get("fallback") == "unknown_command" and self.agent is not None:
+                if ctx.get("fallback") == "unknown_command" and self.agent is not None \
+                        and not self._jde_prefers_chat(request):
                     return await self._run_agent(request, task, clock, current, is_voice, predicted_ms)
                 return await self._run_chat(request, task, clock, current, is_voice, predicted_ms,
                                             query=(raw_arguments or {}).get("query"))

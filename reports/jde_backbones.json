@@ -1,0 +1,22 @@
+{
+ "hash": {
+  "train_s": 79.9,
+  "dev": "86.6%",
+  "dev_wrong_consequential": 1,
+  "holdout": "86.0%",
+  "holdout_wrong_consequential": 1,
+  "adversarial": "84.0%",
+  "adversarial_wrong_consequential": 0,
+  "p50": "1.03"
+ },
+ "glove+hash": {
+  "train_s": 79.4,
+  "dev": "84.6%",
+  "dev_wrong_consequential": 1,
+  "holdout": "88.0%",
+  "holdout_wrong_consequential": 0,
+  "adversarial": "76.0%",
+  "adversarial_wrong_consequential": 0,
+  "p50": "1.10"
+ }
+}

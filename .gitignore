@@ -39,3 +39,6 @@ models/piper/.cache/
 # Runtime scratch folders
 jarvis/.trash/
 .trash/
+
+# JDE encoder assets (built by scripts/setup_models.py --jde)
+models/jde/encoders/
