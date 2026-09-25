@@ -249,6 +249,15 @@ class ResponseFormatter:
                     return cls.format_number(time_part)
                 return iso
 
+            case "system_info":
+                os_ver = data.get("os", "Unknown OS").split("-")[0]  # E.g., Windows-10 -> Windows
+                cpu = data.get("cpu", "Unknown CPU").replace("(R)", "").replace("(TM)", "").split("@")[0].strip()
+                ram_total = data.get("ram_total_mb", 0) / 1024
+                ram_used = data.get("ram_used_mb", 0) / 1024
+                gpu = data.get("gpu_name", "")
+                gpu_str = f" and a {gpu} GPU" if gpu else ""
+                return f"System is running {os_ver} on {cpu} with {ram_used:.1f} GB of {ram_total:.0f} GB RAM used{gpu_str}."
+
             case "list_directory":
                 entries = data.get("entries", [])
                 path_str = data.get("path", "")
