@@ -98,6 +98,10 @@ class VoiceConfig(Frozen):
     # What JARVIS does when it hears "Hey Jarvis": a short chime, a spoken acknowledgement, or nothing.
     wake_ack: Literal["chime", "voice", "none"] = "chime"
 
+class DecisionConfig(Frozen):
+    # JARVIS Decision Engine rollout stage: "off", "shadow" (log only) or "read_only" (stage B).
+    stage: Literal["off", "shadow", "read_only"] = "shadow"
+
 class Config(Frozen):
     server: Server = Server()
     performance: Performance = Performance()
@@ -107,6 +111,7 @@ class Config(Frozen):
     models: Models = Models()
     search: SearchConfig = SearchConfig()
     voice: VoiceConfig = VoiceConfig()
+    decision: DecisionConfig = DecisionConfig()
     aliases: tuple[tuple[str, str], ...] = ()
 
 def load(path: Path | None = None) -> Config:

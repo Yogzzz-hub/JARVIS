@@ -49,6 +49,12 @@ num_ctx = 4096
 auto_start = true           # start `ollama serve` automatically when it is not running
 warm_on_start = true        # preload the fast model so the first command is quick
 
+[decision]
+# JARVIS Decision Engine (local, offline). "shadow" = the existing router acts, JDE only logs to
+# data/jde/shadow.jsonl. "read_only" = stage B (unmatched plain questions go to chat, not the agent).
+# "off" = JDE not loaded. See docs/JDE_ARCHITECTURE.md.
+stage = "shadow"
+
 [aliases]
 # Additional aliases must be absolute existing executable paths.
 

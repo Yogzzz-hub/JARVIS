@@ -1,0 +1,101 @@
+# JDE FINAL HOLDOUT (100) - never used for training, calibration, fusion weights or thresholds.
+APP | a1 | yo jarvis crank open the calculator thing
+APP | a1 | i wanna browse, get firefox going
+APP | a1 | kindly launch microsoft teams for my call
+APP | a1 | shutdown spotify app pls
+APP | a1 | notepad kholo
+APP | a1 | open ms paint so I can draw
+SYSTEM | a1 | its super quiet, bump the volume
+SYSTEM | a1 | sound at max
+SYSTEM | a1 | screen is too bright, lower it
+SYSTEM | a1 | grab a screenshot of everything
+SYSTEM | ad1 | turn off my computer in a minute
+SYSTEM | a1 | how hot is my cpu running
+FILE | a1 | where'd i put the birthday photos
+FILE | a1 | pull up my marksheet pdf
+FILE | a1 | sort out the mess in my downloads
+FILE | ad1 | nuke the old backups folder
+FILE | a1 | make a copy of thesis.docx on the desktop
+FILE | a1 | open the folder with my college assignments
+RAG | al1 | based on my saved notes, what's the difference between l1 and l2 regularisation
+RAG | al1 | what did the contract pdf i uploaded say about notice period
+RAG | al1 | look in my study material and tell me the syllabus for unit 2
+RAG | al1 | from my chats, when is priya's wedding
+RAG | a1 | memorise the documents in my projects folder
+KNOWLEDGE | l1 | whats a gpu actually do
+KNOWLEDGE | l1 | could you explain kubernetes in plain words
+KNOWLEDGE | l1 | how does telegram differ from whatsapp
+KNOWLEDGE | l1 | how would i go about installing docker on windows
+KNOWLEDGE | l1 | is it bad to delete browser cookies
+KNOWLEDGE | l1 | write me a short birthday wish for a friend
+KNOWLEDGE | l1 | what's the meaning of ubiquitous
+KNOWLEDGE | l1 | tell me a fun fact about octopuses
+KNOWLEDGE | l2 | design a study plan for learning deep learning in 3 months
+KNOWLEDGE | l1 | what is vlc
+WEB | alw1 | hows the weather looking in hyderabad rn
+WEB | alw1 | did the new macbook get announced yet
+WEB | alw1 | what's the petrol price today
+WEB | alw1 | latest score in the chennai super kings game
+WEB | alw1 | whats new in the most recent android release
+WEB | alw1 | any traffic jams on the way to the airport right now
+BROWSER | a1 | hop onto amazon and search for a usb c hub
+BROWSER | a1 | open youtube and find a pasta recipe video
+BROWSER | a1 | get me to the tensorflow documentation site
+BROWSER | a1 | on flipkart look for a 55 inch tv
+BROWSER | a1 | open github.com/trending
+DESKTOP | a1 | smash that ok button
+DESKTOP | al1 | can you see what's wrong on my screen
+DESKTOP | a1 | click where it says apply
+DESKTOP | a1 | put this window on the left half
+DESKTOP | a2 | in word make the title bold
+DESKTOP | a1 | minimise all the windows
+MEDIA | a0 | hold the music
+MEDIA | a0 | skip ahead to the next song
+MEDIA | ac0 | keep playing it | res=MediaResource
+MEDIA | a0 | stop playback
+PHONE | a1 | silence my phone
+PHONE | a1 | launch google maps on my mobile
+PHONE | a1 | any alerts on my phone
+PHONE | a1 | switch my phone to airplane mode
+PHONE | a1 | ring 044 2345 6789 using my phone
+TRANSFER | a1 | move the newest video from my phone to this laptop
+TRANSFER | ac1 | shove this onto my phone | res=FileResource
+TRANSFER | a1 | copy notes.pdf over to my phone
+TRANSFER | a1 | get my whatsapp pics off the phone
+WHATSAPP | a1 | what has sarah been texting me
+WHATSAPP | a1 | catch me up on my whatsapp
+WHATSAPP | alx1 | inform karthik that the class is shifted to 3
+WHATSAPP | alx1 | ping divya on whatsapp and ask if she's coming
+WHATSAPP | alx1 | send a quick reply to mom saying I'll be home by 8
+WHATSAPP | al1 | help me write a message to my landlord about the leak, don't send
+WHATSAPP | alx1 | tell all the people messaging me that I'm driving
+GOOGLE | a1 | did I get any emails from the university
+GOOGLE | alx1 | mail my manager that I'm working from home today
+GOOGLE | alx1 | book 30 minutes with arun on my calendar tomorrow at 11
+GOOGLE | a1 | what's on my schedule this afternoon
+REMINDER | a1 | nudge me in half an hour to take the clothes out
+REMINDER | a1 | save a note: gate code is 4512
+REMINDER | a1 | alarm for 5:30 tomorrow
+PACKAGE | a1 | put zoom on this computer
+PACKAGE | ad1 | get rid of the steam app
+PACKAGE | a1 | bring all my apps up to date
+PACKAGE | a1 | is python already on this machine
+DEVELOPMENT | a1 | run pytest on the repo
+DEVELOPMENT | a1 | show me what changed in git
+DEVELOPMENT | al1 | this stack trace, what's causing it
+WORKFLOW | a1 | kick off my work-from-home setup
+PLANNER+FILE+WHATSAPP | alpx3 | find the photo of the whiteboard from today and send it to the project group
+PLANNER+WEB+GOOGLE | alpwx3 | look up the train timings to madurai and email them to dad
+PLANNER+RAG+BROWSER | alp3 | read my notes on yolo, then open the official ultralytics docs page for that version
+PLANNER+SYSTEM+FILE | alp3 | screenshot the screen, crop nothing, save it into my reports folder and open the folder
+PLANNER+TRANSFER+GOOGLE | alpx3 | copy the scanned pdf from my phone and upload it to google drive
+CLARIFY | am1 | send it
+CLARIFY | am1 | open that one
+CLARIFY | am1 | tell him yes
+CLARIFY | am1 | delete it
+UNKNOWN | u1 | bring me water from the kitchen
+UNKNOWN | u1 | lkjh asdf
+UNKNOWN | u1 | repaint my bedroom
+APP | ac1 | close it | res=ApplicationResource
+PACKAGE | ac1 | install that for me | topic=TopicRef;res=TopicRef
+FILE | ac1 | open the third result | res=ResultSet,FileResource

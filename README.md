@@ -82,10 +82,18 @@ voice / UI / CLI / WhatsApp
 See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for the architecture, model configuration and
 troubleshooting (wake word, Ollama, WhatsApp, browser, phone).
 
+**Decision engine (JDE).** A local, offline decision layer (about 1 ms on CPU) answers typed routing questions:
+route family, whether the request is an action, whether it needs an LLM, the planner, the web or context, whether it
+has an external or destructive effect, and whether it is ambiguous. Answers are calibrated and gated by risk class.
+It currently runs in **shadow mode**: the router above still decides, and JDE logs its own decision to
+`data/jde/shadow.jsonl`. JDE never executes or authorizes anything. See [docs/JDE_ARCHITECTURE.md](docs/JDE_ARCHITECTURE.md)
+and [reports/JDE_BENCHMARK.md](reports/JDE_BENCHMARK.md).
+
 ## Configuration
 
 * `jarvis/config/jarvis.toml` – features, Ollama model roles (`[models]`), voice (`[voice]`: wake threshold, mic, Whisper model,
-  `endpoint_silence_ms` = how long a pause ends your turn, `wake_ack` = `chime` / `voice` / `none`)
+  `endpoint_silence_ms` = how long a pause ends your turn, `wake_ack` = `chime` / `voice` / `none`),
+  decision engine stage (`[decision] stage` = `off` / `shadow` / `read_only`)
 * `config/whatsapp.toml` – owner numbers, contacts, AI reply mode, default country code
 * `config/response.toml` – TTS voice, barge-in
 * `config/connectors.toml` – Android (ADB/scrcpy), LocalSend, browser, notifications

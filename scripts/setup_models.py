@@ -3,6 +3,7 @@
     python scripts/setup_models.py            # speech (Whisper), voice (Piper), wake word, Ollama models
     python scripts/setup_models.py --no-ollama
     python scripts/setup_models.py --check    # report only, download nothing
+    python scripts/setup_models.py --jde      # also fetch GloVe vectors for the decision engine's glove+hash model
 
 Large model binaries are git-ignored, so a fresh checkout has the folders but not the
 weights; without them the voice pipeline cannot start and the wake word never fires.
@@ -137,10 +138,38 @@ def setup_ollama(config, check: bool) -> bool:
     return ok
 
 
+def setup_jde(check: bool, want_glove: bool) -> bool:
+    """The decision engine ships its trained heads in models/jde; only the optional GloVe backbone is downloaded."""
+    from jarvis.decision.engine import latest_model_dir
+    from jarvis.decision.static_vectors import VECTORS_FILE, build_glove
+
+    if want_glove and not VECTORS_FILE.exists():
+        if check:
+            print(f"[jde]     MISSING {VECTORS_FILE.name} (python scripts/setup_models.py --jde)")
+        else:
+            print("[jde]     downloading GloVe 100-d word vectors (~130 MB, once) ...")
+            try:
+                build_glove()
+            except Exception as exc:
+                print(f"[jde]     GloVe download failed ({exc}); the hash encoder model still works")
+    model = latest_model_dir()
+    if model is None:
+        print("[jde]     no trained model in models/jde (python -m jarvis.decision.train --promote); routing is unaffected")
+        return True
+    try:
+        from jarvis.decision.engine import LocalJDE
+        LocalJDE.load(model)
+        print(f"[jde]     OK   {model.name}")
+    except Exception as exc:
+        print(f"[jde]     {model.name} cannot load here ({exc}); JDE stays off, routing is unaffected")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="only report what is missing")
     parser.add_argument("--no-ollama", action="store_true", help="skip pulling Ollama models")
+    parser.add_argument("--jde", action="store_true", help="download GloVe vectors for the decision engine")
     args = parser.parse_args()
 
     from jarvis.config import load
@@ -149,6 +178,7 @@ def main() -> int:
         setup_whisper(config, args.check),
         setup_piper(args.check),
         setup_wake(config, args.check),
+        setup_jde(args.check, args.jde),
     ]
     if not args.no_ollama:
         results.append(setup_ollama(config, args.check))
