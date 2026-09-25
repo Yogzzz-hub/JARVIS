@@ -62,29 +62,57 @@ class OpenWakeWordEngine:
         self._model_name = "unknown"
         self._loaded = False
         self.last_score = 0.0
+        self.peak_score = 0.0
+        self.load_error = ""
 
     def _ensure_loaded(self):
         if self._loaded:
             return
         try:
             from openwakeword.model import Model
-            kwargs = {"inference_framework": self.inference_framework}
-            if self._model_path:
-                kwargs["wakeword_models"] = [self._model_path]
-                from pathlib import Path
-                directory = Path(self._model_path).parent
-                for key, filename in (("melspec_model_path", "melspectrogram.onnx"),
-                                      ("embedding_model_path", "embedding_model.onnx")):
-                    if (directory / filename).exists():
-                        kwargs[key] = str(directory / filename)
-            self._model = Model(**kwargs)
-            if self._model.models:
-                self._model_name = list(self._model.models.keys())[0]
-            self._loaded = True
-            logger.info("OpenWakeWord loaded: model=%s, threshold=%.2f", self._model_name, self.threshold)
         except Exception as exc:
-            logger.warning("OpenWakeWord load failed: %s", exc)
-            self._loaded = False
+            self.load_error = f"openwakeword is not installed ({exc}). Run: pip install -e .[voice]"
+            logger.warning("OpenWakeWord unavailable: %s", self.load_error)
+            return
+
+        attempts: list[dict] = []
+        if self._model_path:
+            from pathlib import Path
+            path = Path(self._model_path)
+            kwargs = {"inference_framework": self.inference_framework, "wakeword_models": [str(path)]}
+            directory = path.parent
+            for key, filename in (("melspec_model_path", "melspectrogram.onnx"),
+                                  ("embedding_model_path", "embedding_model.onnx")):
+                if (directory / filename).exists():
+                    kwargs[key] = str(directory / filename)
+            if path.exists():
+                attempts.append(kwargs)
+            else:
+                logger.warning("Wake model %s not found; falling back to the built-in model", path)
+        # Built-in pre-trained "hey jarvis" model (downloaded by openwakeword on first use).
+        attempts.append({"inference_framework": self.inference_framework, "wakeword_models": ["hey_jarvis"]})
+
+        errors = []
+        for kwargs in attempts:
+            try:
+                if kwargs["wakeword_models"] == ["hey_jarvis"]:
+                    try:
+                        from openwakeword.utils import download_models
+                        download_models(model_names=["hey_jarvis"])
+                    except Exception:
+                        pass
+                self._model = Model(**kwargs)
+                if self._model.models:
+                    self._model_name = list(self._model.models.keys())[0]
+                self._loaded = True
+                self.load_error = ""
+                logger.info("OpenWakeWord loaded: model=%s, threshold=%.2f", self._model_name, self.threshold)
+                return
+            except Exception as exc:
+                errors.append(str(exc))
+        self.load_error = "; ".join(errors) or "unknown error"
+        logger.warning("OpenWakeWord load failed: %s", self.load_error)
+        self._loaded = False
 
     def feed(self, frame: AudioFrame) -> WakeDetection | None:
         """Feed audio frame, return WakeDetection if triggered."""
@@ -107,6 +135,7 @@ class OpenWakeWordEngine:
             prediction = self._model.predict(chunk)
             score = max(prediction.values()) if prediction else 0.0
             self.last_score = float(score)
+            self.peak_score = max(self.peak_score * 0.999, self.last_score)
 
             now = perf_counter_ns()
 

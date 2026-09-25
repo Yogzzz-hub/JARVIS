@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
-import urllib.request
-import urllib.error
 from typing import Any
+
 from pydantic import Field
 
 from jarvis.tools.base import Contract, ExecutionMethod, RiskLevel, Tool, ToolDefinition
@@ -12,79 +10,63 @@ from jarvis.tools.base import Contract, ExecutionMethod, RiskLevel, Tool, ToolDe
 logger = logging.getLogger("jarvis.tools.ollama_chat")
 
 
-def _get_default_system_prompt() -> str:
-    try:
-        from jarvis.core.capabilities.context import CapabilityContextBuilder
-        return CapabilityContextBuilder.build_chat_system_prompt()
-    except Exception:
-        return "You are JARVIS, an intelligent, concise AI assistant for Windows. Answer the user's question directly, clearly, and concisely in 1-3 sentences."
-
-
 class OllamaChatInput(Contract):
-    query: str = Field(description="User question, text, or instruction for Ollama")
-    system_prompt: str = Field(
-        default_factory=_get_default_system_prompt,
-        description="System prompt guiding Ollama's behavior",
-    )
-    timeout_s: float = Field(default=35.0, description="Query timeout in seconds")
+    query: str = Field(min_length=1, max_length=8000, description="User question, text, or instruction for the local AI model")
+    system_prompt: str = Field(default="", description="Optional system prompt override")
+    timeout_s: float = Field(default=45.0, gt=0, le=300, description="Query timeout in seconds")
+    channel: str = Field(default="local", description="Conversation channel used for follow-up memory")
+    speakable: bool = Field(default=True, description="Keep the answer short and speech-friendly")
 
 
 class OllamaChatOutput(Contract):
     response: str
-    model: str = "llama3.2:latest"
+    model: str = ""
     status: str = "completed"
+    sources: list[dict] = Field(default_factory=list)
+    used_web: bool = False
 
 
 class OllamaChatTool(Tool):
+    """Answers questions with the local model, grounded in RAG, history and (when needed) the web."""
+
     definition = ToolDefinition(
         name="ollama_chat",
-        description="Directly queries local Ollama LLM to answer questions, explain concepts, generate code, or solve problems dynamically.",
+        description="Answers questions, explains concepts, writes or summarizes text using the local AI model, grounded in the user's documents, conversation and live web results.",
         input_model=OllamaChatInput,
         output_model=OllamaChatOutput,
         read_only=True,
         risk=RiskLevel.READ_ONLY,
-        timeout_s=35.0,
-        tags=("ai", "llm", "chat", "ollama", "reasoning"),
+        timeout_s=90.0,
+        tags=("ai", "llm", "chat", "ollama", "reasoning", "rag"),
         execution_method=ExecutionMethod.API,
     )
 
-    def run(self, arguments: Any) -> dict[str, Any]:
+    def __init__(self, assistant: Any = None) -> None:
+        self.assistant = assistant
+
+    def _assistant(self):
+        if self.assistant is None:
+            from jarvis.core.llm.assistant import get_assistant
+            return get_assistant()
+        return self.assistant
+
+    async def run(self, arguments: Any) -> dict[str, Any]:
         if isinstance(arguments, dict):
             arguments = OllamaChatInput(**arguments)
-
-        query = arguments.query.strip()
-        system_prompt = arguments.system_prompt or _get_default_system_prompt()
-
-        payload = {
-            "model": "llama3.2:latest",
-            "prompt": f"{system_prompt}\n\nUser: {query}\nJARVIS:",
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 256,
-            },
+        assistant = self._assistant()
+        extra = arguments.system_prompt.strip()
+        reply = await assistant.respond(
+            arguments.query.strip(),
+            channel=arguments.channel,
+            speakable=arguments.speakable,
+            extra_context=f"Additional instructions: {extra}" if extra else "",
+        )
+        if not reply.ok:
+            logger.warning("Local model answer failed: %s", reply.error)
+        return {
+            "response": reply.text,
+            "model": reply.model or "none",
+            "status": "completed" if reply.ok else "error",
+            "sources": [{k: v for k, v in s.items() if k in ("type", "title", "source")} for s in reply.sources],
+            "used_web": reply.used_web,
         }
-
-        try:
-            req = urllib.request.Request(
-                "http://127.0.0.1:11434/api/generate",
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=arguments.timeout_s or 25.0) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            answer = data.get("response", "").strip()
-            if not answer:
-                answer = "I am here, sir. How can I help you?"
-            return {
-                "response": answer,
-                "model": data.get("model", "llama3.2:latest"),
-                "status": "completed",
-            }
-        except Exception as exc:
-            logger.warning("Ollama direct query error: %s", exc)
-            return {
-                "response": f"Ollama query failed: {exc}",
-                "model": "none",
-                "status": "error",
-            }

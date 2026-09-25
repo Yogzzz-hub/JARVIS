@@ -95,6 +95,14 @@ def run_app(argv: list[str] | None = None) -> int:
     ui_state.assistantStateChanged.connect(tray.update_state)
     tray.show()
 
+    # Procedural meshes for the 3D reactor (QML module "Jarvis3D"); the UI falls back to 2D without it.
+    if os.environ.get("JARVIS_UI_2D", "").strip().lower() in ("1", "true", "yes"):
+        settings.override("ui_3d", False)
+    try:
+        import jarvis.ui.geometry  # noqa: F401  (registers HudRingGeometry / TubeRingGeometry)
+    except Exception as exc:
+        logger.info("3D reactor unavailable (%s); using the 2D reactor", exc)
+
     # Setup QML Engine
     engine = QQmlApplicationEngine()
     qml_dir = Path(__file__).parent / "qml"

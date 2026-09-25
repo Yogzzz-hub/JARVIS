@@ -35,9 +35,19 @@ browser = true
 vision = false
 
 [models]
-fast = "qwen3:0.6b"
-planner = "qwen3:1.7b"
-vision = "qwen3-vl:2b"
+# Ollama model roles. If a configured model is not pulled, JARVIS automatically
+# uses the best installed alternative (see `python -m jarvis.diagnostics`).
+fast = "qwen3:1.7b"        # intent classification / slot extraction (small = fast)
+planner = "llama3.2:latest" # multi-step plans and the tool-using agent
+chat = "llama3.2:latest"    # conversation, RAG answers, WhatsApp replies
+vision = "qwen2.5vl:3b"
+embed = "nomic-embed-text"  # RAG embeddings (optional; lexical search works without it)
+base_url = "http://127.0.0.1:11434"
+keep_alive = "30m"
+timeout_s = 60.0
+num_ctx = 4096
+auto_start = true           # start `ollama serve` automatically when it is not running
+warm_on_start = true        # preload the fast model so the first command is quick
 
 [aliases]
 # Additional aliases must be absolute existing executable paths.
@@ -47,7 +57,7 @@ device = "default"
 wake_enabled = true
 ptt_enabled = true
 model_path = "models/wake/hey_jarvis_v0.1.onnx"
-threshold = 0.55
+threshold = 0.5   # openWakeWord hey_jarvis: lower = easier to wake (more false wakes), higher = stricter
 stt_model = "models/whisper/base"
 stt_device = "cpu"
 compute_type = "int8"

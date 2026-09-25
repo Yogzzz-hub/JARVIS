@@ -45,9 +45,18 @@ class Features(Frozen):
     vision: bool = False
 
 class Models(Frozen):
+    """Ollama model roles. Any role whose model is not pulled falls back to the best installed model."""
     fast: str = ""
     planner: str = ""
+    chat: str = ""
     vision: str = ""
+    embed: str = "nomic-embed-text"
+    base_url: str = "http://127.0.0.1:11434"
+    keep_alive: str = "30m"
+    timeout_s: float = Field(default=60.0, gt=0, le=600)
+    num_ctx: int = Field(default=4096, ge=1024, le=131072)
+    auto_start: bool = True
+    warm_on_start: bool = True
 
 class SearchConfig(Frozen):
     roots: tuple[str, ...] = (

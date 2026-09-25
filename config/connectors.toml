@@ -19,7 +19,7 @@ port = 53317
 
 [connectors.browser]
 enabled = true
-headless = true
+headless = false   # show the automated browser window so you can watch (and take over) web tasks
 profile_dir = ""
 
 [connectors.freshrss]

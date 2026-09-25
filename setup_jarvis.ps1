@@ -1,4 +1,4 @@
-param([switch]$Browser)
+param([switch]$Browser, [switch]$SkipModels, [switch]$CoreOnly)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 if (Test-Path '.runtime\python\py312') {
@@ -19,14 +19,26 @@ if (-not $jarvisPython) {
 }
 & $jarvisPython -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'
 if ($LASTEXITCODE -ne 0) { throw 'This repository requires Python 3.12. Existing environment was preserved.' }
-& $jarvisPython -m pip install -e .
-if ($LASTEXITCODE -ne 0) { throw 'Core dependency installation failed.' }
+
+# Core + voice (wake word, speech recognition, VAD, TTS, hotkey) + Windows automation.
+# Without the voice extras the wake word can never start, so they are installed by default.
+$extras = if ($CoreOnly) { '.' } else { '.[voice,windows]' }
+& $jarvisPython -m pip install -e $extras
+if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed ($extras)." }
+
 if ($Browser) {
     & $jarvisPython -m pip install 'playwright>=1.50,<2' 'Pillow>=11,<13'
     if ($LASTEXITCODE -ne 0) { throw 'Browser dependency installation failed.' }
     & $jarvisPython -m playwright install chromium
     if ($LASTEXITCODE -ne 0) { throw 'Chromium installation failed.' }
 }
+
+if (-not $SkipModels -and -not $CoreOnly) {
+    # Whisper model.bin, Piper voice, wake word and the configured Ollama models (git ignores the binaries).
+    & $jarvisPython scripts\setup_models.py
+    if ($LASTEXITCODE -ne 0) { Write-Warning 'Some models could not be prepared; see the messages above (JARVIS falls back where it can).' }
+}
+
 & $jarvisPython -m jarvis.diagnostics
 if ($LASTEXITCODE -ne 0) { throw 'Diagnostics found a critical failure.' }
-Write-Host 'Core setup complete. Run start.bat. Optional feature warnings require integration; see docs/DAILY_USE.md.'
+Write-Host 'Setup complete. Run start.bat, then say "Hey Jarvis" or press Ctrl+Shift+J.'

@@ -9,6 +9,7 @@ Item {
         if (controller) {
             toggleBox.checked = Boolean(controller.getSetting("low_resource_mode"));
             trayToggle.checked = Boolean(controller.getSetting("close_to_tray"));
+            reactorToggle.checked = controller.getSetting("ui_3d") !== false;
         }
     }
 
@@ -87,6 +88,54 @@ Item {
                             onClicked: {
                                 toggleBox.checked = !toggleBox.checked;
                                 if (controller) controller.updateSetting("low_resource_mode", toggleBox.checked);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3D Reactor Toggle
+            GlassPanel {
+                width: parent.width
+                height: 60
+
+                Row {
+                    anchors.fill: parent
+                    anchors.margins: 14
+
+                    Column {
+                        width: parent.width - 70
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Text { text: "3D Reactor"; color: "#F0F4F8"; font.pixelSize: 13; font.bold: true }
+                        Text { text: "Real-time 3D core with bloom and particles (uses the GPU; 2D when off)"; color: "#94A3B8"; font.pixelSize: 11 }
+                    }
+
+                    Rectangle {
+                        id: reactorToggle
+                        width: 44
+                        height: 24
+                        radius: 12
+                        property bool checked: true
+                        color: checked ? "#00E5FF" : "#222D3E"
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 9
+                            color: "#F0F4F8"
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: reactorToggle.checked ? parent.width - width - 3 : 3
+                            Behavior on x { NumberAnimation { duration: 150 } }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                reactorToggle.checked = !reactorToggle.checked;
+                                if (controller) controller.updateSetting("ui_3d", reactorToggle.checked);
                             }
                         }
                     }

@@ -10,7 +10,7 @@ from jarvis.tools.productivity.workspace import SaveWorkspaceTool, LaunchWorkspa
 from jarvis.tools.productivity.downloads_organizer import OrganizeDownloadsTool
 from jarvis.tools.productivity.batch_ops import BatchRenameTool
 from jarvis.tools.productivity.duplicate_finder import DuplicateFinderTool
-from jarvis.tools.productivity.doc_qa import DocumentQATool
+from jarvis.tools.productivity.doc_qa import DocumentQATool, KnowledgeIngestTool, KnowledgeSearchTool
 from jarvis.tools.productivity.quick_notes import QuickNoteTool, SearchNotesTool
 from jarvis.tools.productivity.meeting_notes import MeetingNotesTool
 from jarvis.tools.productivity.media_tools import ExtractAudioTool, TrimClipTool
@@ -29,6 +29,8 @@ def create_productivity_tools() -> list[Tool]:
         BatchRenameTool(),
         DuplicateFinderTool(),
         DocumentQATool(),
+        KnowledgeIngestTool(),
+        KnowledgeSearchTool(),
         QuickNoteTool(),
         SearchNotesTool(),
         MeetingNotesTool(),
@@ -52,6 +54,8 @@ __all__ = [
     "BatchRenameTool",
     "DuplicateFinderTool",
     "DocumentQATool",
+    "KnowledgeIngestTool",
+    "KnowledgeSearchTool",
     "QuickNoteTool",
     "SearchNotesTool",
     "MeetingNotesTool",

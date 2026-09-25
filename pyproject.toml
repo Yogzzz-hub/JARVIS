@@ -32,3 +32,4 @@ windows = ["uiautomation>=2,<3", "pywin32>=306; sys_platform == 'win32'", "sound
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = ["legacy_holdout: legacy generalization hold-out checks"]

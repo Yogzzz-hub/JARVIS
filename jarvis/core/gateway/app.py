@@ -103,10 +103,10 @@ def create_app(runtime=None):
             if event.name == "response.ready":
                 if event.data.get("source") != "websocket":
                     await outgoing.put({"version": 1, "type": "task_result", **event.data["result"]})
-            elif event.name.startswith(("voice.", "audio.", "tts.", "whatsapp.", "integration.", "confirmation.")):
+            elif event.name.startswith(("voice.", "audio.", "tts.", "whatsapp.", "integration.", "confirmation.", "assistant.", "llm.")):
                 message = {"version": 1, "type": "event", "event": event.name,
                            "request_id": event.request_id, "payload": event.data}
-                if event.name == "audio.level" and outgoing.full():
+                if event.name in ("audio.level", "assistant.partial") and outgoing.full():
                     return
                 await outgoing.put(message)
 
@@ -114,6 +114,12 @@ def create_app(runtime=None):
         if runtime.config.features.voice and not (runtime.voice and runtime.voice.is_running):
             await outgoing.put({"version": 1, "type": "event", "event": "voice.error",
                                 "payload": {"error": runtime.voice_error or "Microphone unavailable"}})
+        elif runtime.voice and runtime.voice.is_running:
+            await outgoing.put({"version": 1, "type": "event", "event": "voice.idle", "payload": {}})
+        llm = getattr(runtime, "llm", None)
+        if llm is not None and hasattr(llm, "seems_up"):
+            await outgoing.put({"version": 1, "type": "event", "event": "llm.status",
+                                "payload": {"reachable": llm.seems_up()}})
         if hasattr(runtime, "whatsapp_service") and runtime.whatsapp_service:
             ws_state = getattr(runtime.whatsapp_service.transport.status, "state", "DISCONNECTED")
             await outgoing.put({"version": 1, "type": "event", "event": "whatsapp.status",

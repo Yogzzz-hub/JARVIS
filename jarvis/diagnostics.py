@@ -31,7 +31,8 @@ def collect():
             add(module, 'PASS', 'Import succeeded')
         except Exception as exc:
             add(module, 'FAIL', f'{type(exc).__name__}: {exc}')
-    for module in ('sounddevice', 'faster_whisper', 'openwakeword', 'piper', 'playwright', 'uiautomation', 'win32gui', 'PIL'):
+    for module in ('sounddevice', 'faster_whisper', 'openwakeword', 'silero_vad_lite', 'piper', 'keyboard', 'scipy',
+                   'playwright', 'uiautomation', 'win32gui', 'PIL'):
         try:
             importlib.import_module(module)
             add(module, 'PASS', 'Installed; feature integration must be checked separately')
@@ -64,14 +65,57 @@ def collect():
         add('Audio devices', 'PASS', str(sd.query_devices()))
     except Exception as exc:
         add('Audio devices', 'WARN', str(exc))
-    try:
-        with urlopen('http://127.0.0.1:11434/api/tags', timeout=2) as response:
-            models = [m['name'] for m in json.load(response).get('models', [])]
-        add('Ollama models', 'PASS', ', '.join(models) or 'No models installed')
-    except Exception as exc:
-        add('Ollama models', 'WARN', f'Unavailable: {type(exc).__name__}; deterministic commands remain available')
+    _voice_model_checks(config, add)
+    _ollama_checks(config, add)
     add('Google', 'WARN', 'DISCONNECTED; optional')
     return checks
+
+
+def _voice_model_checks(config, add):
+    project = ROOT.parent
+    fix = 'run: python scripts/setup_models.py'
+    stt = project / config.voice.stt_model
+    if stt.is_dir():
+        ok = (stt / 'model.bin').exists()
+        add('Speech model (Whisper)', 'PASS' if ok else 'WARN',
+            str(stt) if ok else f'{stt} has no model.bin (downloads on first use; {fix})')
+    else:
+        add('Speech model (Whisper)', 'PASS', f'{config.voice.stt_model} (downloaded by faster-whisper on first use)')
+    wake = project / config.voice.model_path
+    add('Wake word model', 'PASS' if wake.exists() else 'WARN', str(wake) if wake.exists() else f'missing: {wake} (built-in "hey_jarvis" is used)')
+    try:
+        import tomllib
+        with (project / 'config/response.toml').open('rb') as f:
+            tts_path = project / tomllib.load(f)['tts']['model_path']
+        add('Voice model (Piper)', 'PASS' if tts_path.exists() else 'WARN',
+            str(tts_path) if tts_path.exists() else f'missing {tts_path.name} (Windows SAPI voice is used instead; {fix})')
+    except Exception as exc:
+        add('Voice model (Piper)', 'WARN', f'Could not read config/response.toml: {exc}')
+
+
+def _ollama_checks(config, add):
+    from jarvis.core.llm.client import LLMSettings, choose_fallback, match_installed
+    settings = LLMSettings.from_config(config)
+    try:
+        with urlopen(f'{settings.base_url}/api/tags', timeout=3) as response:
+            models = [m['name'] for m in json.load(response).get('models', [])]
+    except Exception as exc:
+        add('Ollama', 'WARN', f'Not reachable at {settings.base_url} ({type(exc).__name__}). JARVIS starts it automatically '
+                              'when installed; deterministic commands work without it.')
+        return
+    add('Ollama', 'PASS', f'{settings.base_url}: {", ".join(models) or "no models installed"}')
+    for role in ('fast', 'planner', 'chat', 'embed'):
+        wanted = settings.model_for(role)
+        exact = match_installed(wanted, models)
+        if exact:
+            add(f'AI role: {role}', 'PASS', exact)
+            continue
+        fallback = choose_fallback(role, models)
+        hint = f'ollama pull {wanted}' if wanted else 'set it in [models]'
+        if fallback:
+            add(f'AI role: {role}', 'WARN', f'{wanted or "(unset)"} not installed; using {fallback}. For best results: {hint}')
+        else:
+            add(f'AI role: {role}', 'WARN', f'no suitable model installed; run: {hint}')
 
 
 def main():

@@ -1,75 +1,83 @@
 # JARVIS EDGE v1.0
 
-Your personal local AI command assistant for Windows. Fully offline, privacy-first.
+Your personal, local-first AI assistant for Windows: voice ("Hey Jarvis"), PC control, Android phone
+control, WhatsApp, browser automation, a private knowledge base (RAG) and a local LLM (Ollama) that
+thinks through anything the fast deterministic commands don't cover.
 
-**Deployment status:** the deterministic desktop core is operational. Voice,
-wake word, TTS, AI planning, browser/vision integration and package installation
-are not activated in this runtime. Feature flags currently accept only `false`;
-changing them to `true` is not sufficient to enable these subsystems.
-See [review and rating](docs/REVIEW_AND_RATING.md) and [daily use](docs/DAILY_USE.md).
+## Setup (one time)
 
-Setup: `powershell -NoProfile -File .\setup_jarvis.ps1`
-
-Diagnostics: `powershell -NoProfile -File .\diagnose_jarvis.ps1`
-
-## Quick Start
-
-### Option 1 — Double-click
-Run **`start.bat`** (or `start.ps1` in PowerShell).
-
-### Option 2 — Terminal
 ```powershell
-.\.venv\Scripts\Activate.ps1
-python -m jarvis
+powershell -NoProfile -File .\setup_jarvis.ps1          # core + voice + Windows automation + models
+powershell -NoProfile -File .\setup_jarvis.ps1 -Browser # also install the automated browser (Playwright)
 ```
 
-JARVIS starts on `http://127.0.0.1:8765`. You'll see `JARVIS_READY` when it's live.
+Setup installs the voice extras (wake word, speech recognition, VAD, TTS, push-to-talk hotkey), downloads
+the Whisper speech model and Piper voice (they are too large for git), and pulls the Ollama models named in
+`jarvis/config/jarvis.toml`. Install [Ollama](https://ollama.com/download) first for the AI features.
 
-## Send Commands
-
-Open a **second terminal** (keep the server running):
+Check everything at any time:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+powershell -NoProfile -File .\diagnose_jarvis.ps1
+python scripts\setup_models.py --check
+```
+
+## Start
+
+Double-click **`start.bat`** (starts Ollama, the WhatsApp bridge, the backend and the desktop UI), then say
+**"Hey Jarvis"** or press **Ctrl+Shift+J** (push-to-talk). Typed commands work too:
+
+```powershell
 python -m jarvis.cli "open notepad"
-python -m jarvis.cli "what time is it"
-python -m jarvis.cli "take a screenshot"
-python -m jarvis.cli "volume 50"
-python -m jarvis.cli "system info" --json
+python -m jarvis.cli "ask rahul if he is free tonight on whatsapp"
 ```
 
-## Available Commands
+The desktop UI centres on a real-time 3D reactor that reacts to your voice and to what JARVIS is doing, with the
+conversation streaming in beside it. In the UI: **Ctrl+Space** talk, **Ctrl+K** type, **Esc** stop talking, or click
+the reactor. Answers start being spoken after the first sentence instead of after the whole reply.
 
-| Category     | Examples                                        |
-| ------------ | ----------------------------------------------- |
-| **Apps**      | `open chrome`, `open notepad`, `open calc`      |
-| **Volume**    | `volume 75`, `volume` (read current)            |
-| **Files**     | `list Desktop`, `find my resume`                |
-| **System**    | `time`, `system info`, `screenshot`             |
-| **Planning**  | `open chrome and notepad` (multi-step DAG)      |
+## What you can say
+
+| Area | Examples |
+| --- | --- |
+| **PC** | `open chrome`, `volume 40`, `brightness 70`, `take a screenshot`, `snap window left`, `lock the pc` |
+| **Files** | `find my resume`, `organize my downloads`, `find duplicate files in downloads`, `move my downloads folder to desktop` |
+| **Phone** | `lock my phone`, `turn up the volume on my phone`, `open spotify on my phone`, `take a screenshot of my phone`, `call 98765 43210 on my phone`, `mirror my phone` |
+| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `remind dad to take his medicine on whatsapp`, `reply to rahul saying yes at 10`, `summarize my whatsapp` |
+| **Knowledge (RAG)** | `learn my documents folder`, `what do my documents say about the refund policy`, `search my notes for the wifi password` |
+| **Web** | `search amazon for headphones`, `go to wikipedia.org`, `use the browser to find the price of a Pixel 9 on Flipkart` |
+| **Reminders** | `remind me to drink water in 20 minutes`, `remind me to call mom at 6 pm`, `show my reminders` |
+| **Ask anything** | `what's the weather in Chennai today`, `explain recursion`, `tell me a joke` (answers use your documents, the conversation and live web results) |
+| **Multi-step** | `find the latest invoice and send it to my phone`, anything else in plain words (the AI agent plans it) |
+
+Anything that sends data outside the PC (messages, uploads), deletes or installs things, or was planned by
+the AI is read back to you first. Say **"yes"** / **"no"** (or reply YES / NO on WhatsApp).
+
+## How it fits together
+
+```
+voice / UI / CLI / WhatsApp
+        │
+        ▼
+ SmartRouter ── deterministic fast paths (<1 ms) ── phone / messaging / knowledge / web / reminders
+        │                                            PC, files, apps, windows ...
+        ├─ LLM classifier (fast model, schema-constrained to real tools)
+        ├─ Grounded chat  (RAG + conversation history + live web)       ─┐
+        ├─ DAG planner    (planner model, validated TaskGraph)           ├─ one Ollama client
+        └─ Tool agent     (step-by-step, confirmation on risky steps)   ─┘
+        │
+        ▼
+ ExecutionEngine: policy · confirmation tickets · ledger · verification → talkback (TTS) / reply
+```
+
+See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for the architecture, model configuration and
+troubleshooting (wake word, Ollama, WhatsApp, browser, phone).
 
 ## Configuration
 
-Edit `jarvis/config/jarvis.toml` to configure:
-
-- **Server**: host, port, backends
-- **Features**: deployment status flags; optional subsystem activation requires runtime integration
-- **Search**: file indexing roots and limits
-- **Aliases**: custom app aliases (absolute `.exe` paths)
+* `jarvis/config/jarvis.toml` – features, Ollama model roles (`[models]`), voice (`[voice]`: wake threshold, mic, Whisper model)
+* `config/whatsapp.toml` – owner numbers, contacts, AI reply mode, default country code
+* `config/response.toml` – TTS voice, barge-in
+* `config/connectors.toml` – Android (ADB/scrcpy), LocalSend, browser, notifications
 
 Restart JARVIS after config changes.
-
-## Architecture
-
-- **Core Engine** — sub-50ms command processing
-- **Smart Router** — deterministic + AI routing lanes
-- **File Intelligence** — full-text search across Desktop/Documents/Downloads
-- **Planner** — multi-step DAG execution with parallel branches
-- **Policy Engine** — risk-based approval with verification
-- **Voice I/O** — streaming STT + local TTS (when enabled)
-- **Computer Agent** — GUI automation via UIA + vision fallback
-- **Browser Agent** — structured web interaction
-- **Memory System** — layered contextual memory
-- **Workflow Learning** — reusable approved patterns
-
-See [docs/](docs/) for detailed architecture documentation.

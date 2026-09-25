@@ -52,6 +52,9 @@ class WhatsAppChannelGateway:
         voice_reply_enabled: bool = False,
         inbox: Any = None,
         contact_resolver: Any = None,
+        whatsapp_ai: Any = None,
+        announcer: Any = None,
+        event_bus: Any = None,
     ) -> None:
         self.command_service = command_service
         self.transport = transport
@@ -62,6 +65,9 @@ class WhatsAppChannelGateway:
         self.mode = mode
         self.auto_reply_allowlist = {c.strip().casefold() for c in (auto_reply_allowlist or set())}
         self.voice_reply_enabled = voice_reply_enabled
+        self.whatsapp_ai = whatsapp_ai
+        self.announcer = announcer
+        self.event_bus = event_bus
 
         from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
         from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
@@ -198,14 +204,25 @@ class WhatsAppChannelGateway:
                     await self._send_reply(message.chat_id, reply)
                 return {"status": "NON_OWNER_DENIED", "action_taken": False}
 
-            # Non-owner friendly response
-            reply = "Hello! I am Jarvis Edge. How can I help you today?"
+            # Non-owner message: let the owner know, and prepare an AI reply on their behalf.
+            await self._announce_incoming(message)
+            if self.whatsapp_ai is not None:
+                try:
+                    reply = await self.whatsapp_ai.auto_reply(message.sender_display_name or "there", message.chat_id, processed_text)
+                except Exception as exc:
+                    logger.warning("AI reply generation failed: %s", exc)
+                    reply = "Hello! I'll make sure your message is seen soon."
+            else:
+                reply = "Hello! I am Jarvis Edge. How can I help you today?"
             if self.mode == "ALLOWLIST_AUTO_REPLY" and is_allowlisted:
                 await self._send_reply(message.chat_id, reply)
                 return {"status": "REPLIED", "text": reply}
             else:
                 draft = self._create_draft(message.chat_id, message.sender_display_name, reply)
-                return {"status": "DRAFT_CREATED", "draft_id": draft.draft_id}
+                if self.event_bus is not None:
+                    self.event_bus.emit("whatsapp.draft", draft.draft_id, chat_id=message.chat_id,
+                                        recipient=message.sender_display_name, text=reply)
+                return {"status": "DRAFT_CREATED", "draft_id": draft.draft_id, "text": reply}
 
         # 5. Owner Remote Command Execution
         # Dispatches directly to existing CommandService
@@ -224,17 +241,30 @@ class WhatsAppChannelGateway:
         # PULSE Feedback Lane: if execution might take time, we can send real status
         result: CommandResult = await self.command_service.handle(cmd_req, clock=clock)
 
-        # Check if the result requires confirmation (Phase 5 policy)
-        if result.state == "FAILED" and "confirmation" in result.message.lower() and self.confirmation_manager:
-            # Send structured confirmation ticket to owner
-            ticket_id = getattr(result, "ticket_id", None)
-            reply = f"{result.message}\nTo proceed, reply: APPROVE {ticket_id or '<ticket_id>'}\nTo cancel, reply: REJECT {ticket_id or '<ticket_id>'}"
+        # Confirmation required (policy or AI-safety): tell the owner exactly how to answer.
+        if result.state == "WAITING_CONFIRMATION":
+            ticket_id = (result.tool_result.data or {}).get("ticket_id") if result.tool_result else None
+            reply = f"{result.message}\nReply YES to proceed or NO to cancel."
+            if ticket_id:
+                reply += f" (or APPROVE {ticket_id} / REJECT {ticket_id})"
         else:
             reply = result.message
 
         # Send result back via transport
         await self._send_reply(message.chat_id, reply)
         return {"status": "SUCCESS", "result": result.model_dump(mode="json"), "reply": reply}
+
+    async def _announce_incoming(self, message: NormalizedWhatsAppMessage) -> None:
+        """Short spoken heads-up on the PC (name only - message content stays private)."""
+        if self.announcer is None or message.is_from_me:
+            return
+        try:
+            name = (message.sender_display_name or "someone").split("@")[0]
+            result = self.announcer(f"New WhatsApp message from {name}.")
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as exc:
+            logger.debug("Incoming message announcement failed: %s", exc)
 
     async def _send_reply(self, to_chat_id: str, text: str) -> Dict[str, Any]:
         """Sends reply back through the transport adapter."""

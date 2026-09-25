@@ -63,6 +63,8 @@ class SmartRouter:
             self.llm_provider.capability_retriever = self.capability_retriever
         if hasattr(self.llm_provider, "capability_registry"):
             self.llm_provider.capability_registry = self.capability_registry
+        if tool_registry is not None and getattr(self.llm_provider, "tool_registry", False) is None:
+            self.llm_provider.tool_registry = tool_registry
         self.last_clarification_candidates: list[str] = []
         self.last_clarification_intent: str = "open_app"
 
@@ -393,6 +395,15 @@ class SmartRouter:
                 self._record(ord_decision)
                 return ord_decision
 
+        # 3b-ext. EXTENDED DOMAINS: phone control, messaging, knowledge, web, reminders (< 1 ms)
+        from jarvis.core.router.extended import match_extended
+        ext_decision = match_extended(routing_text if positive_override else original_text, request_id)
+        if ext_decision:
+            ext_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
+            ext_decision.breakdown_ms = breakdown
+            self._record(ext_decision)
+            return ext_decision
+
         # 3c. DIRECT SHELL / TERMINAL COMMAND CHECK (< 0.5 ms)
         orig_stripped = original_text.strip()
         cmd_match = re.match(r"^(?:cmd:|cmd\s+|powershell:|powershell\s+|ps:|ps\s+|run:|exec:|exec\s+|sh:\s*)(.+)$", orig_stripped, re.IGNORECASE)
@@ -688,7 +699,8 @@ class SmartRouter:
             self._record(bat_dec)
             return bat_dec
 
-        if re.search(r"\b(?:wifi|network\s+connection|wifi\s+connection)\b", clean_lower):
+        if re.search(r"\b(?:wi-?fi|network\s+connection|wi-?fi\s+connection)\b(?!\s+(?:password|passcode|pin|key|name|code))", clean_lower) \
+                and not re.search(r"\b(?:password|passcode)\b", clean_lower):
             wifi_dec = RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.LANE_0,
@@ -1446,6 +1458,8 @@ class SmartRouter:
                 reason_code=ReasonCode.LLM_CLASSIFIED,
                 routing_ms=(perf_counter_ns() - t0) / 1e6,
                 breakdown_ms=breakdown,
+                # Not a question and no single tool matched: the service hands this to the tool-using agent.
+                context_trace={"fallback": "unknown_command"},
             )
 
         self._record(llm_decision)

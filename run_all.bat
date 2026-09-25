@@ -82,7 +82,7 @@ echo.
 echo ============================================================
 echo   JARVIS EDGE is successfully launched!
 echo.
-echo   * Voice Wake Word: "Hey Jarvis" (Sensitivity: 0.35)
+echo   * Voice Wake Word: "Hey Jarvis" (threshold in jarvis\config\jarvis.toml [voice])
 echo   * Voice Overlay Hotkey: Ctrl + Shift + J
 echo   * Voice Switching: "Change your voice to female" / "male"
 echo   * Dashboard: Opens automatically on wake word or tray icon

@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import os
+import time
 from typing import Any
 from pydantic import ValidationError
 from jarvis.core.commands.contracts import CommandResult
@@ -14,7 +15,11 @@ from jarvis.core.tasks.manager import State
 from jarvis.tools.base import ToolResult, VerificationResult
 
 class CommandService:
-    def __init__(self, registry, executor, verifier, response, tasks, bus, writer, metrics, router=None, planner=None, scheduler=None, planner_enabled=True, pulse=None, working_memory=None):
+    # Sources whose results must never be spoken on the PC speakers (remote / background channels).
+    SILENT_SOURCES = frozenset({"whatsapp", "test_silent", "benchmark", "test"})
+
+    def __init__(self, registry, executor, verifier, response, tasks, bus, writer, metrics, router=None, planner=None, scheduler=None, planner_enabled=True, pulse=None, working_memory=None,
+                 assistant=None, agent=None, whatsapp_ai=None):
         self.registry, self.executor, self.verifier, self.response = registry, executor, verifier, response
         self.tasks, self.bus, self.writer, self.metrics = tasks, bus, writer, metrics
         self.router = router or SmartRouter(app_resolver=getattr(executor, "resolver", None))
@@ -23,10 +28,58 @@ class CommandService:
         self.scheduler = scheduler
         self.planner_enabled = planner_enabled
         self.pulse = pulse
+        self.assistant = assistant
+        self.agent = agent
+        self.whatsapp_ai = whatsapp_ai
         self.accepting = True
         self.active = set()
         self._pending_execution: dict[str, Any] | None = None
         self._last_decisions: dict[str, Any] = {}
+        self._request_channels: dict[str, str] = {}
+
+    # A pending confirmation older than this is dropped, so a later unrelated "yes" cannot approve it.
+    PENDING_TTL_S = 120.0
+
+    @property
+    def _pending_execution(self) -> dict[str, Any] | None:
+        pending = self.__dict__.get("_pending_store")
+        if pending is not None and time.monotonic() - pending.get("_stamped", 0.0) > self.PENDING_TTL_S:
+            self.__dict__["_pending_store"] = None
+            return None
+        return pending
+
+    @_pending_execution.setter
+    def _pending_execution(self, value: dict[str, Any] | None) -> None:
+        if value is not None:
+            value = dict(value)
+            value.setdefault("_stamped", time.monotonic())
+        self.__dict__["_pending_store"] = value
+
+    # ------------------------------------------------------------------ channel helpers
+    @staticmethod
+    def _channel(request) -> str:
+        if getattr(request, "source", "") == "whatsapp":
+            return f"whatsapp:{getattr(request, 'chat_id', '') or getattr(request, 'sender_id', '')}"
+        return "local"
+
+    def _speaks(self, request) -> bool:
+        """Talk back on the PC for local interactive channels only (never for WhatsApp / tests)."""
+        source = getattr(request, "source", "")
+        if source in self.SILENT_SOURCES:
+            return False
+        if source in ("voice", "websocket", "desktop_ui", "local", "chat", "ui", "http", "api", "cli"):
+            return True
+        return bool(self.pulse and getattr(self.pulse, "audio_output", None) is not None)
+
+    def _conversation(self):
+        assistant = self.assistant
+        if assistant is None:
+            try:
+                from jarvis.core.llm.assistant import get_assistant
+                assistant = get_assistant()
+            except Exception:
+                return None
+        return getattr(assistant, "memory", None)
 
 
     async def handle(self, request, clock=None):
@@ -38,11 +91,12 @@ class CommandService:
         clock = clock or Clock()
         clock.parsed_ns = clock.parsed_ns or now_ns()
         task = self.tasks.create(request, clock)
+        self._request_channels[task.request_id] = self._channel(request)
         current = asyncio.current_task()
         self.active.add(current)
         tool_result, verification = None, None
         name = "unresolved"
-        is_voice = (getattr(request, "source", "") in ("voice", "websocket", "desktop_ui", "local", "chat", "ui", "http", "api")) or (self.pulse and getattr(self.pulse, "audio_output", None) is not None and getattr(request, "source", "") != "test_silent")
+        is_voice = self._speaks(request)
         self.bus.emit("request.received", task.request_id)
         self.writer.enqueue("requests", task.request_id, request.model_dump())
         self.tasks.transition(task, State.UNDERSTANDING)
@@ -130,6 +184,14 @@ class CommandService:
                             else:
                                 message = f"Confirmed. Executed all compound actions successfully."
                             return self._finalize(task, State.SUCCESS, message, tool_result, verification, clock, current, is_voice=is_voice)
+
+                        elif pending["type"] == "graph":
+                            return await self._execute_graph(pending["graph"], task, clock, current, is_voice,
+                                                             pending.get("predicted_ms", 400.0), approved=True, prefix="Confirmed. ")
+
+                        elif pending["type"] == "agent":
+                            return await self._run_agent(request, task, clock, current, is_voice, pending.get("predicted_ms", 400.0),
+                                                         goal=pending["goal"], state=pending["state"], confirmed=True)
 
                         elif pending["type"] == "single":
                             self.tasks.transition(task, State.EXECUTING)
@@ -255,35 +317,25 @@ class CommandService:
                 if inspect.isawaitable(ack_res):
                     await ack_res
 
-            # Handle LANE 2 (Planner required)
+            # Handle LANE 2 (conversation, planner, agent)
             if decision.lane == RouteLane.LANE_2 or decision.needs_planner:
                 from jarvis.core.router.models import ReasonCode
                 if getattr(decision, "reason_code", None) == ReasonCode.QUESTION_NOT_COMMAND and self.registry.contains("ollama_chat"):
-                    ollama_tool = self.registry.get("ollama_chat")
-                    ollama_args = ollama_tool.definition.input_model.model_validate({"query": request.text})
-                    self.tasks.transition(task, State.EXECUTING)
-                    if self.pulse:
-                        self.pulse.on_execution_started(task.request_id)
-                    clock.tool_started_ns = now_ns()
-                    res = await self.executor.execute(ollama_tool, ollama_args, task)
-                    clock.tool_returned_ns = now_ns()
-                    if self.pulse:
-                        dur_ms = (clock.tool_returned_ns - clock.tool_started_ns) / 1e6
-                        self.pulse.on_execution_finished(task.request_id, dur_ms, "ollama_chat")
-                    self.tasks.transition(task, State.VERIFYING)
-                    message = res.data.get("response", "I processed your request.")
-                    verification = VerificationResult(verified=True, confidence=1.0, evidence={"ollama_live": True})
-                    return self._finalize(task, State.SUCCESS, message, res, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+                    return await self._run_chat(request, task, clock, current, is_voice, predicted_ms)
 
                 if not self.planner_enabled:
+                    if self.agent is not None:
+                        return await self._run_agent(request, task, clock, current, is_voice, predicted_ms)
                     raise ValueError("This request requires the planner, which is disabled in this deployment.")
                 if self.planner is None:
                     from jarvis.core.planner.adaptive_planner import AdaptivePlanner
                     from jarvis.core.scheduler.scheduler import DAGScheduler
                     self.planner = AdaptivePlanner(registry=self.registry)
                     self.scheduler = DAGScheduler(registry=self.registry, executor=self.executor)
+                elif self.scheduler is None:
+                    from jarvis.core.scheduler.scheduler import DAGScheduler
+                    self.scheduler = DAGScheduler(registry=self.registry, executor=self.executor)
 
-                from jarvis.core.planner.schema import GraphStatus
                 self.tasks.transition(task, State.EXECUTING)
                 if self.pulse:
                     self.pulse.on_execution_started(task.request_id)
@@ -293,59 +345,35 @@ class CommandService:
                     request.text,
                     router_intents=[decision.intent] if decision.intent else None,
                 )
+                graph = planning_res.graph
+                invalid = graph is not None and planning_res.validation_result is not None and not planning_res.validation_result.is_valid
 
-                if planning_res.graph is None:
-                    # Live dynamic Ollama response fallback for freeform queries/questions
+                if graph is None or invalid:
+                    # The planner could not compile a valid graph: let the tool-using agent work it out step by step.
+                    if self.agent is not None:
+                        return await self._run_agent(request, task, clock, current, is_voice, predicted_ms)
                     if self.registry.contains("ollama_chat"):
-                        try:
-                            ollama_tool = self.registry.get("ollama_chat")
-                            ollama_args = ollama_tool.definition.input_model.model_validate({"query": request.text})
-                            res = await self.executor.execute(ollama_tool, ollama_args, task)
-                            if res.success and res.data.get("response"):
-                                message = res.data["response"]
-                                tool_result = res
-                                verification = VerificationResult(verified=True, confidence=1.0, evidence={"ollama_live": True})
-                                return self._finalize(task, State.SUCCESS, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
-                        except Exception:
-                            pass
-
+                        return await self._run_chat(request, task, clock, current, is_voice, predicted_ms)
                     state, message = State.FAILED, planning_res.error or "Planning failed or planner model unavailable."
                     tool_result = ToolResult(success=False, error=message, tool_name="planner")
                     verification = VerificationResult(verified=False, confidence=0.0, evidence={"error": message})
                     return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
 
-                # Execute via DAGScheduler
-                graph_result = await self.scheduler.execute(planning_res.graph)
-                clock.tool_started_ns = now_ns()
-                clock.tool_returned_ns = now_ns()
+                consequential = self._plan_consequential_steps(graph, ai_generated=planning_res.source not in ("cache", "decomposer", "capability_retriever"))
+                if consequential and not graph.missing_capabilities and not graph.blocking_questions:
+                    from jarvis.security.confirmation.manager import generate_graph_summary
+                    summary = generate_graph_summary(consequential)
+                    self._pending_execution = {"type": "graph", "graph": graph, "task": task, "clock": clock,
+                                               "current": current, "is_voice": is_voice, "predicted_ms": predicted_ms}
+                    self._remember_pending_confirmation("plan:" + graph.graph_id, "task_graph", summary, {"goal": graph.goal})
+                    self.bus.emit("confirmation.required", task.request_id, ticket_id=None, summary=summary)
+                    self.tasks.transition(task, State.WAITING_CONFIRMATION)
+                    message = summary if summary.endswith("?") else f"{summary}. Shall I proceed?"
+                    tool_result = ToolResult(success=False, data={"confirmation_required": True, "plan": [n.tool for n in graph.nodes]},
+                                             error=message, tool_name="dag_scheduler")
+                    return self._finalize(task, State.WAITING_CONFIRMATION, message, tool_result, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
 
-                if self.pulse:
-                    dur_ms = (clock.tool_returned_ns - clock.tool_started_ns) / 1e6
-                    self.pulse.on_execution_finished(task.request_id, dur_ms, "dag_scheduler")
-
-                self.tasks.transition(task, State.VERIFYING)
-                is_success = graph_result.status == GraphStatus.SUCCESS
-                state = State.SUCCESS if is_success else State.FAILED
-                message = graph_result.user_message_data
-                err_msg = None if is_success else (message or "Plan execution failed")
-                tool_result = ToolResult(
-                    success=is_success,
-                    data=graph_result.model_dump(mode="json"),
-                    error=err_msg,
-                    tool_name="dag_scheduler",
-                )
-                verification = VerificationResult(
-                    verified=is_success,
-                    error=None if is_success else (err_msg or "Execution failed"),
-                    confidence=1.0 if graph_result.status == GraphStatus.SUCCESS else 0.5,
-                    evidence={
-                        "graph_id": graph_result.graph_id,
-                        "status": str(graph_result.status),
-                        "parallelism_factor": graph_result.parallelism_factor,
-                    },
-                )
-                return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
-
+                return await self._execute_graph(graph, task, clock, current, is_voice, predicted_ms)
 
             # Handle COMPOUND COMMAND (Lane 0)
             if decision.complexity == ComplexityLevel.COMPOUND and decision.subcommands:
@@ -461,6 +489,17 @@ class CommandService:
                 else:
                     raise ValueError(f"Capability is not available in this deployment: {name or 'unknown'}")
             tool = self.registry.get(name)
+            tool_name = tool.definition.name
+            if tool_name == "ollama_chat":
+                ctx = decision.context_trace or {}
+                if ctx.get("fallback") == "unknown_command" and self.agent is not None:
+                    return await self._run_agent(request, task, clock, current, is_voice, predicted_ms)
+                return await self._run_chat(request, task, clock, current, is_voice, predicted_ms,
+                                            query=(raw_arguments or {}).get("query"))
+            from jarvis.core.llm.tool_catalog import normalize_slots
+            raw_arguments = normalize_slots(tool_name, raw_arguments)
+            if tool_name == "send_whatsapp_message":
+                raw_arguments = await self._prepare_whatsapp_message(raw_arguments, decision, request)
             clock.lookup_ns = now_ns()
             valid_fields = tool.definition.input_model.model_fields.keys()
             filtered_args = {k: v for k, v in raw_arguments.items() if k in valid_fields} if raw_arguments else {}
@@ -516,6 +555,11 @@ class CommandService:
                 message = ResponseFormatter.sanitize_error(raw_err, tool_name=name)
                 state = State.FAILED
                 return self._finalize(task, state, message, tool_result, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+            next_action = tool_result.data.get("next_action") if isinstance(tool_result.data, dict) else None
+            if next_action and self.registry.contains(str(next_action.get("tool", ""))):
+                # e.g. a drafted WhatsApp reply: continue with the (policy-confirmed) send step.
+                return await self._chain_next_action(next_action, tool_result, task, clock, current, is_voice, predicted_ms)
 
             self.tasks.transition(task, State.VERIFYING)
             clock.verification_started_ns = now_ns()
@@ -582,8 +626,18 @@ class CommandService:
             logging.getLogger("jarvis.commands").info(message, extra={"request_id": task.request_id,
                 "event": "response.ready", "duration_ms": result.metrics["total_ms"]})
 
-            # Contextual working memory updates
+            # Conversation transcript for the chat model / agent (per channel).
             dec = self._last_decisions.get(task.request_id)
+            channel = self._request_channels.pop(task.request_id, "local")
+            memory = self._conversation()
+            if memory is not None and dec is not None and dec.lane not in (RouteLane.CONTROL, RouteLane.REJECT):
+                try:
+                    memory.add(channel, "user", getattr(task, "raw_text", ""))
+                    memory.add(channel, "assistant", message)
+                except Exception:
+                    pass
+
+            # Contextual working memory updates
             if self.working_memory:
                 try:
                     if state == State.SUCCESS:
@@ -689,6 +743,241 @@ class CommandService:
             return result
         finally:
             self.active.discard(current)
+
+    # ------------------------------------------------------------------ AI lanes
+    def _to_executing(self, task) -> None:
+        if task.state in (State.UNDERSTANDING, State.ACKNOWLEDGED, State.PLANNING, State.WAITING_CONFIRMATION):
+            self.tasks.transition(task, State.EXECUTING)
+
+    def _remember_pending_confirmation(self, ticket_id: str, action: str, summary: str, slots: dict | None = None) -> None:
+        if self.working_memory and hasattr(self.working_memory, "set_pending_confirmation"):
+            from jarvis.core.context.models import PendingConfirmation
+            self.working_memory.set_pending_confirmation(
+                PendingConfirmation(ticket_id=ticket_id or "", action=action, human_summary=summary or "", prepared_slots=dict(slots or {}))
+            )
+
+    async def _run_chat(self, request, task, clock, current, is_voice, predicted_ms, query=None):
+        """Grounded conversational answer (RAG + history + live web when needed)."""
+        from jarvis.core.response.formatter import ResponseFormatter
+        tool = self.registry.get("ollama_chat")
+        question = (query or request.text).strip()[:8000]
+        args = tool.definition.input_model.model_validate({
+            "query": question,
+            "channel": self._channel(request),
+            "speakable": bool(is_voice),
+        })
+        self._to_executing(task)
+        if self.pulse:
+            self.pulse.on_execution_started(task.request_id)
+        clock.tool_started_ns = now_ns()
+        sink, token = self._open_answer_stream(task, is_voice)
+        try:
+            res = await self.executor.execute(tool, args, task)
+        finally:
+            if token is not None:
+                from jarvis.core.llm.streaming import current_stream
+                current_stream.reset(token)
+            if sink is not None:
+                sink.close()
+        clock.tool_returned_ns = now_ns()
+        if sink is not None and sink.first_delta_at is not None:
+            clock.first_token_ns = sink.first_delta_at
+        if (not res.success or res.data.get("status") == "error") and self.pulse:
+            self.pulse.close_speech_stream(task.request_id)  # speak the error message normally instead
+        if self.pulse:
+            self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "ollama_chat")
+        self.tasks.transition(task, State.VERIFYING)
+        if not res.success:
+            message = ResponseFormatter.sanitize_error(res.error or "Chat failed", tool_name="ollama_chat")
+            return self._finalize(task, State.FAILED, message, res, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+        message = res.data.get("response") or "I processed your request."
+        if res.data.get("status") == "error":
+            # Model offline: fall back to live web results for information questions.
+            from jarvis.core.llm.assistant import needs_live_data
+            if needs_live_data(question) and self.registry.contains("search_web"):
+                web = self.registry.get("search_web")
+                web_res = await self.executor.execute(web, web.definition.input_model.model_validate({"query": question}), task)
+                if web_res.success and web_res.data.get("summary"):
+                    message = web_res.data["summary"]
+                    res = web_res
+        verification = VerificationResult(verified=True, confidence=0.9, evidence={
+            "model": res.data.get("model", ""), "sources": len(res.data.get("sources", []) or []), "used_web": bool(res.data.get("used_web"))})
+        return self._finalize(task, State.SUCCESS, message, res, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+    def _open_answer_stream(self, task, is_voice):
+        """Stream the chat answer: speech starts at the first sentence and the UI shows text as it is written."""
+        from jarvis.core.llm.streaming import StreamSink, current_stream
+        speech = self.pulse.open_speech_stream(task.request_id) if (is_voice and self.pulse is not None) else None
+        request_id = task.request_id
+
+        def on_text(text: str) -> None:
+            self.bus.emit("assistant.partial", request_id, text=text)
+
+        sink = StreamSink(on_sentence=speech.push if speech is not None else None, on_text=on_text)
+        return sink, current_stream.set(sink)
+
+    async def _run_agent(self, request, task, clock, current, is_voice, predicted_ms, goal=None, state=None, confirmed=False):
+        """Tool-using agent for open-ended requests; pauses for confirmation on risky steps."""
+        goal = goal or request.text
+        self._to_executing(task)
+        if self.pulse:
+            self.pulse.on_execution_started(task.request_id)
+        clock.tool_started_ns = now_ns()
+        memory = self._conversation()
+        history = memory.history(self._channel(request)) if memory is not None and state is None else None
+        outcome = await self.agent.run(goal, task=task, history=history, state=state, confirmed=confirmed)
+        clock.tool_returned_ns = now_ns()
+        if self.pulse:
+            self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "agent")
+        steps = [{"tool": st.tool, "ok": st.success, "arguments": st.arguments} for st in outcome.steps]
+        if outcome.status == "needs_confirmation" and outcome.pending is not None:
+            self._pending_execution = {"type": "agent", "goal": goal, "state": outcome.state, "task": task, "clock": clock,
+                                       "current": current, "is_voice": is_voice, "predicted_ms": predicted_ms}
+            self._remember_pending_confirmation(outcome.pending.ticket_id or f"agent:{task.request_id}", outcome.pending.tool,
+                                                outcome.pending.summary, outcome.pending.arguments)
+            self.bus.emit("confirmation.required", task.request_id, ticket_id=outcome.pending.ticket_id, summary=outcome.pending.summary)
+            self.tasks.transition(task, State.WAITING_CONFIRMATION)
+            tool_result = ToolResult(success=False, error=outcome.message, tool_name="agent",
+                                     data={"confirmation_required": True, "pending_tool": outcome.pending.tool, "steps": steps})
+            return self._finalize(task, State.WAITING_CONFIRMATION, outcome.message, tool_result, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+        self.tasks.transition(task, State.VERIFYING)
+        ok = outcome.status in ("done", "needs_input")
+        message = outcome.message
+        if is_voice:
+            from jarvis.core.llm.assistant import to_speakable
+            message = to_speakable(message, max_chars=500) or message
+        data = {"status": outcome.status, "steps": steps, "model": outcome.model}
+        if ok:
+            tool_result = ToolResult(success=True, data=data, tool_name="agent")
+            verification = VerificationResult(verified=True, confidence=0.8, evidence={"agent_steps": len(steps), "status": outcome.status})
+            return self._finalize(task, State.SUCCESS, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+        tool_result = ToolResult(success=False, data=data, error=message, tool_name="agent")
+        return self._finalize(task, State.FAILED, message, tool_result, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+    async def _prepare_whatsapp_message(self, args: dict, decision, request) -> dict:
+        """Turn indirect requests ('ask Rahul if he is free') into the exact text the recipient reads."""
+        message = str((args or {}).get("message", "") or "")
+        recipient = str((args or {}).get("recipient", "") or "")
+        if not message or not recipient:
+            return args
+        ctx = decision.context_trace or {}
+        style = ctx.get("compose_style", "direct")
+        try:
+            from jarvis.integrations.whatsapp.ai import deterministic_compose, get_whatsapp_ai
+            ai = self.whatsapp_ai or get_whatsapp_ai()
+            if style != "direct" or ai.needs_composition(message, style):
+                composed = await ai.compose_outgoing(recipient, message, style, raw_text=ctx.get("raw_text") or request.text)
+            else:
+                composed = deterministic_compose(recipient, message, "direct")
+        except Exception as exc:
+            logging.getLogger("jarvis.commands").debug("Message composition skipped: %s", exc)
+            return args
+        if composed:
+            args = dict(args)
+            args["message"] = composed[:4096]
+        return args
+
+    def _plan_consequential_steps(self, graph, ai_generated: bool = True) -> list:
+        from jarvis.core.llm.tool_catalog import AI_CONFIRM_TOOLS
+        from jarvis.tools.base import RiskLevel
+        steps = []
+        for node in graph.nodes:
+            if not self.registry.contains(node.tool):
+                continue
+            risk = self.registry.get(node.tool).definition.risk
+            if risk in (RiskLevel.EXTERNAL_EFFECT, RiskLevel.DESTRUCTIVE, RiskLevel.PRIVILEGED) or (ai_generated and node.tool in AI_CONFIRM_TOOLS):
+                shown = dict(node.args)
+                for arg_name in node.bindings:
+                    shown.setdefault(arg_name, f"<result of step {node.bindings[arg_name].node_id}>")
+                steps.append((node.tool, shown, risk if risk != RiskLevel.READ_ONLY else RiskLevel.REVERSIBLE))
+        return steps
+
+    async def _execute_graph(self, graph, task, clock, current, is_voice, predicted_ms, approved=False, prefix=""):
+        from jarvis.core.planner.schema import GraphStatus
+        if self.scheduler is None:
+            from jarvis.core.scheduler.scheduler import DAGScheduler
+            self.scheduler = DAGScheduler(registry=self.registry, executor=self.executor)
+        self._to_executing(task)
+        clock.tool_started_ns = now_ns()
+        graph_result = await self.scheduler.execute(graph, approved=approved)
+        clock.tool_returned_ns = now_ns()
+        if self.pulse:
+            self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "dag_scheduler")
+
+        if graph_result.status == GraphStatus.NEEDS_CONFIRMATION and not approved:
+            from jarvis.security.confirmation.manager import generate_graph_summary
+            summary = generate_graph_summary(self._plan_consequential_steps(graph)) or "This plan makes changes outside the PC."
+            self._pending_execution = {"type": "graph", "graph": graph, "task": task, "clock": clock, "current": current,
+                                       "is_voice": is_voice, "predicted_ms": predicted_ms}
+            self._remember_pending_confirmation("plan:" + graph.graph_id, "task_graph", summary, {"goal": graph.goal})
+            self.tasks.transition(task, State.WAITING_CONFIRMATION)
+            message = summary if summary.endswith("?") else f"{summary}. Shall I proceed?"
+            tool_result = ToolResult(success=False, data={"confirmation_required": True}, error=message, tool_name="dag_scheduler")
+            return self._finalize(task, State.WAITING_CONFIRMATION, message, tool_result, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+        self.tasks.transition(task, State.VERIFYING)
+        is_success = graph_result.status == GraphStatus.SUCCESS
+        state = State.SUCCESS if is_success else State.FAILED
+        message = self._graph_message(graph_result)
+        err_msg = None if is_success else (message or "Plan execution failed")
+        tool_result = ToolResult(success=is_success, data=graph_result.model_dump(mode="json"), error=err_msg, tool_name="dag_scheduler")
+        verification = VerificationResult(
+            verified=is_success,
+            error=None if is_success else (err_msg or "Execution failed"),
+            confidence=1.0 if is_success else 0.5,
+            evidence={"graph_id": graph_result.graph_id, "status": str(graph_result.status), "parallelism_factor": graph_result.parallelism_factor},
+        )
+        return self._finalize(task, state, prefix + message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+
+    def _graph_message(self, graph_result) -> str:
+        """Speak what the plan actually produced (e.g. the answer or the sent message), not just a step count."""
+        from jarvis.core.response.formatter import ResponseFormatter
+        base = graph_result.user_message_data or "Done."
+        if str(getattr(graph_result.status, "value", graph_result.status)) != "success":
+            return base
+        summaries = []
+        for node_id in graph_result.successful_nodes:
+            nr = graph_result.node_results.get(node_id)
+            if nr is None or not isinstance(nr.output, dict):
+                continue
+            try:
+                line = ResponseFormatter.format_verified_tool(nr.tool, nr.output)
+            except Exception:
+                continue
+            if line and line not in summaries and not line.startswith("Task completed"):
+                summaries.append(line)
+        return " ".join(summaries[-3:]) if summaries else base
+
+    async def _chain_next_action(self, next_action, first_result, task, clock, current, is_voice, predicted_ms):
+        """Run a follow-up step proposed by a tool (e.g. send a drafted reply) through normal policy."""
+        from jarvis.core.llm.tool_catalog import filter_arguments
+        from jarvis.core.response.formatter import ResponseFormatter
+        tool = self.registry.get(next_action["tool"])
+        args_dict, missing = filter_arguments(tool, next_action.get("arguments") or {})
+        if missing:
+            raise ValueError(f"Follow-up step is missing {', '.join(missing)}")
+        arguments = tool.definition.input_model.model_validate(args_dict)
+        res = await self.executor.execute(tool, arguments, task)
+        preview = first_result.data.get("draft") or args_dict.get("message", "")
+        who = next_action.get("display_recipient") or args_dict.get("recipient", "")
+        if not res.success and res.data and res.data.get("confirmation_required"):
+            ticket_id = res.data.get("ticket_id")
+            self._pending_execution = {"type": "single", "task": task, "ticket_id": ticket_id, "tool": tool, "arguments": arguments,
+                                       "clock": clock, "current": current, "is_voice": is_voice, "predicted_ms": predicted_ms}
+            self._remember_pending_confirmation(ticket_id or "", tool.definition.name, res.data.get("human_summary") or "", args_dict)
+            self.bus.emit("confirmation.required", task.request_id, ticket_id=ticket_id, summary=res.data.get("human_summary"))
+            self.tasks.transition(task, State.WAITING_CONFIRMATION)
+            message = f"Here's a reply for {who}: \"{preview}\". Shall I send it?" if preview else f"Please confirm: {res.data.get('human_summary')}. Shall I proceed?"
+            return self._finalize(task, State.WAITING_CONFIRMATION, message, res, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+        self.tasks.transition(task, State.VERIFYING)
+        if not res.success:
+            message = ResponseFormatter.sanitize_error(res.error or "Follow-up step failed", tool_name=tool.definition.name)
+            return self._finalize(task, State.FAILED, message, res, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
+        verification = await self.verifier.verify(tool.definition.name, res, arguments, task.cancellation)
+        message = self.response.render(res, verification)
+        return self._finalize(task, State.SUCCESS if verification.verified else State.FAILED, message, res, verification,
+                              clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
 
     async def close(self):
         self.accepting = False

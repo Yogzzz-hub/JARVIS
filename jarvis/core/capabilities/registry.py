@@ -1577,6 +1577,61 @@ CAPABILITY_DEFINITIONS: List[CapabilityDefinition] = [
 ]
 
 
+def _cap(cap_id, category, description, keywords, examples, target, counter=(), required=(), optional=(),
+         risk=RiskLevel.REVERSIBLE, cost=CostTier.LOW, family=""):
+    return CapabilityDefinition(
+        id=cap_id, category=category, description=description, keywords=list(keywords), examples=list(examples),
+        counterexamples=list(counter), required_slots=list(required), optional_slots=list(optional), risk_level=risk,
+        target_tool=target, cost_tier=cost, family=family,
+    )
+
+
+# Capabilities added with the AI integration layer (phone control, messaging replies, RAG, web, reminders).
+EXTENDED_CAPABILITY_DEFINITIONS: List[CapabilityDefinition] = [
+    _cap("web.open_website", CapabilityCategory.BROWSER, "Opens a website or a site's search results page in the default browser.",
+         ["open website", "go to site", "visit website", "search amazon", "search flipkart", "search on youtube"],
+         ["Go to wikipedia.org", "Search Amazon for wireless earbuds", "Open github.com"], "open_website",
+         counter=["Search my files", "Open notepad"], required=["url"], family="BROWSER"),
+    _cap("web.task", CapabilityCategory.BROWSER, "Uses the browser with AI to complete a multi-step web goal and report the result.",
+         ["use the browser to", "find the price of", "look up on the website", "browse and find", "check the website"],
+         ["Use the browser to find the price of a Pixel 9 on Flipkart", "Check the website for today's opening hours"], "web_task",
+         counter=["Open chrome"], required=["goal"], cost=CostTier.EXPENSIVE, family="BROWSER"),
+    _cap("reminder.set", CapabilityCategory.WORKFLOW, "Sets a spoken reminder for a time, e.g. in 10 minutes or at 6 pm.",
+         ["remind me", "set a reminder", "reminder", "alert me at"],
+         ["Remind me to drink water in 20 minutes", "Set a reminder to call mom at 6 pm"], "set_reminder",
+         counter=["Remind Rahul on WhatsApp", "What time is it"], required=["text"], family="WORKFLOW"),
+    _cap("reminder.list", CapabilityCategory.WORKFLOW, "Lists pending reminders.",
+         ["my reminders", "list reminders", "pending reminders"], ["What are my reminders?", "Show my reminders"], "list_reminders",
+         risk=RiskLevel.READ_ONLY, family="WORKFLOW"),
+    _cap("rag.knowledge_ingest", CapabilityCategory.RAG, "Adds a folder or document to JARVIS's knowledge base so questions can be answered from it.",
+         ["learn my documents", "index folder", "add to knowledge base", "memorize this folder", "study these files"],
+         ["Learn my Documents folder", "Add D:\\Notes to your knowledge base"], "knowledge_ingest",
+         counter=["Open my documents folder"], required=["path"], risk=RiskLevel.READ_ONLY, cost=CostTier.MEDIUM, family="RAG"),
+    _cap("rag.knowledge_search", CapabilityCategory.RAG, "Answers a question from the knowledge base (indexed documents and notes) with citations.",
+         ["what do my documents say", "search my knowledge base", "according to my notes", "ask my documents"],
+         ["What do my documents say about the refund policy?", "Search my knowledge base for the project deadline"], "knowledge_search",
+         counter=["Find a file named report"], required=["question"], risk=RiskLevel.READ_ONLY, cost=CostTier.MEDIUM, family="RAG"),
+    _cap("whatsapp.reply", CapabilityCategory.WHATSAPP, "Drafts a reply to the latest WhatsApp message from someone and asks before sending.",
+         ["reply to", "respond to message", "answer the message", "write back"],
+         ["Reply to Rahul saying I'll be there at 6", "Reply to the last WhatsApp message"], "reply_whatsapp_message",
+         counter=["Send a new message to mom"], optional=["recipient", "instruction"], risk=RiskLevel.READ_ONLY, family="WHATSAPP"),
+    _cap("phone.key", CapabilityCategory.PHONE, "Presses phone keys: volume, lock or wake the screen, play or pause media, home, back.",
+         ["phone volume", "lock my phone", "wake my phone", "pause music on phone", "next song on phone"],
+         ["Turn up the volume on my phone", "Lock my phone", "Pause the music on my phone"], "android_key",
+         counter=["Turn up the volume", "Lock the PC"], required=["key"], family="PHONE"),
+    _cap("phone.input", CapabilityCategory.PHONE, "Types text, taps or swipes on the connected phone.",
+         ["type on my phone", "swipe on phone", "tap on phone"], ["Type hello on my phone", "Swipe up on my phone"], "android_input",
+         required=["action"], family="PHONE"),
+    _cap("phone.open_url", CapabilityCategory.PHONE, "Opens a web page on the phone's browser.", ["open website on phone", "open link on my phone"],
+         ["Open youtube.com on my phone"], "android_open_url", required=["url"], family="PHONE"),
+    _cap("phone.dial", CapabilityCategory.PHONE, "Opens the phone dialer with a number or contact ready to call.",
+         ["call on my phone", "dial number", "phone call"], ["Call 9876543210 on my phone", "Dial mom on my phone"], "android_dial",
+         counter=["Call Arun on WhatsApp"], required=["number"], family="PHONE"),
+    _cap("phone.screenshot", CapabilityCategory.PHONE, "Takes a screenshot of the phone screen and saves it on the PC.",
+         ["phone screenshot", "screenshot of my phone", "capture phone screen"], ["Take a screenshot of my phone"], "android_screenshot",
+         counter=["Take a screenshot"], family="PHONE"),
+]
+
 class CapabilityRegistry:
     """In-memory indexing and catalog management for all system capabilities."""
 
@@ -1587,7 +1642,7 @@ class CapabilityRegistry:
         self._category_index: Dict[CapabilityCategory, List[CapabilityDefinition]] = {c: [] for c in CapabilityCategory}
 
         # Index master definitions
-        for cap in CAPABILITY_DEFINITIONS:
+        for cap in CAPABILITY_DEFINITIONS + EXTENDED_CAPABILITY_DEFINITIONS:
             self.register(cap)
 
     def register(self, cap: CapabilityDefinition) -> None:

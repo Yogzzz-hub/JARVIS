@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -12,6 +13,13 @@ from jarvis.connectors.base import BaseConnector, Capability, ConnectorInfo, Con
 
 logger = logging.getLogger("jarvis.connectors.android")
 
+ANDROID_KEYCODES = {
+    "home": 3, "back": 4, "call": 5, "end_call": 6, "volume_up": 24, "volume_down": 25, "power": 26,
+    "camera": 27, "enter": 66, "delete": 67, "menu": 82, "search": 84, "media_play_pause": 85,
+    "media_next": 87, "media_previous": 88, "volume_mute": 164, "app_switch": 187, "brightness_down": 220,
+    "brightness_up": 221, "sleep": 223, "wakeup": 224, "notifications": 83,
+}
+
 COMMON_PACKAGE_MAP = {
     "spotify": "com.spotify.music",
     "whatsapp": "com.whatsapp",
@@ -21,6 +29,34 @@ COMMON_PACKAGE_MAP = {
     "settings": "com.android.settings",
     "camera": "com.android.camera",
     "messages": "com.google.android.apps.messaging",
+    "instagram": "com.instagram.android",
+    "facebook": "com.facebook.katana",
+    "telegram": "org.telegram.messenger",
+    "gmail": "com.google.android.gm",
+    "photos": "com.google.android.apps.photos",
+    "gallery": "com.google.android.apps.photos",
+    "calendar": "com.google.android.calendar",
+    "clock": "com.google.android.deskclock",
+    "calculator": "com.google.android.calculator",
+    "phone": "com.google.android.dialer",
+    "dialer": "com.google.android.dialer",
+    "contacts": "com.google.android.contacts",
+    "play store": "com.android.vending",
+    "playstore": "com.android.vending",
+    "files": "com.google.android.apps.nbu.files",
+    "netflix": "com.netflix.mediaclient",
+    "amazon": "in.amazon.mShop.android.shopping",
+    "paytm": "net.one97.paytm",
+    "phonepe": "com.phonepe.app",
+    "gpay": "com.google.android.apps.nbu.paisa.user",
+    "google pay": "com.google.android.apps.nbu.paisa.user",
+    "twitter": "com.twitter.android",
+    "x": "com.twitter.android",
+    "snapchat": "com.snapchat.android",
+    "linkedin": "com.linkedin.android",
+    "zoom": "us.zoom.videomeetings",
+    "teams": "com.microsoft.teams",
+    "outlook": "com.microsoft.office.outlook",
 }
 
 
@@ -101,6 +137,11 @@ class AndroidScrcpyConnector(BaseConnector):
             ])
         if self.adb_bin:
             caps.extend([
+                Capability(name="android.key", description="Press a phone key (volume, power, media, home...)", risk_level="REVERSIBLE", requires_network=False),
+                Capability(name="android.input", description="Type text, tap or swipe on the phone", risk_level="REVERSIBLE", requires_network=False),
+                Capability(name="android.open_url", description="Open a web page on the phone", risk_level="REVERSIBLE", requires_network=False),
+                Capability(name="android.dial", description="Open the dialer with a number", risk_level="EXTERNAL_EFFECT", requires_network=False),
+                Capability(name="android.list_packages", description="List installed phone apps", risk_level="READ_ONLY", requires_network=False),
                 Capability(
                     name="android.open_app",
                     description="Launch a specified app on the phone by package or common name",
@@ -277,9 +318,69 @@ class AndroidScrcpyConnector(BaseConnector):
                 raise RuntimeError(f"Failed to trigger Back on Android: {err}")
             return {"status": "SUCCESS", "success": True, "message": "Back button pressed on phone."}
 
+        if action == "key":
+            key = str(arguments.get("key", "")).strip().lower().replace(" ", "_")
+            code = ANDROID_KEYCODES.get(key)
+            if code is None:
+                raise ValueError(f"Unsupported phone key: {key}")
+            code_run, _, err = self._run_adb(["shell", "input", "keyevent", str(code)])
+            if code_run != 0:
+                raise RuntimeError(f"Failed to press {key} on Android: {err}")
+            return {"status": "SUCCESS", "success": True, "message": f"Pressed {key.replace('_', ' ')} on the phone."}
+
+        if action == "input":
+            kind = str(arguments.get("action", "")).lower()
+            if kind == "text":
+                text = str(arguments.get("text", ""))
+                if not text:
+                    raise ValueError("No text to type")
+                # adb 'input text' needs spaces as %s and shell metacharacters escaped.
+                escaped = re.sub(r"([\\\"'`$&|;<>(){}\[\]*?!#~])", r"\\\1", text).replace(" ", "%s")
+                args = ["shell", "input", "text", escaped]
+            elif kind == "tap":
+                args = ["shell", "input", "tap", str(int(arguments["x"])), str(int(arguments["y"]))]
+            elif kind == "swipe":
+                direction = str(arguments.get("direction", "up")).lower()
+                x1, y1, x2, y2 = {"up": (540, 1600, 540, 500), "down": (540, 500, 540, 1600),
+                                  "left": (900, 1000, 150, 1000), "right": (150, 1000, 900, 1000)}.get(direction, (540, 1600, 540, 500))
+                args = ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "250"]
+            else:
+                raise ValueError(f"Unsupported phone input action: {kind}")
+            code_run, _, err = self._run_adb(args)
+            if code_run != 0:
+                raise RuntimeError(f"Phone input failed: {err}")
+            return {"status": "SUCCESS", "success": True, "message": f"Phone {kind} done."}
+
+        if action == "open_url":
+            url = str(arguments.get("url", "")).strip()
+            if not re.match(r"^https?://", url):
+                url = "https://" + url
+            if not re.match(r"^https?://[^\s'\"]+$", url):
+                raise ValueError(f"Invalid URL: {url}")
+            code_run, _, err = self._run_adb(["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url])
+            if code_run != 0:
+                raise RuntimeError(f"Failed to open {url} on the phone: {err}")
+            return {"status": "SUCCESS", "success": True, "message": f"Opened {url} on the phone."}
+
+        if action == "dial":
+            number = re.sub(r"[^\d+]", "", str(arguments.get("number", "")))
+            if len(number) < 3:
+                raise ValueError("A phone number is required to dial")
+            # DIAL (not CALL): opens the dialer with the number; the user taps call.
+            code_run, _, err = self._run_adb(["shell", "am", "start", "-a", "android.intent.action.DIAL", "-d", f"tel:{number}"])
+            if code_run != 0:
+                raise RuntimeError(f"Failed to open the dialer: {err}")
+            return {"status": "SUCCESS", "success": True, "message": f"Dialer opened with {number} on your phone. Tap call to connect."}
+
+        if action == "list_packages":
+            code_run, out, err = self._run_adb(["shell", "pm", "list", "packages", "-3"], timeout=8.0)
+            if code_run != 0:
+                raise RuntimeError(f"Could not list phone apps: {err}")
+            return {"status": "SUCCESS", "success": True, "packages": [l.split(":", 1)[1] for l in out.splitlines() if ":" in l]}
+
         if action == "open_app":
             app_raw = arguments.get("app", arguments.get("name", arguments.get("app_name", ""))).strip().casefold()
-            pkg = COMMON_PACKAGE_MAP.get(app_raw, app_raw)
+            pkg = COMMON_PACKAGE_MAP.get(app_raw) or self._resolve_package(app_raw)
 
             if not pkg or not all(c.isalnum() or c in "._" for c in pkg):
                 raise ValueError(f"Invalid Android package name: {pkg}")
@@ -288,7 +389,7 @@ class AndroidScrcpyConnector(BaseConnector):
                 raise RuntimeError(f"Failed to launch app '{pkg}' on Android: {err}")
             return {"status": "SUCCESS", "message": f"App '{app_raw}' ({pkg}) opened on phone."}
 
-        if action_name == "android.capture_state":
+        if action == "capture_state":
             out_path = Path(arguments.get("destination", "screenshots/android_state.png")).resolve()
             out_path.parent.mkdir(parents=True, exist_ok=True)
             if not self.adb_bin:
@@ -307,6 +408,35 @@ class AndroidScrcpyConnector(BaseConnector):
             raise RuntimeError("Could not capture Android screen preview.")
 
         raise NotImplementedError(f"Action '{action_name}' not implemented")
+
+    def _resolve_package(self, app_name: str) -> str:
+        """Map a spoken app name to an installed package (e.g. 'insta' -> com.instagram.android)."""
+        if "." in app_name and " " not in app_name:
+            return app_name
+        try:
+            code, out, _ = self._run_adb(["shell", "pm", "list", "packages"], timeout=8.0)
+            packages = [l.split(":", 1)[1] for l in out.splitlines() if ":" in l] if code == 0 else []
+        except Exception:
+            packages = []
+        wanted = re.sub(r"[^a-z0-9]", "", app_name)
+        best, best_score = "", 0.0
+        for pkg in packages:
+            parts = [p for p in pkg.lower().split(".") if p not in ("com", "org", "android", "app", "apps", "google", "net", "in", "co")]
+            joined = "".join(parts)
+            score = 0.0
+            if wanted and any(p == wanted for p in parts):
+                score = 100.0
+            elif wanted and wanted in joined:
+                score = 80.0 + len(wanted) / max(len(joined), 1)
+            else:
+                try:
+                    from rapidfuzz import fuzz
+                    score = max((fuzz.ratio(wanted, p) for p in parts), default=0.0)
+                except ImportError:
+                    score = 0.0
+            if score > best_score:
+                best, best_score = pkg, score
+        return best if best_score >= 70.0 else app_name
 
     def verify(self, action_id: str, action_name: str, expected_state: Any) -> bool:
         if action_name == "android.open_control":

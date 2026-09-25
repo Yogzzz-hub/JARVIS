@@ -287,10 +287,15 @@ def extract_slots(
             if resolved_referent and capability.category in (CapabilityCategory.FILE, CapabilityCategory.PHONE):
                 val = str(resolved_referent)
             else:
-                val = extract_folder_slot(text)
+                # For move/copy-style capabilities the "to <folder>" clause is the destination and must
+                # never be taken as the source ("move the invoice to documents" is not "move Documents").
+                src_text = text
+                if slot_name in ("path", "source") and "destination" in (capability.required_slots + capability.optional_slots):
+                    src_text = re.sub(r"\s+(?:to|into|onto|as)\s+.*$", "", text, flags=re.IGNORECASE)
+                val = extract_folder_slot(src_text)
                 if not val:
                     # Check windows absolute path e.g. C:/ or C:\
-                    m = re.search(r'([a-zA-Z]:[\\/][^"\'<>|*?]+)', text)
+                    m = re.search(r'([a-zA-Z]:[\\/][^"\'<>|*?]+)', src_text)
                     if m:
                         val = m.group(1).strip()
                 if not val and reference_resolver and has_pronoun:

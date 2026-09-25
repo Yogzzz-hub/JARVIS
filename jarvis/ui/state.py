@@ -47,6 +47,11 @@ class JarvisUIState(QObject):
     isSpeakingChanged = Signal(bool)
     isTaskRunningChanged = Signal(bool)
     taskHistoryChanged = Signal()
+    audioLevelChanged = Signal(float)
+    conversationChanged = Signal()
+    llmStatusChanged = Signal(str)
+    voiceStatusChanged = Signal(str)
+    ui3dChanged = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -66,6 +71,11 @@ class JarvisUIState(QObject):
         self._ping_ms: int = 0
         self._low_resource_mode: bool = False
         self._status_message: str = "Ready"
+        self._audio_level: float = 0.0
+        self._conversation: list[dict[str, Any]] = []
+        self._llm_status: str = "UNKNOWN"
+        self._voice_status: str = "UNKNOWN"
+        self._ui3d: bool = True
 
         # Bounded history buffers
         self._recent_tasks: list[dict[str, Any]] = []
@@ -224,6 +234,70 @@ class JarvisUIState(QObject):
             bars += [0.0] * (24 - len(bars))
         self._audio_levels = bars
         self.audioLevelsChanged.emit(bars)
+        newest = bars[-1] if bars else 0.0
+        if abs(newest - self._audio_level) > 0.01:
+            self._audio_level = newest
+            self.audioLevelChanged.emit(newest)
+
+    @Property(float, notify=audioLevelChanged)
+    def audioLevel(self) -> float:
+        """Newest microphone level (0..1) - drives the reactor's voice reactivity."""
+        return self._audio_level
+
+    # --- Conversation (chat transcript shown on the home screen) ---
+    @Property("QVariantList", notify=conversationChanged)
+    def conversation(self) -> list[dict[str, Any]]:
+        return self._conversation
+
+    def add_turn(self, role: str, text: str, streaming: bool = False, state: str = "") -> None:
+        text = redact_sensitive_text((text or "").strip())
+        if not text:
+            return
+        last = self._conversation[-1] if self._conversation else None
+        if last and last["role"] == role and last.get("streaming"):
+            last.update(text=text, streaming=streaming, state=state or last.get("state", ""))
+        elif last and last["role"] == role and last["text"] == text:
+            return
+        else:
+            import time as _time
+            self._conversation.append({"role": role, "text": text, "time": _time.strftime("%H:%M"),
+                                       "streaming": streaming, "state": state})
+            del self._conversation[:-MAX_HISTORY_ITEMS]
+        self._conversation = list(self._conversation)
+        self.conversationChanged.emit()
+
+    @Slot()
+    def clearConversation(self) -> None:
+        self._conversation = []
+        self.conversationChanged.emit()
+
+    @Property(str, notify=llmStatusChanged)
+    def llmStatus(self) -> str:
+        return self._llm_status
+
+    def set_llm_status(self, status: str) -> None:
+        if status != self._llm_status:
+            self._llm_status = status
+            self.llmStatusChanged.emit(status)
+
+    @Property(bool, notify=ui3dChanged)
+    def ui3d(self) -> bool:
+        """Render the real-time 3D reactor (the UI falls back to 2D automatically when unsupported)."""
+        return self._ui3d
+
+    def set_ui3d(self, enabled: bool) -> None:
+        if bool(enabled) != self._ui3d:
+            self._ui3d = bool(enabled)
+            self.ui3dChanged.emit(self._ui3d)
+
+    @Property(str, notify=voiceStatusChanged)
+    def voiceStatus(self) -> str:
+        return self._voice_status
+
+    def set_voice_status(self, status: str) -> None:
+        if status != self._voice_status:
+            self._voice_status = status
+            self.voiceStatusChanged.emit(status)
 
     # --- Metrics ---
     @Property(float, notify=cpuPercentChanged)

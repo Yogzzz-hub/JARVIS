@@ -75,6 +75,8 @@ class Runtime:
 
             self.registry.discover(tools)
             self.registry.register_alias("describe_screen", "desktop_ui_snapshot")
+            self.registry.register_alias("draft_whatsapp_reply", "reply_whatsapp_message")
+            self.registry.register_alias("web_search", "search_web")
             self.registry.register_alias("volume_up", "volume_set")
             self.registry.register_alias("volume_down", "volume_set")
             self.registry.register_alias("mute", "volume_set")
@@ -88,18 +90,27 @@ class Runtime:
             self.verifier = Verifier(cfg.performance.verify_poll_ms, cfg.performance.verify_timeout_ms)
             from jarvis.core.context.resolver import ReferenceResolver
             self.reference_resolver = ReferenceResolver(self.memory)
+            self._build_intelligence()
             from jarvis.core.router.router import SmartRouter
-            from jarvis.core.router.ollama import DisabledProvider
+            from jarvis.core.router.ollama import DisabledProvider, OllamaProvider
             self.router = SmartRouter(
                 app_resolver=self.resolver,
-                llm_provider=None if cfg.features.router_ai else DisabledProvider(),
+                llm_provider=OllamaProvider(client=self.llm, tool_registry=self.registry) if cfg.features.router_ai else DisabledProvider(),
                 tool_registry=self.registry,
                 working_memory=self.memory,
                 reference_resolver=self.reference_resolver,
             )
+            from jarvis.core.agent import AgentRunner
+            from jarvis.core.planner.adaptive_planner import AdaptivePlanner
+            from jarvis.core.scheduler.scheduler import DAGScheduler
+            self.agent = AgentRunner(self.registry, self.executor, self.verifier, client=self.llm,
+                                     capability_retriever=self.router.capability_retriever)
             self.service = CommandService(self.registry, self.executor, self.verifier, ResponseEngine(),
                                           self.tasks, self.bus, self.writer, self.metrics, router=self.router,
-                                          planner_enabled=cfg.features.planner, working_memory=self.memory)
+                                          planner=AdaptivePlanner(registry=self.registry, client=self.llm),
+                                          scheduler=DAGScheduler(registry=self.registry, executor=self.executor),
+                                          planner_enabled=cfg.features.planner, working_memory=self.memory,
+                                          assistant=self.assistant, agent=self.agent, whatsapp_ai=self.whatsapp_ai)
             await self._start_audio()
             self.ready = True
             self.startup = {"event": "JARVIS_READY", "startup_ms": (now_ns() - start) / 1e6,
@@ -145,14 +156,21 @@ class Runtime:
 
                 self.catalog_refresh_task = asyncio.create_task(_run_periodic_catalog_refresh())
 
+                # Local AI: make sure Ollama is running, warm the fast model, embed pending knowledge.
+                self.llm_task = asyncio.create_task(self._prepare_models())
+                # Reminders: speak / show / push due reminders.
+                self.reminder_task = asyncio.create_task(self._run_reminders())
+
                 # Phase 5 Omnichannel: WhatsApp integration service
                 try:
                     from jarvis.integrations.whatsapp.service import WhatsAppIntegrationService
                     self.whatsapp_service = WhatsAppIntegrationService(
                         command_service=self.service,
-                        confirmation_manager=getattr(self.service, "confirmation_manager", None),
+                        confirmation_manager=getattr(self.executor, "confirmation_manager", None),
                         knowledge_service=getattr(self, "knowledge_service", None),
                         event_bus=self.bus,
+                        whatsapp_ai=self.whatsapp_ai,
+                        announcer=self._announce,
                     )
                     await self.whatsapp_service.start()
                     if self.service and hasattr(self.service, "registry"):
@@ -168,9 +186,116 @@ class Runtime:
                 self.indexing_task = None
                 self.catalog_refresh_task = None
                 self.whatsapp_service = None
+                self.llm_task = None
+                self.reminder_task = None
         except BaseException:
             await self.writer.close()
             raise
+
+    # ------------------------------------------------------------------ intelligence wiring
+    def _build_intelligence(self) -> None:
+        """One LLM client, one knowledge service, one assistant - shared by every AI feature."""
+        from jarvis.core.knowledge.engine import KnowledgeEngine
+        from jarvis.core.knowledge.service import KnowledgeService
+        from jarvis.core.llm.assistant import Assistant, set_assistant
+        from jarvis.core.llm.client import LLMSettings, OllamaClient, set_llm
+        from jarvis.integrations.whatsapp.ai import WhatsAppAI, set_whatsapp_ai
+
+        cfg = self.config
+        self.llm = OllamaClient(LLMSettings.from_config(cfg))
+        set_llm(self.llm)
+        knowledge_db = self.root / "db" / "knowledge.db"
+        self.knowledge_engine = KnowledgeEngine(knowledge_db)
+        self.knowledge_service = KnowledgeService(self.knowledge_engine, search_engine=self.search_engine,
+                                                  working_memory=self.memory, embedder=self.llm)
+        owner = self._owner_name()
+        self.assistant = Assistant(client=self.llm, registry=self.registry, knowledge_service=self.knowledge_service,
+                                   owner_name="" if owner == "Boss" else owner)
+        set_assistant(self.assistant)
+        self.whatsapp_ai = WhatsAppAI(client=self.llm, owner_name=owner)
+        set_whatsapp_ai(self.whatsapp_ai)
+        for tool in self.registry.list():
+            if hasattr(tool, "assistant") and getattr(tool, "assistant") is None:
+                tool.assistant = self.assistant
+            if hasattr(tool, "knowledge_service") and getattr(tool, "knowledge_service") is None:
+                tool.knowledge_service = self.knowledge_service
+            if tool.definition.name == "reply_whatsapp_message" and getattr(tool, "ai", None) is None:
+                tool.ai = self.whatsapp_ai
+
+    @staticmethod
+    def _owner_name() -> str:
+        try:
+            import tomllib
+            path = ROOT.parent / "config" / "whatsapp.toml"
+            if path.exists():
+                with path.open("rb") as f:
+                    return str(tomllib.load(f).get("whatsapp", {}).get("owner_name", "Boss")) or "Boss"
+        except Exception:
+            pass
+        return "Boss"
+
+    async def _prepare_models(self) -> None:
+        log = logging.getLogger("jarvis.runtime")
+        try:
+            up = await self.llm.ensure_server(wait_s=25.0) if self.config.models.auto_start else await self.llm.available(refresh=True)
+            if not up:
+                log.warning("Ollama is not reachable at %s (%s). AI answers, planning and the agent are offline; "
+                            "deterministic commands still work.", self.llm.base_url, self.llm.last_error or "not running")
+                self.bus.emit("llm.status", "", reachable=False, error=self.llm.last_error)
+                return
+            roles = {}
+            for role in ("fast", "chat", "planner", "embed"):
+                try:
+                    roles[role] = await self.llm.resolve(role)
+                except Exception:
+                    roles[role] = None
+            log.info("Local AI ready at %s: %s", self.llm.base_url, roles)
+            self.bus.emit("llm.status", "", reachable=True, roles=roles)
+            if self.config.models.warm_on_start:
+                await self.llm.warm("fast")
+                # Load the chat model and evaluate the (static) assistant prompt once, so the first
+                # spoken answer starts streaming immediately instead of paying for model load + prefill.
+                try:
+                    await self.llm.chat(
+                        [{"role": "system", "content": self.assistant.system_prompt(True)}, {"role": "user", "content": "hi"}],
+                        role="chat", max_tokens=1, timeout=120.0)
+                except Exception as exc:
+                    log.debug("Chat model warm-up skipped: %s", exc)
+            if roles.get("embed"):
+                self.knowledge_service.schedule_embedding()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("Local AI preparation failed: %s", exc)
+
+    async def _announce(self, text: str, request_id: str = "") -> None:
+        """Speak a short notice through the normal response path (no-op when TTS is off)."""
+        response = getattr(self.service, "response", None)
+        if response is not None and getattr(response, "enabled", False):
+            try:
+                response.schedule_final(request_id or f"notice_{now_ns()}", text)
+            except Exception as exc:
+                logging.getLogger("jarvis.runtime").debug("Announcement failed: %s", exc)
+
+    async def _run_reminders(self) -> None:
+        from jarvis.tools.system.assistant_tools import get_reminder_service
+        service = get_reminder_service()
+        while getattr(self, "ready", False):
+            try:
+                for reminder in await asyncio.to_thread(service.pop_due):
+                    self.bus.emit("reminder.due", reminder.id, text=reminder.text)
+                    await self._announce(f"Reminder: {reminder.text}.", reminder.id)
+                    if self.registry.contains("notification_send"):
+                        notifier = self.registry.get("notification_send")
+                        try:
+                            await asyncio.to_thread(notifier.run, {"title": "JARVIS reminder", "message": reminder.text, "priority": 4})
+                        except Exception:
+                            pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logging.getLogger("jarvis.runtime").debug("Reminder loop error: %s", exc)
+            await asyncio.sleep(2.0)
 
     async def _start_audio(self):
         import tomllib
@@ -232,7 +357,7 @@ class Runtime:
             hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level),
             wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold),
             stt_engine=FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model, device=cfg.stt_device,
-                                          compute_type=cfg.compute_type),
+                                          compute_type=cfg.compute_type, initial_prompt=self._stt_vocabulary()),
             command_service=self.service, event_bus=self.bus, response_engine=response,
             barge_in_controller=BargeInController(response.audio_output, cancel_task, enabled=output["barge_in"]),
             wake_enabled=cfg.wake_enabled, ptt_enabled=cfg.ptt_enabled, preroll_ms=cfg.preroll_ms)
@@ -243,6 +368,20 @@ class Runtime:
             logging.getLogger("jarvis.runtime").exception("Voice startup failed")
             await self.voice.stop()
             self.bus.emit("voice.error", "", error=self.voice_error)
+
+    def _stt_vocabulary(self) -> str:
+        """Bias Whisper toward words JARVIS commands use (names, apps, contacts)."""
+        try:
+            from jarvis.core.stt.vocabulary import VocabularyBiasProvider
+            terms = ["Jarvis", "WhatsApp", "YouTube", "Spotify", "Chrome", "screenshot", "volume", "brightness", "reminder"]
+            try:
+                from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
+                terms += [c.display_name for c in ContactResolver()._contacts[:25] if c.display_name]
+            except Exception:
+                pass
+            return VocabularyBiasProvider(custom_terms=terms, max_tokens=60).generate_prompt()
+        except Exception:
+            return ""
 
     def _audio_level(self, frame):
         import numpy as np
@@ -284,9 +423,24 @@ class Runtime:
             self.indexing_task.cancel()
         if hasattr(self, "catalog_refresh_task") and self.catalog_refresh_task:
             self.catalog_refresh_task.cancel()
+        for name in ("llm_task", "reminder_task"):
+            bg = getattr(self, name, None)
+            if bg:
+                bg.cancel()
         try:
             await self.service.close()
             await self.router.llm_provider.close()
+            if getattr(self, "llm", None) is not None:
+                await self.llm.aclose()
+            try:
+                from jarvis.core.computer.browser.loop import get_browser_loop, run_browser
+                from jarvis.tools.system import computer_tools
+                manager = computer_tools._browser_manager
+                if manager is not None and getattr(manager, "_is_running", False):
+                    run_browser(manager.stop(), timeout=10)
+                get_browser_loop().stop()
+            except Exception:
+                pass
             self.search_engine.close()
             await self.service.response.close()
             await self.metrics.close()

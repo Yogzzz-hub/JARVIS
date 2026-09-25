@@ -39,6 +39,9 @@ GENERIC_CACHEABLE_PHRASES = {
 class TTSManager:
     """Manages TTS engines, fallbacks, lifecycle, and memory caches."""
 
+    # Neural synthesis takes 50-400 ms: callers on the event loop must offload it to a thread.
+    blocking = True
+
     def __init__(
         self,
         piper_engine: Optional[PiperEngine] = None,

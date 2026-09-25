@@ -9,6 +9,10 @@ auth_dir = "data/whatsapp_auth"
 temp_dir = "data/whatsapp_temp"
 mode = "DRAFT_ONLY"  # "OFF", "DRAFT_ONLY", "ALLOWLIST_AUTO_REPLY"
 voice_reply_enabled = false
+owner_name = "Boss"              # how JARVIS refers to you when replying to others
+default_country_code = "91"      # prepended to 10-digit numbers without a country code
+ai_replies = true                # draft (or, for allowlisted contacts, send) AI replies to other people's messages
+announce_new_messages = true     # speak a short notice on the PC when a message arrives
 max_reconnect_attempts = 10
 reconnect_backoff_ms = 2000
 rate_limit_per_minute = 30
@@ -31,7 +35,8 @@ ack_latency_threshold_ms = 250.0
 progress_updates_enabled = true
 
 [whatsapp.contacts]
-# Standard contacts mapping display name to phone number or JID
+# Standard contacts mapping display name to phone number or JID.
+# NOTE: replace the placeholder numbers below with real ones before sending messages to these names.
 Mom = "+1234567891"
 Dad = "+1234567892"
 Rahul = "+1234567893"

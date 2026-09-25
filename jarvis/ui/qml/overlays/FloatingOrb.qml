@@ -24,7 +24,6 @@ Window {
         id: dragArea
         anchors.fill: parent
         cursorShape: Qt.SizeAllCursor
-        drag.target: root
         acceptedButtons: Qt.LeftButton | Qt.RightButton
 
         property point clickPos: "0,0"

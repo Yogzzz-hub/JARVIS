@@ -127,10 +127,21 @@ class PowerShellCommandTool(Tool):
 _browser_manager: Optional[Any] = None
 
 def get_shared_browser_manager():
+    """Process-wide managed browser (visible window). Only use it on the browser loop thread."""
     global _browser_manager
     if _browser_manager is None:
         from jarvis.core.computer.browser.manager import BrowserManager
-        _browser_manager = BrowserManager(headless=False)
+        headless = False
+        try:
+            import tomllib
+            from jarvis.config import ROOT
+            cfg = ROOT.parent / "config/connectors.toml"
+            if cfg.exists():
+                with cfg.open("rb") as f:
+                    headless = bool(tomllib.load(f).get("connectors", {}).get("browser", {}).get("headless", False))
+        except Exception:
+            pass
+        _browser_manager = BrowserManager(headless=headless)
     return _browser_manager
 
 
@@ -168,11 +179,8 @@ class BrowserNavigateTool(Tool):
         return {"url": page.url, "title": title, "status": "navigated"}
 
     def run(self, arguments: BrowserNavigateInput) -> dict[str, Any]:
-        try:
-            loop = asyncio.get_running_loop()
-            return asyncio.run_coroutine_threadsafe(self.run_async(arguments), loop).result()
-        except RuntimeError:
-            return asyncio.run(self.run_async(arguments))
+        from jarvis.core.computer.browser.loop import run_browser
+        return run_browser(self.run_async(arguments), timeout=self.definition.timeout_s)
 
 
 class BrowserClickInput(Contract):
@@ -223,11 +231,8 @@ class BrowserClickTool(Tool):
         }
 
     def run(self, arguments: BrowserClickInput) -> dict[str, Any]:
-        try:
-            loop = asyncio.get_running_loop()
-            return asyncio.run_coroutine_threadsafe(self.run_async(arguments), loop).result()
-        except RuntimeError:
-            return asyncio.run(self.run_async(arguments))
+        from jarvis.core.computer.browser.loop import run_browser
+        return run_browser(self.run_async(arguments), timeout=self.definition.timeout_s)
 
 
 class BrowserTypeInput(Contract):
@@ -278,11 +283,8 @@ class BrowserTypeTool(Tool):
         }
 
     def run(self, arguments: BrowserTypeInput) -> dict[str, Any]:
-        try:
-            loop = asyncio.get_running_loop()
-            return asyncio.run_coroutine_threadsafe(self.run_async(arguments), loop).result()
-        except RuntimeError:
-            return asyncio.run(self.run_async(arguments))
+        from jarvis.core.computer.browser.loop import run_browser
+        return run_browser(self.run_async(arguments), timeout=self.definition.timeout_s)
 
 
 class BrowserSnapshotInput(Contract):
@@ -324,11 +326,8 @@ class BrowserSnapshotTool(Tool):
         }
 
     def run(self, arguments: BrowserSnapshotInput) -> dict[str, Any]:
-        try:
-            loop = asyncio.get_running_loop()
-            return asyncio.run_coroutine_threadsafe(self.run_async(arguments), loop).result()
-        except RuntimeError:
-            return asyncio.run(self.run_async(arguments))
+        from jarvis.core.computer.browser.loop import run_browser
+        return run_browser(self.run_async(arguments), timeout=self.definition.timeout_s)
 
 
 # =====================================================================
@@ -1041,6 +1040,7 @@ class MediaControlTool(Tool):
 def create_computer_tools() -> list[Tool]:
     """Factory creating all computer, browser, DOM screen, and PowerShell tools."""
     from jarvis.tools.system.ollama_tool import OllamaChatTool
+    from jarvis.tools.system.web_agent import WebTaskTool
     return [
         PowerShellCommandTool(),
         BrowserNavigateTool(),
@@ -1050,6 +1050,7 @@ def create_computer_tools() -> list[Tool]:
         DesktopUISnapshotTool(),
         DesktopUIClickTool(),
         OllamaChatTool(),
+        WebTaskTool(),
         SystemDiagnosticsTool(),
         MicrophoneStatusTool(),
         SpeechRecognitionStatusTool(),
