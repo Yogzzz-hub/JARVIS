@@ -106,7 +106,8 @@ class WhatsAppChannelGateway:
 
         # Record incoming message in WhatsAppInbox
         try:
-            self.inbox.add_message(message, is_from_me=message.is_from_me)
+            # The owner's own messages are commands to JARVIS, never "unread messages" from other people.
+            self.inbox.add_message(message, is_from_me=message.is_from_me or sender_is_owner)
         except Exception as exc:
             logger.warning("Could not persist incoming message to inbox: %s", exc)
 
