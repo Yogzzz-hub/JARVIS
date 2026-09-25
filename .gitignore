@@ -35,3 +35,7 @@ integrations/whatsapp/bridge/auth_info/
 models/whisper/base/model.bin
 models/piper/**/*.onnx
 models/piper/.cache/
+
+# Runtime scratch folders
+jarvis/.trash/
+.trash/

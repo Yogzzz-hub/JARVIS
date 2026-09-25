@@ -157,7 +157,7 @@ echo   * Ollama Service:       http://127.0.0.1:11434 (Connected)
 echo   * WhatsApp Bridge:      ws://127.0.0.1:8768 (Owner: 6381456199)
 echo   * Google Workspace:     Configured (connect_google.bat)
 echo   * Jarvis Backend:       http://127.0.0.1:8765
-echo   * Voice Wake Word:      "Hey Jarvis" (Sensitivity: 0.35)
+echo   * Voice Wake Word:      "Hey Jarvis" (threshold in jarvis\config\jarvis.toml [voice])
 echo   * Voice Hotkey:         Ctrl + Shift + J
 echo ============================================================
 echo.

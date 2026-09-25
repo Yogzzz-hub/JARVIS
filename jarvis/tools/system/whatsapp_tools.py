@@ -6,6 +6,7 @@ Risk Class: EXTERNAL_EFFECT.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Optional
 from pydantic import Field
@@ -16,6 +17,36 @@ from jarvis.security.ledger.models import LedgerState
 from jarvis.tools.base import Contract, ExecutionMethod, IdempotencyClass, RiskLevel, Tool, ToolDefinition
 
 logger = logging.getLogger("jarvis.tools.whatsapp")
+
+
+def _default_country_code() -> str:
+    try:
+        import tomllib
+        from jarvis.config import ROOT
+        path = ROOT.parent / "config/whatsapp.toml"
+        if path.exists():
+            with path.open("rb") as f:
+                return str(tomllib.load(f).get("whatsapp", {}).get("default_country_code", "91")).lstrip("+")
+    except Exception:
+        pass
+    return "91"
+
+
+def phone_to_jid(raw: str, country_code: str | None = None) -> str | None:
+    """'+91 98765 43210' / '9876543210' / 'x@s.whatsapp.net' -> JID; None when not a phone number."""
+    raw = (raw or "").strip()
+    if "@" in raw:
+        return raw
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) < 7 or len(digits) > 15 or re.search(r"[A-Za-z]", raw):
+        return None
+    if raw.startswith("+") or raw.startswith("00"):
+        digits = digits[2:] if raw.startswith("00") else digits
+    elif len(digits) == 10:
+        digits = (country_code or _default_country_code()) + digits
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = (country_code or _default_country_code()) + digits[1:]
+    return f"{digits}@s.whatsapp.net"
 
 
 class SendWhatsAppMessageInput(Contract):
@@ -79,8 +110,19 @@ class SendWhatsAppMessageTool(Tool):
                 "evidence": {"ambiguous_contacts": [c.display_name for c in ambiguous]},
             }
 
-        target_jid = contact.jid if contact else (recipient_raw if "@" in recipient_raw else f"{recipient_raw}@s.whatsapp.net")
+        target_jid = contact.jid if contact else phone_to_jid(recipient_raw)
         resolved_name = contact.display_name if contact else recipient_raw
+        if not target_jid:
+            return {
+                "status": "FAILED",
+                "recipient": recipient_raw,
+                "recipient_jid": "",
+                "message": (f"I don't have a WhatsApp number for {recipient_raw}. Add it under [whatsapp.contacts] in "
+                            f"config/whatsapp.toml, import your contacts.vcf, or tell me the phone number."),
+                "message_id": None,
+                "action_ledger_status": "CANCELLED",
+                "evidence": {"unknown_contact": recipient_raw},
+            }
 
         # 2. Confirmation Verification for EXTERNAL_EFFECT
         ticket_id = arguments.confirmation_ticket
@@ -337,13 +379,80 @@ class SummarizeWhatsAppMessagesTool(Tool):
 
     def run(self, arguments: Any) -> dict[str, Any]:
         data = self.inbox.summarize_inbox()
+        spoken = data["spoken_summary"]
+        pending = list(data.get("urgent_messages", [])) + list(data.get("normal_messages", []))
+        if pending:
+            try:
+                from jarvis.integrations.whatsapp.ai import get_whatsapp_ai
+                spoken = get_whatsapp_ai().summarize_sync(pending, fallback=spoken)
+            except Exception as exc:
+                logger.debug("AI inbox summary unavailable: %s", exc)
         return {
             "status": "SUCCESS",
             "total_pending": data["total_pending"],
             "urgent_count": data["urgent_count"],
             "normal_count": data["normal_count"],
-            "spoken_summary": data["spoken_summary"],
+            "spoken_summary": spoken,
             "urgent_messages": data["urgent_messages"],
             "normal_messages": data["normal_messages"],
         }
 
+
+
+# =====================================================================
+# Draft WhatsApp Reply Tool (AI)
+# =====================================================================
+
+class DraftWhatsAppReplyInput(Contract):
+    recipient: str = Field(default="", max_length=256, description="Whose message to reply to (name/number); empty = latest message needing a reply")
+    instruction: str = Field(default="", max_length=1024, description="Optional guidance for what the reply should say")
+
+
+class DraftWhatsAppReplyOutput(Contract):
+    status: str
+    recipient: str
+    recipient_jid: str
+    original_message: str
+    draft: str
+    message: str
+    next_action: dict = Field(default_factory=dict)
+
+
+class DraftWhatsAppReplyTool(Tool):
+    """Writes a reply to the latest WhatsApp message with the local model; sending is a separate, confirmed step."""
+
+    definition = ToolDefinition(
+        name="reply_whatsapp_message",
+        description="Drafts a reply to the latest WhatsApp message (from a person, or the latest needing a reply) using the conversation and optional guidance, then asks to send it.",
+        input_model=DraftWhatsAppReplyInput,
+        output_model=DraftWhatsAppReplyOutput,
+        read_only=True,
+        risk=RiskLevel.READ_ONLY,
+        timeout_s=60.0,
+        tags=("messaging", "whatsapp", "reply", "ai"),
+        execution_method=ExecutionMethod.API,
+    )
+
+    def __init__(self, ai: Any = None) -> None:
+        self.ai = ai
+
+    async def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = DraftWhatsAppReplyInput(**arguments)
+        from jarvis.integrations.whatsapp.ai import get_whatsapp_ai
+        ai = self.ai or get_whatsapp_ai()
+        draft = await ai.draft_reply(arguments.recipient, arguments.instruction)
+        if draft is None:
+            who = f" from {arguments.recipient}" if arguments.recipient else ""
+            return {"status": "NOT_FOUND", "recipient": arguments.recipient, "recipient_jid": "", "original_message": "",
+                    "draft": "", "message": f"I couldn't find a WhatsApp message{who} to reply to.", "next_action": {}}
+        return {
+            "status": "DRAFTED",
+            "recipient": draft.recipient,
+            "recipient_jid": draft.recipient_jid,
+            "original_message": draft.original[:500],
+            "draft": draft.text,
+            "message": f"Reply to {draft.recipient}: {draft.text}",
+            "next_action": {"tool": "send_whatsapp_message", "arguments": {"recipient": draft.recipient_jid, "message": draft.text},
+                            "display_recipient": draft.recipient},
+        }

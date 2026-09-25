@@ -78,7 +78,7 @@ class SileroVADEngine:
         self._audio_ns = 0
 
     def _ensure_loaded(self):
-        if self._loaded:
+        if self._loaded or getattr(self, "_load_failed", False):
             return
         try:
             from silero_vad_lite import SileroVAD
@@ -86,6 +86,7 @@ class SileroVADEngine:
             self._loaded = True
             logger.info("SileroVAD loaded (CPU)")
         except Exception as exc:
+            self._load_failed = True  # do not retry the import on every 20 ms frame
             logger.warning("SileroVAD load failed: %s", exc)
 
     def feed(self, frame: AudioFrame) -> VADResult:
@@ -95,26 +96,23 @@ class SileroVADEngine:
         t0 = perf_counter_ns()
         now = perf_counter_ns()
 
-        if not self._loaded or self._vad is None:
-            return VADResult(
-                is_speech=False, probability=0.0,
-                inference_ms=0.0, state=self._state,
-            )
-
         now = frame.timestamp_ns if getattr(frame, "timestamp_ns", 0) > 0 else perf_counter_ns()
         self._last_now_ns = now
 
         # Convert PCM16 to float32 normalized [-1, 1]
         samples = np.frombuffer(frame.pcm, dtype=np.int16).astype(np.float32) / 32768.0
-        self._buffer = np.concatenate([self._buffer, samples])
 
-        probability = self._last_probability
-
-        # Process in 512-sample chunks
-        while len(self._buffer) >= SILERO_CHUNK_SAMPLES:
-            chunk = self._buffer[:SILERO_CHUNK_SAMPLES]
-            self._buffer = self._buffer[SILERO_CHUNK_SAMPLES:]
-            probability = float(self._vad.process(chunk.tobytes()))
+        if not self._loaded or self._vad is None:
+            # Silero unavailable: adaptive energy detector keeps voice usable (less robust to noise).
+            probability = self._energy_probability(samples)
+        else:
+            self._buffer = np.concatenate([self._buffer, samples])
+            probability = self._last_probability
+            # Process in 512-sample chunks
+            while len(self._buffer) >= SILERO_CHUNK_SAMPLES:
+                chunk = self._buffer[:SILERO_CHUNK_SAMPLES]
+                self._buffer = self._buffer[SILERO_CHUNK_SAMPLES:]
+                probability = float(self._vad.process(chunk.tobytes()))
         self._last_probability = probability
 
         inference_ms = (perf_counter_ns() - t0) / 1e6
@@ -171,6 +169,22 @@ class SileroVADEngine:
             inference_ms=inference_ms,
             state=self._state,
         )
+
+    def _energy_probability(self, samples: np.ndarray) -> float:
+        """Speech likelihood from frame energy relative to a slowly adapting noise floor."""
+        if samples.size == 0:
+            return self._last_probability
+        rms = float(np.sqrt(np.mean(samples * samples))) + 1e-7
+        floor = getattr(self, "_noise_floor", 0.0) or rms
+        if rms < floor * 1.5:
+            floor = 0.95 * floor + 0.05 * rms  # adapt only on quiet frames
+        self._noise_floor = max(floor, 2e-4)
+        ratio = rms / self._noise_floor
+        return float(np.clip((ratio - 2.0) / 4.0, 0.0, 1.0))
+
+    @property
+    def uses_energy_fallback(self) -> bool:
+        return not self._loaded
 
     @property
     def state(self) -> VADState:

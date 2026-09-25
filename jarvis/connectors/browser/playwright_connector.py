@@ -133,11 +133,8 @@ class PlaywrightConnector(BaseConnector):
                 title = await page.title()
                 return {"url": page.url, "title": title, "http_status": resp.status if resp else 200}
 
-            try:
-                loop = asyncio.get_running_loop()
-                res = asyncio.run_coroutine_threadsafe(_open(), loop).result(timeout=25)
-            except RuntimeError:
-                res = asyncio.run(_open())
+            from jarvis.core.computer.browser.loop import run_browser
+            res = run_browser(_open(), timeout=45)
 
             dur = (time.perf_counter() - t0) * 1000
             return {
@@ -159,11 +156,8 @@ class PlaywrightConnector(BaseConnector):
                 snippet = text[:1500].strip() if text else "No text found on page."
                 return {"url": page.url, "title": title, "content": snippet}
 
-            try:
-                loop = asyncio.get_running_loop()
-                res = asyncio.run_coroutine_threadsafe(_extract(), loop).result(timeout=10)
-            except RuntimeError:
-                res = asyncio.run(_extract())
+            from jarvis.core.computer.browser.loop import run_browser
+            res = run_browser(_extract(), timeout=30)
 
             dur = (time.perf_counter() - t0) * 1000
             return {
@@ -201,9 +195,10 @@ class PlaywrightConnector(BaseConnector):
 
     def disconnect(self) -> None:
         try:
+            from jarvis.core.computer.browser.loop import run_browser
             mgr = get_shared_browser_manager()
             if mgr._is_running:
-                asyncio.run(mgr.close())
+                run_browser(mgr.stop(), timeout=15)
         except Exception:
             pass
         self._status = ConnectorStatus.UNAVAILABLE

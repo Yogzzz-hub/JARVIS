@@ -222,6 +222,8 @@ class WhatsAppIntegrationService:
         knowledge_service: Optional[KnowledgeService] = None,
         event_bus: Optional[EventBus] = None,
         config_path: Optional[Path] = None,
+        whatsapp_ai: Any = None,
+        announcer: Optional[Callable[..., Any]] = None,
     ) -> None:
         self.command_service = command_service
         self.confirmation_manager = confirmation_manager
@@ -244,6 +246,9 @@ class WhatsAppIntegrationService:
         self.bridge_port = wa_cfg.get("bridge_port", 8768)
         self.mode = wa_cfg.get("mode", "DRAFT_ONLY")
         self.voice_reply_enabled = wa_cfg.get("voice_reply_enabled", False)
+        self.owner_name = wa_cfg.get("owner_name", "Boss")
+        self.ai_replies = bool(wa_cfg.get("ai_replies", True))
+        self.announce_new_messages = bool(wa_cfg.get("announce_new_messages", True))
 
         owner_numbers = wa_cfg.get("owner", {}).get("phone_numbers", ["6381456199", "+916381456199"])
         self.owner_identities: Set[str] = set(owner_numbers)
@@ -264,7 +269,7 @@ class WhatsAppIntegrationService:
         # Multimodal media pipeline
         self.media_pipeline = WhatsAppMediaPipeline(
             stt_engine=getattr(command_service, "stt", None),
-            knowledge_engine=getattr(self.knowledge_service, "engine", None) if self.knowledge_service else None,
+            knowledge_engine=getattr(self.knowledge_service, "knowledge_engine", None) if self.knowledge_service else None,
         )
 
         # Omnichannel Gateway
@@ -278,6 +283,9 @@ class WhatsAppIntegrationService:
             mode=self.mode,
             auto_reply_allowlist=self.auto_reply_allowlist,
             voice_reply_enabled=self.voice_reply_enabled,
+            whatsapp_ai=whatsapp_ai if self.ai_replies else None,
+            announcer=announcer if self.announce_new_messages else None,
+            event_bus=event_bus,
         )
 
     async def start(self) -> None:

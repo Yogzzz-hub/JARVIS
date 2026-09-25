@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from typing import Any, Dict, Optional
 
 from jarvis.core.pulse.earcons import EarconManager, EarconType
@@ -44,6 +45,38 @@ class PulseEngine:
 
         self._active_interactions: set[str] = set()
         self._speech_tasks: set[asyncio.Task] = set()
+        self._ack_pcm: "OrderedDict[str, tuple[bytes, int]]" = OrderedDict()  # recent micro-ACK audio
+
+    # Sources whose feedback must never be spoken on the PC (remote or background channels).
+    SILENT_SOURCES = frozenset({"whatsapp", "test_silent", "benchmark", "test"})
+
+    @staticmethod
+    def split_for_speech(text: str, max_chars: int = 220) -> list[str]:
+        """Sentence-sized chunks so the first words play while the rest is still being synthesized."""
+        import re
+        sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text or "") if x.strip()]
+        chunks: list[str] = []
+        for sentence in sentences:
+            while len(sentence) > max_chars:
+                cut = sentence.rfind(", ", 0, max_chars)
+                cut = cut + 1 if cut > max_chars // 3 else sentence.rfind(" ", 0, max_chars)
+                cut = cut if cut > 0 else max_chars
+                chunks.append(sentence[:cut].strip())
+                sentence = sentence[cut:].strip()
+            if chunks and len(chunks[-1]) + len(sentence) < 90:
+                chunks[-1] = f"{chunks[-1]} {sentence}"
+            elif sentence:
+                chunks.append(sentence)
+        return chunks or ([text.strip()] if text and text.strip() else [])
+
+    def _synth_blocks_loop(self) -> bool:
+        if not getattr(self.tts, "blocking", False):
+            return False
+        try:
+            asyncio.get_running_loop()
+            return True
+        except RuntimeError:
+            return False
 
     def predict_duration(self, tool_name: str, slots: Optional[Dict[str, Any]] = None) -> float:
         """Estimates execution duration using EWMA online learning."""
@@ -84,8 +117,11 @@ class PulseEngine:
     ) -> None:
         """Starts the Feedback Lane in parallel with Action Lane execution."""
         self._active_interactions.add(request_id)
-        # Enable talkback across all interactive channels (voice, websocket, desktop_ui, local, chat)
-        is_interactive = (source in ("voice", "websocket", "desktop_ui", "local", "chat", "ui", "http", "api")) or (self.audio_output is not None and source != "test_silent")
+        # Talk back on local interactive channels; remote channels (WhatsApp) stay silent on the PC.
+        is_interactive = source not in self.SILENT_SOURCES and (
+            source in ("voice", "websocket", "desktop_ui", "local", "chat", "ui", "http", "api", "cli")
+            or self.audio_output is not None
+        )
 
         # Emit UI state transition: UNDERSTOOD
         if self.event_bus:
@@ -130,12 +166,23 @@ class PulseEngine:
                 pcm, duration_ms = cached
                 sample_rate = self.ack_cache.sample_rate
 
-        # 2. Fast synthesis via TTS if available
+        if not pcm and ack_text in self._ack_pcm:
+            pcm, sample_rate = self._ack_pcm[ack_text]
+            self._ack_pcm.move_to_end(ack_text)
+            duration_ms = (len(pcm) / (2 * sample_rate)) * 1000.0
+
+        # 2. Synthesis via TTS: off the event loop for real (blocking) engines.
+        if not pcm and self.tts and self._synth_blocks_loop():
+            task = asyncio.get_running_loop().create_task(self._synthesize_ack_async(request_id, ack_text))
+            self._speech_tasks.add(task)
+            task.add_done_callback(self._speech_tasks.discard)
+            return
         if not pcm and self.tts:
             try:
                 pcm, _ = self.tts.synthesize(ack_text)
                 sample_rate = getattr(self.tts, "sample_rate", 22050)
                 duration_ms = (len(pcm) / (2 * sample_rate)) * 1000.0 if pcm else 350.0
+                self._remember_ack(ack_text, pcm, sample_rate)
             except Exception as ex:
                 logger.debug("TTS micro-ACK synthesis error: %s", ex)
 
@@ -156,6 +203,36 @@ class PulseEngine:
         )
         self.audio_output.play(response)
         logger.info("Dispatched micro-ACK %r for request %s", ack_text, request_id)
+
+    def _remember_ack(self, text: str, pcm: bytes, sample_rate: int) -> None:
+        if pcm:
+            self._ack_pcm[text] = (pcm, sample_rate)
+            while len(self._ack_pcm) > 64:
+                self._ack_pcm.popitem(last=False)
+
+    async def _synthesize_ack_async(self, request_id: str, ack_text: str) -> None:
+        try:
+            pcm, _ = await asyncio.to_thread(self.tts.synthesize, ack_text)
+        except Exception as ex:
+            logger.debug("TTS micro-ACK synthesis error: %s", ex)
+            pcm = b""
+        from jarvis.core.pulse.scheduler import InteractionState
+        state = self.scheduler._states.get(request_id)
+        if state in (InteractionState.VERIFIED, InteractionState.FINAL_RESPONSE, InteractionState.ACK_CANCELLED):
+            return  # the result is already being announced; a late "On it" would be noise
+        sample_rate = getattr(self.tts, "sample_rate", 22050)
+        if pcm:
+            self._remember_ack(ack_text, pcm, sample_rate)
+        elif self.ack_cache:
+            _, pcm, _ = self.ack_cache.get_ack()
+            sample_rate = getattr(self.ack_cache, "sample_rate", 22050)
+        if not pcm or not self.audio_output:
+            return
+        self.audio_output.play(SpokenResponse(
+            text=ack_text, type=ResponseType.ACK, request_id=request_id, priority=ResponsePriority.ACK,
+            interruptible=True, audio_bytes=pcm, sample_rate=sample_rate,
+            duration_ms=(len(pcm) / (2 * sample_rate)) * 1000.0,
+        ))
 
     def on_execution_started(self, request_id: str) -> None:
         """Notifies feedback lane that tool execution has commenced."""
@@ -249,26 +326,31 @@ class PulseEngine:
         if (is_voice or is_waiting_confirmation) and result_message and self.audio_output and self.tts:
             async def _speak_final():
                 try:
-                    import re
-                    clean_msg = re.sub(r"[*_`#]", "", result_message)
-                    clean_msg = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", clean_msg)
-                    clean_msg = re.sub(r"https?://\S+", "", clean_msg)
-                    clean_msg = re.sub(r"\s+", " ", clean_msg).strip()
-                    if not clean_msg:
-                        clean_msg = result_message
-
-                    pcm, backend = await asyncio.to_thread(self.tts.synthesize, clean_msg)
-                    if pcm:
-                        resp = SpokenResponse(
-                            text=clean_msg,
+                    from time import perf_counter_ns
+                    from jarvis.core.llm.assistant import to_speakable
+                    clean_msg = to_speakable(result_message, max_chars=900) or result_message
+                    started_ns = perf_counter_ns()
+                    for index, chunk in enumerate(self.split_for_speech(clean_msg)):
+                        # Stop if the user interrupted (barge-in / "stop talking") after we started.
+                        if getattr(self.audio_output, "_cancel_ns", 0) > started_ns:
+                            break
+                        if getattr(self.tts, "blocking", False):
+                            pcm, backend = await asyncio.to_thread(self.tts.synthesize, chunk)
+                        else:
+                            pcm, backend = self.tts.synthesize(chunk)
+                        if not pcm:
+                            continue
+                        self.audio_output.play(SpokenResponse(
+                            text=chunk,
                             type=ResponseType.FINAL,
                             request_id=request_id,
                             priority=ResponsePriority.FINAL,
                             interruptible=True,
                             audio_bytes=pcm,
                             sample_rate=getattr(self.tts, "sample_rate", 22050),
-                        )
-                        self.audio_output.play(resp)
+                            is_chunk=index > 0,
+                            chunk_index=index,
+                        ))
                 except Exception as exc:
                     logger.warning("Final spoken response non-fatal error: %s", exc)
                 finally:

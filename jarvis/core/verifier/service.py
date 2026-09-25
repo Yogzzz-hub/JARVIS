@@ -76,7 +76,13 @@ class Verifier:
             else:
                 error = "Screenshot file verification failed"
         else:
-            evidence = {"criterion": "native read completed and output schema validated", "tool": tool_name}
+            data = result.data if isinstance(result.data, dict) else {}
+            status = str(data.get("status", "")).upper()
+            if data.get("success") is False or status in ("FAILED", "ERROR", "NOT_FOUND", "AMBIGUOUS_CONTACT"):
+                # The tool ran but reported that the action did not happen: never announce it as done.
+                error = str(data.get("message") or data.get("error") or f"{tool_name} did not complete")
+            else:
+                evidence = {"criterion": "native read completed and output schema validated", "tool": tool_name}
         return VerificationResult(verified=bool(evidence), confidence=1.0 if evidence else 0.0,
                                   evidence=evidence or {}, error=error,
                                   duration_ms=(now_ns() - start) / 1e6)

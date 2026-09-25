@@ -20,6 +20,33 @@ from jarvis.core.stt.base import (
 
 logger = logging.getLogger("jarvis.stt.whisper")
 
+WHISPER_SIZES = ("tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en",
+                 "large-v1", "large-v2", "large-v3", "large-v3-turbo", "turbo", "distil-small.en",
+                 "distil-medium.en", "distil-large-v3")
+
+
+def resolve_whisper_model(model: str) -> str:
+    """Return a loadable model reference.
+
+    The repository ships ``models/whisper/base`` with tokenizer/config files, but the ~140 MB
+    ``model.bin`` is git-ignored. Passing that directory to faster-whisper fails, which used to
+    take the whole voice pipeline (and therefore the wake word) down. A directory without
+    ``model.bin`` now falls back to the matching model size, which faster-whisper downloads
+    once into its cache (run ``python scripts/setup_models.py`` to place it in ``models/``).
+    """
+    from pathlib import Path
+
+    ref = (model or "base").strip()
+    path = Path(ref)
+    if path.exists():
+        if path.is_dir() and not (path / "model.bin").exists():
+            size = path.name if path.name in WHISPER_SIZES else "base"
+            logger.warning("Whisper directory %s has no model.bin; using '%s' (downloaded on first use). "
+                           "Run `python scripts/setup_models.py` to install it locally.", path, size)
+            return size
+        return str(path)
+    return ref
+
 
 class FasterWhisperEngine:
     """Faster-Whisper STT engine with CUDA/CPU support.
@@ -42,7 +69,7 @@ class FasterWhisperEngine:
         initial_prompt: str = "",
         language: str = "en",
     ):
-        self.model_name_str = model
+        self.model_name_str = resolve_whisper_model(model)
         self.device_preference = device
         self.compute_type = compute_type
         self.context_window_s = context_window_s
@@ -126,14 +153,18 @@ class FasterWhisperEngine:
         self._audio_buffer = np.array([], dtype=np.float32)
         self._last_partial_text = ""
         self._last_partial_sample_count = 0
+        self._total_samples = 0
+
+    # The final transcript must see the whole utterance; only partials use the sliding window.
+    MAX_UTTERANCE_S = 30.0
 
     async def feed_audio(self, pcm: bytes, sample_rate: int = 16000) -> None:
         """Feed PCM16 audio into the transcription buffer."""
         samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
         self._audio_buffer = np.concatenate([self._audio_buffer, samples])
+        self._total_samples = getattr(self, "_total_samples", 0) + len(samples)
 
-        # Trim to context window (keep latest N seconds)
-        max_samples = int(self.context_window_s * sample_rate)
+        max_samples = int(self.MAX_UTTERANCE_S * sample_rate)
         if len(self._audio_buffer) > max_samples:
             self._audio_buffer = self._audio_buffer[-max_samples:]
 
@@ -146,10 +177,12 @@ class FasterWhisperEngine:
             return None
 
         t0 = perf_counter_ns()
+        window = self._audio_buffer[-int(self.context_window_s * 16000):]
+        covered = getattr(self, "_total_samples", len(self._audio_buffer))
 
         def _transcribe():
             segments, info = self._model.transcribe(
-                self._audio_buffer,
+                window,
                 language=self.language,
                 beam_size=1,
                 best_of=1,
@@ -168,7 +201,8 @@ class FasterWhisperEngine:
             return None
 
         self._last_partial_text = text
-        self._last_partial_sample_count = len(self._audio_buffer)
+        self._last_partial_sample_count = covered
+        self._last_partial_full = len(window) >= len(self._audio_buffer) or covered <= len(window)
         duration_ms = len(self._audio_buffer) / 16.0  # 16 samples/ms at 16kHz
 
         return TranscriptPartial(
@@ -193,9 +227,10 @@ class FasterWhisperEngine:
                 device=self._device_actual,
             )
 
-        # Fast path: If recent partial was within 900ms of audio end (covers silence endpoint), reuse directly!
-        samples_since_partial = len(self._audio_buffer) - getattr(self, "_last_partial_sample_count", 0)
-        if self._last_partial_text and samples_since_partial < 16000 * 0.95:
+        # Fast path: reuse the latest partial only when it already covered everything except the
+        # trailing endpoint silence (~0.3 s). A staler partial would drop the command's last words.
+        samples_since_partial = getattr(self, "_total_samples", len(self._audio_buffer)) - getattr(self, "_last_partial_sample_count", 0)
+        if self._last_partial_text and getattr(self, "_last_partial_full", True) and samples_since_partial < 16000 * 0.4:
             duration_ms = len(self._audio_buffer) / 16.0
             return TranscriptFinal(
                 session_id=self._session_id,
@@ -252,6 +287,8 @@ class FasterWhisperEngine:
     async def cancel(self) -> None:
         """Cancel current session."""
         self._audio_buffer = np.array([], dtype=np.float32)
+        self._total_samples = 0
+        self._last_partial_sample_count = 0
         self._last_partial_text = ""
         self._session_id = ""
 

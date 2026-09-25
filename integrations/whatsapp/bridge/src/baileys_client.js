@@ -19,6 +19,25 @@ try {
   // Will log or gracefully handle if baileys is not installed yet
 }
 
+/**
+ * Normalize a recipient to a WhatsApp JID. Names are resolved to numbers by the Python side;
+ * anything that is neither a JID nor a phone number is rejected instead of silently failing.
+ */
+function normalizeJid(to) {
+  if (!to || typeof to !== "string") {
+    throw new Error("Missing recipient");
+  }
+  const trimmed = to.trim();
+  if (trimmed.includes("@")) {
+    return trimmed;
+  }
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15 || /[a-z]/i.test(trimmed)) {
+    throw new Error(`Invalid WhatsApp recipient: ${trimmed}`);
+  }
+  return `${digits}@s.whatsapp.net`;
+}
+
 class BaileysClient {
   constructor({
     authDir,
@@ -233,10 +252,29 @@ class BaileysClient {
     return true;
   }
 
+  async ensureRecipient(to) {
+    const jid = normalizeJid(to);
+    if (jid.endsWith("@s.whatsapp.net") && typeof this.sock.onWhatsApp === "function") {
+      try {
+        const [result] = await this.sock.onWhatsApp(jid);
+        if (result && result.exists === false) {
+          throw new Error(`${jid.split("@")[0]} is not registered on WhatsApp`);
+        }
+      } catch (err) {
+        if (/not registered on WhatsApp/.test(err.message)) {
+          throw err;
+        }
+        // Lookup failures (rate limits, transient errors) should not block sending.
+      }
+    }
+    return jid;
+  }
+
   async sendTextMessage(toJid, text, quoted = null) {
     if (!this.sock) {
       throw new Error("Baileys socket is not connected");
     }
+    toJid = await this.ensureRecipient(toJid);
 
     const payload = { text };
     const options = quoted ? { quoted } : {};
@@ -255,6 +293,7 @@ class BaileysClient {
     if (!this.sock) {
       throw new Error("Baileys socket is not connected");
     }
+    toJid = await this.ensureRecipient(toJid);
 
     const fileBuffer = await fs.promises.readFile(filePath);
     let messageContent = {};
@@ -312,5 +351,6 @@ class BaileysClient {
 }
 
 module.exports = {
-  BaileysClient
+  BaileysClient,
+  normalizeJid
 };

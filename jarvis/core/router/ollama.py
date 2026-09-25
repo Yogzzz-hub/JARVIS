@@ -1,8 +1,6 @@
-import asyncio
 import json
 import time
 from typing import Any, Protocol
-import httpx
 from jarvis.core.router.catalog import IntentDefinition
 from jarvis.core.router.models import (
     RouteDecision,
@@ -43,142 +41,214 @@ class LLMProvider(Protocol):
     ) -> RouteDecision:
         ...
 
+CLASSIFIER_SYSTEM_PROMPT = (
+    "You are the intent classifier of JARVIS, a voice assistant that controls a Windows PC, "
+    "an Android phone and WhatsApp. Map the user's utterance to exactly ONE tool from the list, "
+    "and extract its arguments using the exact argument names shown. Rules:\n"
+    "- Choose intent \"none\" and unknown=true for questions, chit-chat, or anything no tool does.\n"
+    "- Set is_multi_step=true when the request needs two or more different actions in sequence.\n"
+    "- Never invent argument values; list required arguments you could not find in missing_slots.\n"
+    "- Speech-recognition errors are common: interpret misheard words by meaning (\"crome\" = chrome).\n"
+    "- confidence is your probability (0-1) that the chosen tool and arguments are correct."
+)
+
+
 class OllamaProvider:
+    """Lane 1 classifier: a small local model picks one registered tool and fills its arguments.
+
+    The JSON schema constrains ``intent`` to the retrieved candidate tools, so the model cannot
+    hallucinate a capability; arguments are then validated against the tool's real input model.
+    """
+
+    MIN_CONFIDENCE = 0.45
+
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:11434",
-        model: str = "llama3.2:latest",
-        timeout: float = 30.0,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout: float = 20.0,
         capability_retriever: Any = None,
         capability_registry: Any = None,
+        client: Any = None,
+        tool_registry: Any = None,
+        role: str = "fast",
     ):
-        self.base_url = base_url
+        from jarvis.core.llm.client import LLMSettings, OllamaClient, get_llm, normalize_base_url
+
+        if client is None and base_url:
+            client = OllamaClient(LLMSettings(base_url=normalize_base_url(base_url), fast_model=model or ""))
+        self._client = client
+        self._get_llm = get_llm
         self.model = model
+        self.role = role
         self.timeout = timeout
         self.capability_retriever = capability_retriever
         self.capability_registry = capability_registry
-        self._client: httpx.AsyncClient | None = None
-        self._resolved_model: str | None = None
+        self.tool_registry = tool_registry
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
-        return self._client
+    @property
+    def client(self):
+        return self._client or self._get_llm()
 
-    async def _resolve_model(self, client: httpx.AsyncClient) -> str:
-        if self._resolved_model:
-            return self._resolved_model
-        try:
-            resp = await client.get("/api/tags", timeout=2.5)
-            if resp.status_code == 200:
-                models = [m.get("name", "") for m in resp.json().get("models", [])]
-                if self.model in models:
-                    self._resolved_model = self.model
-                    return self._resolved_model
-                # Find matching model or pick first fast model
-                for m in models:
-                    if any(cand in m.lower() for cand in ("llama3.2", "qwen2.5-coder:1.5b", "qwen2.5-coder:3b", "phi3", "mistral")):
-                        self._resolved_model = m
-                        return self._resolved_model
-                if models:
-                    self._resolved_model = models[0]
-                    return self._resolved_model
-        except Exception:
-            pass
-        self._resolved_model = self.model
-        return self._resolved_model
+    @property
+    def base_url(self) -> str:
+        return self.client.base_url
+
+    # ------------------------------------------------------------------ candidates
+    def _candidates(self, text: str, catalog_candidates: list[IntentDefinition]) -> list[dict[str, Any]]:
+        """Merge catalog intents, capability retrieval and tool retrieval into described candidates."""
+        from jarvis.core.llm.tool_catalog import argument_spec, select_tools
+
+        out: dict[str, dict[str, Any]] = {}
+
+        def add_tool(tool_name: str, examples: tuple[str, ...] = ()) -> None:
+            if not tool_name or tool_name in out:
+                return
+            if self.tool_registry is not None and not self.tool_registry.contains(tool_name):
+                return
+            entry: dict[str, Any] = {"name": tool_name, "description": tool_name.replace("_", " "), "args": {}, "required": [], "examples": list(examples[:2])}
+            if self.tool_registry is not None:
+                tool = self.tool_registry.get(tool_name)
+                fields, required = argument_spec(tool.definition.input_model)
+                entry.update(description=tool.definition.description.split("\n")[0][:160], args=fields, required=required)
+            out[tool_name] = entry
+
+        for cand in catalog_candidates[:8]:
+            add_tool(getattr(cand, "tool", "") or cand.name, tuple(getattr(cand, "examples", ()) or ()))
+        if self.capability_retriever is not None:
+            try:
+                for cap, _score in self.capability_retriever.retrieve(text, top_k=6, min_score=2.0):
+                    add_tool(cap.target_tool, tuple(cap.examples or ()))
+            except Exception:
+                pass
+        if self.tool_registry is not None:
+            for tool in select_tools(text, self.tool_registry, top_k=8):
+                add_tool(tool.definition.name)
+        if not out and self.tool_registry is None:
+            for cand in catalog_candidates:
+                out[cand.name] = {"name": cand.name, "description": cand.name.replace("_", " "), "args": {s: "string" for s in cand.required_slots}, "required": list(cand.required_slots), "examples": list(cand.examples[:2])}
+        return list(out.values())[:14]
 
     def _build_prompt(self, text: str, candidates: list[IntentDefinition]) -> str:
+        """Backwards-compatible single-string prompt (used by diagnostics and older tests)."""
+        described = self._candidates(text, candidates)
+        return self._render(text, described)
+
+    @staticmethod
+    def _render(text: str, described: list[dict[str, Any]]) -> str:
+        lines = []
+        for c in described:
+            args = "; ".join(f"{k}{'*' if k in c['required'] else ''}: {v}" for k, v in c["args"].items()) or "none"
+            ex = f" e.g. {c['examples'][0]!r}" if c.get("examples") else ""
+            lines.append(f"- {c['name']}: {c['description']} | args: {args}{ex}")
+        tools_block = "\n".join(lines) if lines else "- (no tools matched)"
+        return f"Tools (* = required argument):\n{tools_block}\n\nUser utterance: \"{text}\""
+
+    @staticmethod
+    def _schema(names: list[str]) -> dict[str, Any]:
+        schema = json.loads(json.dumps(CLASSIFIER_SCHEMA))
+        schema["properties"]["intent"] = {"type": "string", "enum": names + ["none"]}
+        return schema
+
+    # ------------------------------------------------------------------ fallbacks
+    def _semantic_rescue(self, request_id: str, text: str, total_ms: float, breakdown: dict[str, float]) -> RouteDecision | None:
+        if not self.capability_retriever:
+            return None
         try:
-            from jarvis.core.capabilities.context import CapabilityContextBuilder
-            return CapabilityContextBuilder.build_classifier_prompt(
-                text,
-                candidates=candidates,
-                retriever=self.capability_retriever,
-            )
+            from jarvis.core.capabilities.slot_extractor import extract_slots
+            sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
+            if sem_caps:
+                best_cap, score = sem_caps[0]
+                slots, missing = extract_slots(best_cap, text)
+                if not missing:
+                    return RouteDecision(
+                        request_id=request_id,
+                        lane=RouteLane.LANE_0,
+                        intent=best_cap.target_tool,
+                        slots=slots,
+                        confidence=min(1.0, score / 20.0),
+                        source=RouteSource.EXACT,
+                        complexity=ComplexityLevel.SIMPLE,
+                        normalized_text=text,
+                        reason_code=ReasonCode.EXACT_PATTERN,
+                        routing_ms=total_ms,
+                        breakdown_ms=breakdown,
+                    )
         except Exception:
-            intent_lines = []
-            for c in candidates:
-                req = f" required_slots: {list(c.required_slots)}" if c.required_slots else ""
-                intent_lines.append(f"- {c.name}: {c.examples[:2]}{req}")
+            pass
+        return None
 
-            intents_block = "\n".join(intent_lines)
-            return (
-                "You are a command intent classifier. Classify user text into exactly ONE candidate intent, "
-                "or set unknown=true if unfamiliar or not an imperative command.\n\n"
-                f"Candidate Intents:\n{intents_block}\n\n"
-                f'User Text: "{text}"'
-            )
+    def _map_intent(self, intent: str) -> str:
+        from jarvis.core.capabilities.canonical import to_canonical
+        if self.tool_registry is not None and self.tool_registry.contains(intent):
+            return intent
+        canon = to_canonical(intent)
+        if self.capability_registry:
+            cap_def = self.capability_registry.get(canon)
+            if cap_def and cap_def.target_tool:
+                return cap_def.target_tool
+        legacy = {
+            "whatsapp.send": "send_whatsapp_message",
+            "phone.mirror_open": "android_open_control",
+            "phone.mirror_close": "android_close_control",
+            "phone.status": "android_status",
+        }
+        return legacy.get(canon, intent)
 
+    # ------------------------------------------------------------------ classify
     async def classify(
         self,
         text: str,
         candidate_intents: list[IntentDefinition],
         request_id: str,
     ) -> RouteDecision:
+        from jarvis.core.llm.client import LLMUnavailable
+        from jarvis.core.llm.tool_catalog import filter_arguments
+
         t0 = time.perf_counter_ns()
         breakdown: dict[str, float] = {}
-
-        prompt = self._build_prompt(text, candidate_intents)
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "format": CLASSIFIER_SCHEMA,
-            "options": {
-                "temperature": 0.0,
-                "num_predict": 128,
-            },
-            "keep_alive": "60m",
-        }
-
+        described = self._candidates(text, candidate_intents)
+        names = [c["name"] for c in described]
+        messages = [
+            {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
+            {"role": "user", "content": self._render(text, described)},
+        ]
+        model_used = self.model
         try:
-            client = await self._get_client()
-            active_model = await self._resolve_model(client)
-            payload["model"] = active_model
-            resp = await client.post("/api/generate", json=payload, timeout=self.timeout)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Ollama returned HTTP {resp.status_code}: {resp.text}")
-
-            data = resp.json()
-            # Extract Ollama timing metrics if present (nanoseconds -> ms)
-            if "total_duration" in data:
-                breakdown["model_total_ms"] = data["total_duration"] / 1e6
-            if "load_duration" in data:
-                breakdown["model_load_ms"] = data["load_duration"] / 1e6
-            if "prompt_eval_duration" in data:
-                breakdown["model_prompt_eval_ms"] = data["prompt_eval_duration"] / 1e6
-            if "eval_duration" in data:
-                breakdown["model_generation_ms"] = data["eval_duration"] / 1e6
-
-            raw_response = data.get("response", "{}")
-            parsed = json.loads(raw_response)
+            result = await self.client.chat(
+                messages,
+                role=self.role,
+                model=self.model,
+                schema=self._schema(names),
+                temperature=0.0,
+                max_tokens=220,
+                timeout=self.timeout,
+            )
+            model_used = result.model
+            breakdown.update({f"model_{k}": v for k, v in result.timings_ms.items()})
+            parsed = result.data if isinstance(result.data, dict) else {}
 
             intent = parsed.get("intent")
-            slots = parsed.get("slots", {})
-            confidence = float(parsed.get("confidence", 0.8))
+            if intent in ("none", "null", ""):
+                intent = None
+            slots = parsed.get("slots") or {}
+            if not isinstance(slots, dict):
+                slots = {}
+            try:
+                confidence = max(0.0, min(1.0, float(parsed.get("confidence", 0.7))))
+            except (TypeError, ValueError):
+                confidence = 0.5
             is_multi_step = bool(parsed.get("is_multi_step", False))
             is_command = bool(parsed.get("is_command", True))
             unknown = bool(parsed.get("unknown", False))
-            missing_slots = parsed.get("missing_slots", [])
+            missing_slots = [m for m in (parsed.get("missing_slots") or []) if isinstance(m, str)]
 
-            # Map canonical capability ID to target tool name if Ollama returned canonical format
-            from jarvis.core.capabilities.canonical import to_canonical
             if intent:
-                canon = to_canonical(intent)
-                if self.capability_registry:
-                    cap_def = self.capability_registry.get(canon)
-                    if cap_def and cap_def.target_tool:
-                        intent = cap_def.target_tool
-                elif canon == "whatsapp.send":
-                    intent = "send_whatsapp_message"
-                elif canon == "phone.mirror_open":
-                    intent = "android_open_control"
-                elif canon == "phone.mirror_close":
-                    intent = "android_close_control"
-                elif canon == "phone.status":
-                    intent = "android_status"
-
+                intent = self._map_intent(intent)
+                if self.tool_registry is not None and self.tool_registry.contains(intent):
+                    tool = self.tool_registry.get(intent)
+                    slots, missing_required = filter_arguments(tool, slots)
+                    missing_slots = sorted(set(missing_required))
             total_ms = (time.perf_counter_ns() - t0) / 1e6
 
             # 1. Multi-step request detected
@@ -193,39 +263,17 @@ class OllamaProvider:
                     complexity=ComplexityLevel.COMPLEX,
                     needs_planner=True,
                     normalized_text=text,
-                    model_used=self.model,
+                    model_used=model_used,
                     routing_ms=total_ms,
                     reason_code=ReasonCode.MULTI_STEP,
                     breakdown_ms=breakdown,
                 )
 
-            # 2. Unknown or not a command
-            if unknown or not is_command or intent is None or intent == "null":
-                # Check if semantic capability retrieval can rescue the intent
-                if self.capability_retriever:
-                    try:
-                        from jarvis.core.capabilities.slot_extractor import extract_slots
-                        sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
-                        if sem_caps:
-                            best_cap, score = sem_caps[0]
-                            slots, missing = extract_slots(best_cap, text)
-                            if not missing:
-                                return RouteDecision(
-                                    request_id=request_id,
-                                    lane=RouteLane.LANE_0,
-                                    intent=best_cap.target_tool,
-                                    slots=slots,
-                                    confidence=min(1.0, score / 20.0),
-                                    source=RouteSource.EXACT,
-                                    complexity=ComplexityLevel.SIMPLE,
-                                    normalized_text=text,
-                                    reason_code=ReasonCode.EXACT_PATTERN,
-                                    routing_ms=total_ms,
-                                    breakdown_ms=breakdown,
-                                )
-                    except Exception:
-                        pass
-
+            # 2. Unknown, not a command, or too uncertain to act on
+            if unknown or not is_command or intent is None or confidence < self.MIN_CONFIDENCE:
+                rescued = self._semantic_rescue(request_id, text, total_ms, breakdown)
+                if rescued:
+                    return rescued
                 return RouteDecision(
                     request_id=request_id,
                     lane=RouteLane.CLARIFY,
@@ -236,14 +284,15 @@ class OllamaProvider:
                     complexity=ComplexityLevel.SIMPLE,
                     clarification="I'm not sure how to handle that request. Could you rephrase it?",
                     normalized_text=text,
-                    model_used=self.model,
+                    model_used=model_used,
                     routing_ms=total_ms,
                     reason_code=ReasonCode.UNKNOWN_INTENT,
                     breakdown_ms=breakdown,
                 )
 
-            # 3. Missing slots
+            # 3. Missing required arguments
             if missing_slots:
+                pretty = missing_slots[0].replace("_", " ")
                 return RouteDecision(
                     request_id=request_id,
                     lane=RouteLane.CLARIFY,
@@ -253,9 +302,9 @@ class OllamaProvider:
                     source=RouteSource.TINY_MODEL,
                     complexity=ComplexityLevel.SIMPLE,
                     missing_slots=missing_slots,
-                    clarification=f"Please specify the required {missing_slots[0]} for {intent}.",
+                    clarification=f"Please tell me the {pretty} for that.",
                     normalized_text=text,
-                    model_used=self.model,
+                    model_used=model_used,
                     routing_ms=total_ms,
                     reason_code=ReasonCode.MISSING_REQUIRED_SLOT,
                     breakdown_ms=breakdown,
@@ -271,7 +320,7 @@ class OllamaProvider:
                 source=RouteSource.TINY_MODEL,
                 complexity=ComplexityLevel.SIMPLE,
                 normalized_text=text,
-                model_used=self.model,
+                model_used=model_used,
                 routing_ms=total_ms,
                 reason_code=ReasonCode.LLM_CLASSIFIED,
                 breakdown_ms=breakdown,
@@ -279,32 +328,10 @@ class OllamaProvider:
 
         except Exception as exc:
             total_ms = (time.perf_counter_ns() - t0) / 1e6
-            # If Ollama timed out or failed, attempt semantic capability retrieval fallback first!
-            if self.capability_retriever:
-                try:
-                    from jarvis.core.capabilities.slot_extractor import extract_slots
-                    sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
-                    if sem_caps:
-                        best_cap, score = sem_caps[0]
-                        slots, missing = extract_slots(best_cap, text)
-                        if not missing:
-                            return RouteDecision(
-                                request_id=request_id,
-                                lane=RouteLane.LANE_0,
-                                intent=best_cap.target_tool,
-                                slots=slots,
-                                confidence=min(1.0, score / 20.0),
-                                source=RouteSource.EXACT,
-                                complexity=ComplexityLevel.SIMPLE,
-                                normalized_text=text,
-                                reason_code=ReasonCode.EXACT_PATTERN,
-                                routing_ms=total_ms,
-                                breakdown_ms=breakdown,
-                            )
-                except Exception:
-                    pass
-
-            # Graceful degradation when Ollama is stopped / times out and no capability matches
+            rescued = self._semantic_rescue(request_id, text, total_ms, breakdown)
+            if rescued:
+                return rescued
+            reason = "not running" if isinstance(exc, LLMUnavailable) else type(exc).__name__
             return RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.CLARIFY,
@@ -313,16 +340,16 @@ class OllamaProvider:
                 confidence=0.0,
                 source=RouteSource.TINY_MODEL,
                 complexity=ComplexityLevel.SIMPLE,
-                clarification=f"AI model unavailable ({type(exc).__name__}). Please use standard deterministic commands.",
+                clarification=f"AI model unavailable ({reason}). Please use standard deterministic commands.",
                 normalized_text=text,
-                model_used=self.model,
+                model_used=model_used,
                 routing_ms=total_ms,
                 reason_code=ReasonCode.UNKNOWN_INTENT,
                 breakdown_ms=breakdown,
             )
 
     async def close(self):
-        if self._client and not self._client.is_closed:
+        if self._client is not None:
             await self._client.aclose()
 
 

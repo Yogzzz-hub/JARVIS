@@ -298,10 +298,12 @@ class ExecutionEngine:
 
         try:
             async with asyncio.timeout(definition.timeout_s):
-                if inspect.iscoroutinefunction(tool.run):
+                async_impl = getattr(tool, "arun", None)
+                if inspect.iscoroutinefunction(async_impl) or inspect.iscoroutinefunction(tool.run):
+                    # Async tools (LLM, browser agent, RAG) run on the event loop; ``arun`` wins over a sync ``run``.
                     if task and hasattr(task, "clock"):
                         task.clock.tool_started_ns = now_ns()
-                    out = await tool.run(arguments)
+                    out = await (async_impl(arguments) if inspect.iscoroutinefunction(async_impl) else tool.run(arguments))
                     exec_output = definition.output_model.model_validate(out).model_dump()
                 else:
                     loop = asyncio.get_running_loop()

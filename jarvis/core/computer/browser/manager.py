@@ -9,7 +9,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 logger = logging.getLogger("jarvis.computer.browser.manager")
 
-DEFAULT_PROFILE_DIR = Path("data/browser/jarvis-profile").resolve()
+DEFAULT_PROFILE_DIR = Path(__file__).resolve().parents[3] / "data" / "browser" / "jarvis-profile"
 
 
 class BrowserManager:

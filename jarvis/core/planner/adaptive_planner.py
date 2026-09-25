@@ -12,11 +12,9 @@ Implements the deterministic planning cascade:
 9. Plan Confidence estimation & CapabilityGap / BlockingQuestion detection
 """
 
-import asyncio
 import json
 import time
 from typing import Any, Optional
-import httpx
 from pydantic import BaseModel
 
 from jarvis.core.planner.cache import PlanTemplateCache
@@ -37,15 +35,14 @@ from jarvis.tools.registry import ToolRegistry
 
 
 PLANNER_SYSTEM_PROMPT = """You compile a user's request into a TaskGraph using ONLY the provided tools.
-Never invent a tool that is not in the provided tool list.
-For system tasks, package/software installations, or scripts, use the `powershell_command` tool with as_admin=true.
-For web/browser tasks, use browser_navigate, browser_click, browser_type, or browser_snapshot.
-For desktop UI tasks, use desktop_ui_snapshot or desktop_ui_click.
-Never guess missing critical parameters.
-If ambiguity prevents correct execution, output blocking_questions.
+Never invent a tool or an argument name that is not in the provided tool list.
+Each node: id "n1", "n2", ...; tool; args (literal values); bindings (take an argument from an earlier node's output: {"arg": {"node_id": "n1", "output_path": "field"}}); depends_on.
+Prefer a dedicated tool over powershell_command. Use powershell_command only when no dedicated tool exists.
+For messages (WhatsApp) put the final wording the recipient should read in the message argument.
+For web tasks use browser_navigate / browser_click / browser_type / browser_snapshot, or web_task for multi-step browsing.
+Never guess missing critical parameters (recipient, file, amount): output blocking_questions instead.
 If no supplied tool can perform a required capability, output missing_capabilities.
-Use independent nodes when operations can run concurrently.
-Use dependencies only when one node actually requires another node's output.
+Use independent nodes when operations can run concurrently; use depends_on only for real data or ordering needs.
 Do not include explanations outside the schema."""
 
 
@@ -70,10 +67,11 @@ class AdaptivePlanner:
         retriever: Optional[ToolRetriever] = None,
         validator: Optional[GraphValidator] = None,
         optimizer: Optional[GraphOptimizer] = None,
-        ollama_url: str = "http://127.0.0.1:11434",
-        small_model: str = "llama3.2:latest",
-        full_model: str = "llama3.2:latest",
-        timeout: float = 30.0,
+        ollama_url: str | None = None,
+        small_model: str = "",
+        full_model: str = "",
+        timeout: float = 60.0,
+        client: Any = None,
     ):
         self.registry = registry
         self.cache = cache or PlanTemplateCache()
@@ -82,33 +80,61 @@ class AdaptivePlanner:
         self.validator = validator or GraphValidator(registry)
         self.optimizer = optimizer or GraphOptimizer(registry)
         self.complexity_analyzer = ComplexityAnalyzer()
-        self.ollama_url = ollama_url
+        if client is None and ollama_url:
+            from jarvis.core.llm.client import LLMSettings, OllamaClient, normalize_base_url
+            client = OllamaClient(LLMSettings(base_url=normalize_base_url(ollama_url), planner_model=small_model or full_model))
+        self._client = client
         self.small_model = small_model
         self.full_model = full_model
         self.timeout = timeout
-        self._http_client: Optional[httpx.AsyncClient] = None
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(base_url=self.ollama_url, timeout=self.timeout)
-        return self._http_client
+    @property
+    def client(self):
+        if self._client is not None:
+            return self._client
+        from jarvis.core.llm.client import get_llm
+        return get_llm()
+
+    @property
+    def ollama_url(self) -> str:
+        return self.client.base_url
 
     async def _resolve_model(self, requested: str) -> str:
+        """Configured model if installed, otherwise the best installed planner model."""
+        from jarvis.core.llm.client import LLMUnavailable, match_installed
         try:
-            client = await self._get_client()
-            resp = await client.get("/api/tags", timeout=2.0)
-            if resp.status_code == 200:
-                names = [m.get("name", "") for m in resp.json().get("models", [])]
-                if requested in names:
-                    return requested
-                for n in names:
-                    if any(cand in n.lower() for cand in ("llama3.2", "qwen2.5-coder", "mistral", "llama3.1", "phi3")):
-                        return n
-                if names:
-                    return names[0]
-        except Exception:
-            pass
-        return requested
+            installed = await self.client.list_models()
+        except LLMUnavailable:
+            return requested or ""
+        if requested:
+            matched = match_installed(requested, installed)
+            if matched:
+                return matched
+        try:
+            return await self.client.resolve("planner")
+        except LLMUnavailable:
+            return requested or ""
+
+    async def _call_model(self, model: str, system: str, user: str) -> tuple[Optional[TaskGraph], Optional[str]]:
+        from jarvis.core.llm.client import LLMError
+        try:
+            result = await self.client.chat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                role="planner",
+                model=model or None,
+                schema=TaskGraph.model_json_schema(),
+                temperature=0.0,
+                max_tokens=1024,
+                timeout=self.timeout,
+                num_ctx=8192,
+            )
+            graph = TaskGraph.model_validate(result.data)
+            graph.planner_model = result.model
+            return graph, None
+        except LLMError as e:
+            return None, str(e)
+        except Exception as e:
+            return None, f"{type(e).__name__}: {e}"
 
     async def plan(
         self,
@@ -267,34 +293,8 @@ class AdaptivePlanner:
         candidate_tools: list[CompactToolSchema],
         context: Optional[dict[str, Any]],
     ) -> tuple[Optional[TaskGraph], Optional[str]]:
-        """Sends request to Ollama with TaskGraph JSON schema format."""
-        prompt = self._build_prompt(request_text, candidate_tools, context)
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "format": TaskGraph.model_json_schema(),
-            "options": {
-                "temperature": 0.0,
-                "num_predict": 1024,
-            },
-            "keep_alive": "2m",
-        }
-
-        try:
-            client = await self._get_client()
-            resp = await client.post("/api/generate", json=payload)
-            if resp.status_code != 200:
-                return None, f"Ollama HTTP {resp.status_code}: {resp.text}"
-
-            data = resp.json()
-            raw_text = data.get("response", "{}")
-            graph_data = json.loads(raw_text)
-            graph = TaskGraph.model_validate(graph_data)
-            graph.planner_model = model
-            return graph, None
-        except Exception as e:
-            return None, str(e)
+        """Ask the planner model for a TaskGraph constrained by the JSON schema."""
+        return await self._call_model(model, PLANNER_SYSTEM_PROMPT, self._build_prompt(request_text, candidate_tools, context))
 
     async def _repair_graph(
         self,
@@ -306,41 +306,16 @@ class AdaptivePlanner:
     ) -> tuple[Optional[TaskGraph], Optional[str]]:
         """Sends exactly one targeted repair prompt with deterministic validator errors."""
         err_lines = [f"- {e.code}: {e.message} (node={e.node_id}, field={e.field})" for e in errors]
-        err_block = "\n".join(err_lines)
-        tools_block = json.dumps([t.model_dump() for t in candidate_tools], indent=2)
-
+        tools_block = json.dumps([t.model_dump() for t in candidate_tools], indent=1)
         prompt = (
-            f"{PLANNER_SYSTEM_PROMPT}\n\n"
-            f"REPAIR INSTRUCTION: The previous task graph was INVALID. Correct the errors below.\n\n"
+            "REPAIR INSTRUCTION: The previous task graph was INVALID. Correct the errors below.\n\n"
             f"User Goal: {goal}\n\n"
             f"Available Tools:\n{tools_block}\n\n"
-            f"Validator Errors:\n{err_block}\n\n"
-            f"Invalid Graph:\n{invalid_graph.model_dump_json(indent=2)}\n\n"
-            "Generate the corrected, strictly valid TaskGraph JSON:"
+            "Validator Errors:\n" + "\n".join(err_lines) + "\n\n"
+            f"Invalid Graph:\n{invalid_graph.model_dump_json(indent=1)}\n\n"
+            "Return the corrected, strictly valid TaskGraph JSON."
         )
-
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "format": TaskGraph.model_json_schema(),
-            "options": {"temperature": 0.0, "num_predict": 1024},
-            "keep_alive": "2m",
-        }
-
-        try:
-            client = await self._get_client()
-            resp = await client.post("/api/generate", json=payload)
-            if resp.status_code != 200:
-                return None, f"Ollama HTTP {resp.status_code}"
-            data = resp.json()
-            raw_text = data.get("response", "{}")
-            graph_data = json.loads(raw_text)
-            graph = TaskGraph.model_validate(graph_data)
-            graph.planner_model = model
-            return graph, None
-        except Exception as e:
-            return None, str(e)
+        return await self._call_model(model, PLANNER_SYSTEM_PROMPT, prompt)
 
     def _build_prompt(
         self,
@@ -348,33 +323,38 @@ class AdaptivePlanner:
         candidate_tools: list[CompactToolSchema],
         context: Optional[dict[str, Any]],
     ) -> str:
-        tools_json = json.dumps([t.model_dump() for t in candidate_tools], indent=2)
-        ctx_str = json.dumps(context or {}, indent=2)
-
+        tools_json = json.dumps([t.model_dump() for t in candidate_tools], indent=1)
+        ctx_str = json.dumps(context or {}, indent=1, default=str)
         return (
-            f"{PLANNER_SYSTEM_PROMPT}\n\n"
             f"Available Tools:\n{tools_json}\n\n"
             f"Current Context:\n{ctx_str}\n\n"
             f'User Request: "{text}"\n\n'
             "TaskGraph JSON:"
         )
 
+    def _has_any(self, names: tuple[str, ...], available: set[str]) -> bool:
+        return any(n in available or self.registry.contains(n) for n in names)
+
     def _detect_missing_capability(self, text: str, available_tools: set[str]) -> Optional[CapabilityGap]:
-        """Detects requests requiring capabilities not present in ToolRegistry (e.g. WhatsApp, Email)."""
+        """Report a gap only when the *registry* truly lacks the capability (not just the top-K)."""
         req_lower = text.lower()
-        if "whatsapp" in req_lower and "whatsapp_send" not in available_tools:
+        if "whatsapp" in req_lower and not self._has_any(
+            ("send_whatsapp_message", "read_whatsapp_messages", "summarize_whatsapp_messages", "reply_whatsapp_message"), available_tools
+        ):
             return CapabilityGap(
                 capability="whatsapp_messaging",
                 reason="WhatsApp integration is not installed or enabled in current build.",
                 related_tools=[],
             )
-        if any(w in req_lower for w in ("email", "gmail", "send mail")) and "send_email" not in available_tools:
+        if any(w in req_lower for w in ("email", "gmail", "send mail")) and not self._has_any(
+            ("gmail_send", "gmail_create_draft", "send_email"), available_tools
+        ):
             return CapabilityGap(
                 capability="email_messaging",
                 reason="Email sending capability is not installed in current build.",
                 related_tools=[],
             )
-        if "slack" in req_lower and "slack_send" not in available_tools:
+        if "slack" in req_lower and not self._has_any(("slack_send",), available_tools):
             return CapabilityGap(
                 capability="slack_messaging",
                 reason="Slack integration is not installed in current build.",

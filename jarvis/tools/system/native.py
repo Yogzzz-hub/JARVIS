@@ -426,9 +426,27 @@ def hardware_info():
             logging.getLogger("jarvis.system").warning("GPU metadata unavailable: %s", exc)
     return result
 
+SYSTEM_TOOL_DESCRIPTIONS = {
+    "open_app": "Launch a Windows application, Start-menu app, folder shortcut or web service by name (e.g. chrome, notepad, calculator, spotify, youtube).",
+    "close_app": "Close / terminate a running desktop application by name.",
+    "list_directory": "List the files inside a folder and reveal it in File Explorer (path may be Desktop, Downloads, Documents or an absolute path).",
+    "get_time": "Return the current local time and date.",
+    "system_info": "Report OS, CPU, RAM usage and GPU of this PC.",
+    "volume_get": "Read the current master speaker volume percentage.",
+    "volume_set": "Set the master speaker volume to an exact percentage (0-100).",
+    "brightness_get": "Read the current screen brightness percentage.",
+    "brightness_set": "Set the screen brightness to an exact percentage (0-100).",
+    "top_memory_processes": "List the programs using the most RAM right now.",
+    "take_screenshot": "Capture the whole screen to a PNG file (optional path).",
+    "set_voice": "Change JARVIS's speaking voice (male or female).",
+    "show_dashboard": "Open or bring the JARVIS dashboard window to the front.",
+    "wake_greeting": "Greet the user and show the JARVIS dashboard.",
+}
+
+
 class SystemTool(Tool):
     def __init__(self, name, input_model, output_model, function, read_only=True):
-        self.definition = ToolDefinition(name=name, description=name.replace("_", " "),
+        self.definition = ToolDefinition(name=name, description=SYSTEM_TOOL_DESCRIPTIONS.get(name, name.replace("_", " ")),
             input_model=input_model, output_model=output_model, read_only=read_only,
             risk=RiskLevel.READ_ONLY if read_only else RiskLevel.REVERSIBLE, tags=("system",))
         self.function = function
@@ -657,6 +675,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     from jarvis.tools.system.computer_tools import create_computer_tools
     computer_tools = create_computer_tools()
     from jarvis.tools.system.whatsapp_tools import (
+        DraftWhatsAppReplyTool,
         SendWhatsAppMessageTool,
         ReadWhatsAppMessagesTool,
         SummarizeWhatsAppMessagesTool,
@@ -666,6 +685,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
         SendWhatsAppMessageTool(),
         ReadWhatsAppMessagesTool(),
         SummarizeWhatsAppMessagesTool(),
+        DraftWhatsAppReplyTool(),
     ]
     web_tools = [WebSearchTool()]
     from jarvis.tools.system.connector_tools import create_connector_tools
@@ -678,5 +698,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     ide_tools = create_ide_tools()
     from jarvis.tools.system.keyboard_tools import create_keyboard_tools
     keyboard_tools = create_keyboard_tools()
-    return base_tools + file_tools + prod_tools + computer_tools + whatsapp_tools + web_tools + conn_tools + app_discovery_tools + window_mgmt_tools + ide_tools + keyboard_tools
+    from jarvis.tools.system.assistant_tools import create_assistant_tools
+    from jarvis.tools.system.phone_tools import create_phone_tools
+    extra_tools = create_assistant_tools() + create_phone_tools()
+    return base_tools + file_tools + prod_tools + computer_tools + whatsapp_tools + web_tools + conn_tools + app_discovery_tools + window_mgmt_tools + ide_tools + keyboard_tools + extra_tools
 

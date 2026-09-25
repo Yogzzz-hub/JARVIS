@@ -106,6 +106,10 @@ class VoicePipeline:
         self._release = False
         self._loop = None
         self._command_tasks = set()
+        self._echo_reset_pending = False
+        self._echo_cutoff_ns = 0
+        # While JARVIS is speaking, the wake word must be this confident to interrupt it.
+        self.barge_in_wake_threshold = min(0.95, getattr(self.wake_engine, "threshold", 0.5) + 0.2)
 
     @property
     def is_running(self) -> bool:
@@ -134,14 +138,23 @@ class VoicePipeline:
         self._loop = asyncio.get_running_loop()
         await asyncio.to_thread(self.vad._ensure_loaded)
         if not self.vad._loaded:
-            raise RuntimeError("Silero VAD could not load")
+            logger.warning("Silero VAD unavailable (pip install silero-vad-lite); using energy-based speech detection")
+            self._emit("voice.warning", warning="Silero VAD missing; using energy-based speech detection")
         if self.stt:
-            await self.stt.load()
+            try:
+                await self.stt.load()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Speech recognition model failed to load ({exc}). Install voice extras with "
+                    "`pip install -e .[voice]` and run `python scripts/setup_models.py`."
+                ) from exc
         if self.wake_enabled:
             await asyncio.to_thread(self.wake_engine._ensure_loaded)
             if not self.wake_engine._loaded:
                 self.wake_enabled = False
-                self._emit("voice.error", error="Wake model unavailable; PTT remains available")
+                reason = getattr(self.wake_engine, "load_error", "") or "model unavailable"
+                self.last_error = f"Wake word unavailable ({reason}); push-to-talk (Ctrl+Shift+J) still works"
+                self._emit("voice.error", error=self.last_error)
 
         if self.hub is None:
             from jarvis.core.audio.source import MicSource
@@ -196,59 +209,98 @@ class VoicePipeline:
         except Exception:
             logger.exception("Voice pipeline error")
 
+    def _assistant_speaking(self, tail_ms: float = 250.0) -> bool:
+        """True while JARVIS's own voice may be on the microphone (playback, queued audio or its tail)."""
+        out = getattr(self.response_engine, "audio_output", None) if self.response_engine else None
+        if out is None:
+            return False
+        if getattr(out, "is_playing", False):
+            return True
+        try:
+            if len(out.queue) > 0:
+                return True
+        except Exception:
+            pass
+        stop_ns = getattr(out, "last_playback_stop_ns", 0) or 0
+        return stop_ns > 0 and (perf_counter_ns() - stop_ns) / 1e6 < tail_ms
+
+    async def _next_wake_chunk(self, timeout: float = 0.1) -> AudioFrame:
+        """Next wake-word audio, batching any backlog into one frame (one thread hop, no drops)."""
+        queue = self._wake_consumer.queue
+        first = await asyncio.wait_for(queue.get(), timeout=timeout)
+        frames = [first]
+        while len(frames) < 25 and not queue.empty():
+            frames.append(queue.get_nowait())
+        if len(frames) == 1:
+            return first
+        pcm = b"".join(f.pcm for f in frames)
+        last = frames[-1]
+        return AudioFrame(sequence_id=last.sequence_id, timestamp_ns=last.timestamp_ns, sample_rate=last.sample_rate,
+                          channels=last.channels, sample_count=len(pcm) // 2, pcm=pcm, source=last.source)
+
     async def _wait_for_trigger(self) -> tuple[str, AudioFrame | None] | None:
         """Wait for wake word detection, push-to-talk, or follow-up speech.
 
         Returns (source, initial_frame) when triggered, None if pipeline is stopping.
+        While JARVIS is talking, the follow-up VAD is ignored (it would hear JARVIS itself) and
+        only a confidently detected wake word interrupts (barge-in).
         """
         while self._running:
-            # Check active follow-up listening window (e.g. after asking confirmation or completed task)
-            if self.response_engine and getattr(self.response_engine, "active_followup_window", False):
-                if self.ptt_enabled and self.ptt_engine.check():
-                    self.total_ptt_triggers += 1
-                    self.response_engine.close_followup_window()
-                    self._emit("voice.wake_detected", source="ptt")
-                    return ("ptt", None)
-
-                if self._vad_consumer:
-                    try:
-                        frame = await asyncio.wait_for(self._vad_consumer.queue.get(), timeout=0.08)
-                        vad_res = self.vad.feed(frame)
-                        if vad_res.state == VADState.SPEECH:
-                            logger.info("Speech detected during active conversation follow-up window")
-                            self.response_engine.close_followup_window()
-                            return ("followup", frame)
-                    except asyncio.TimeoutError:
-                        pass
-                    continue
-
-            # Check push-to-talk
             if self.ptt_enabled and self.ptt_engine.check():
                 self.total_ptt_triggers += 1
+                if self.response_engine and getattr(self.response_engine, "active_followup_window", False):
+                    self.response_engine.close_followup_window()
                 logger.info("Push-to-talk triggered")
                 self._emit("voice.wake_detected", source="ptt")
                 return ("ptt", None)
 
-            # Process wake word audio (suppressed if Jarvis is speaking)
-            if self.wake_enabled and self._wake_consumer:
-                if self.barge_in and self.barge_in.should_suppress_wake_word():
-                    self._drain(self._wake_consumer)
-                    self.wake_engine.reset()
-                    await asyncio.sleep(0.02)
-                    continue
+            followup = bool(self.response_engine and getattr(self.response_engine, "active_followup_window", False))
+            speaking = self._assistant_speaking()
+
+            if followup and not speaking and self._vad_consumer:
+                if self._echo_reset_pending:
+                    # Audio captured while JARVIS was talking is echo: forget it, keep what comes after.
+                    self.vad.reset()
+                    self._echo_cutoff_ns = perf_counter_ns()
+                    self._echo_reset_pending = False
+                self._drain(self._wake_consumer)
                 try:
-                    frame = await asyncio.wait_for(
-                        self._wake_consumer.queue.get(), timeout=0.1
-                    )
-                    detection = await asyncio.to_thread(self.wake_engine.feed, frame)
-                    if detection and detection.detected:
-                        self.total_wake_triggers += 1
-                        logger.info("Wake word detected: score=%.3f", detection.score)
-                        self._emit("voice.wake_detected", source="wake_word", score=detection.score)
-                        return ("wake_word", None)
+                    frame = await asyncio.wait_for(self._vad_consumer.queue.get(), timeout=0.08)
                 except asyncio.TimeoutError:
                     continue
+                if frame.timestamp_ns and frame.timestamp_ns < self._echo_cutoff_ns:
+                    continue
+                vad_res = self.vad.feed(frame)
+                if vad_res.state == VADState.SPEECH:
+                    logger.info("Speech detected during active conversation follow-up window")
+                    self.response_engine.close_followup_window()
+                    return ("followup", frame)
+                continue
+
+            if speaking:
+                self._echo_reset_pending = True
+
+            if self.wake_enabled and self._wake_consumer:
+                try:
+                    chunk = await self._next_wake_chunk(timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+                detection = await asyncio.to_thread(self.wake_engine.feed, chunk)
+                if detection and detection.detected:
+                    if speaking and detection.score < self.barge_in_wake_threshold:
+                        self.false_wake_triggers += 1
+                        continue
+                    if speaking and self.response_engine and hasattr(self.response_engine, "stop_speaking"):
+                        self.response_engine.stop_speaking()  # barge-in: "Jarvis, stop" / new command
+                    if followup:
+                        self.response_engine.close_followup_window()
+                    self.total_wake_triggers += 1
+                    logger.info("Wake word detected: score=%.3f", detection.score)
+                    self._emit("voice.wake_detected", source="wake_word", score=detection.score)
+                    return ("wake_word", None)
             else:
+                if self._vad_consumer:
+                    self._drain(self._vad_consumer)
                 await asyncio.sleep(0.05)
 
         return None

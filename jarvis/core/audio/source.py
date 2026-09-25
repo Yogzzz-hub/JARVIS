@@ -37,6 +37,42 @@ class AudioSource(Protocol):
     def frames(self) -> AsyncIterator[AudioFrame]: ...
 
 
+class StreamingResampler:
+    """Stateful rational resampler for PCM16 audio streams.
+
+    Resampling every 20 ms block independently (the previous approach) puts a filter
+    transient at each block edge - an audible 50 Hz click train that degrades wake-word and
+    speech recognition. This overlap-save wrapper around ``scipy.signal.resample_poly`` keeps
+    enough history around each block that the output is identical to resampling the whole
+    stream at once, at the cost of a few milliseconds of latency.
+    """
+
+    def __init__(self, from_rate: int, to_rate: int):
+        gcd = math.gcd(from_rate, to_rate)
+        self.up = to_rate // gcd
+        self.down = from_rate // gcd
+        half = math.ceil(10 * max(self.up, self.down) / self.up) + 1  # resample_poly filter half-length (input samples)
+        self.pad = math.ceil(half / self.down) * self.down
+        self._history = np.zeros(2 * self.pad, dtype=np.float32)
+        self._pending = np.zeros(0, dtype=np.float32)
+
+    def process(self, pcm: bytes) -> bytes:
+        from scipy.signal import resample_poly
+
+        x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+        self._pending = np.concatenate([self._pending, x])
+        n = (len(self._pending) // self.down) * self.down
+        if n == 0:
+            return b""
+        block, self._pending = self._pending[:n], self._pending[n:]
+        buf = np.concatenate([self._history, block])
+        y = resample_poly(buf, self.up, self.down)
+        start = self.pad * self.up // self.down
+        out = y[start: start + n * self.up // self.down]
+        self._history = buf[-2 * self.pad:]
+        return np.clip(np.round(out), -32768, 32767).astype(np.int16).tobytes()
+
+
 class MicSource:
     """Microphone capture via sounddevice.
 
@@ -62,6 +98,7 @@ class MicSource:
         self.dropped_frames = 0
         self.input_overflows = 0
         self._native_rate: int | None = None
+        self._resampler: StreamingResampler | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
@@ -133,9 +170,13 @@ class MicSource:
         self._seq += 1
         pcm_data = indata[:, 0].tobytes()  # mono channel, already int16
 
-        # Resample if native rate differs from target
+        # Resample if native rate differs from target (stateful: no clicks at block edges)
         if self._native_rate and self._native_rate != self.target_rate:
-            pcm_data = self._resample_pcm16(pcm_data, self._native_rate, self.target_rate)
+            if self._resampler is None:
+                self._resampler = StreamingResampler(self._native_rate, self.target_rate)
+            pcm_data = self._resampler.process(pcm_data)
+            if not pcm_data:
+                return
 
         sample_count = len(pcm_data) // 2  # PCM16 = 2 bytes per sample
         frame = AudioFrame(

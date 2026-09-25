@@ -6,8 +6,12 @@ import logging
 import os
 import subprocess
 import time
-import winreg
 from pathlib import Path
+
+try:  # Windows-only; known-folder lookup falls back to the home directory elsewhere.
+    import winreg
+except ImportError:  # pragma: no cover - non-Windows hosts
+    winreg = None
 from typing import Any, Dict, List, Optional
 from pydantic import Field
 

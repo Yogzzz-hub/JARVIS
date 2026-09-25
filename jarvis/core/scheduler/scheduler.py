@@ -56,8 +56,14 @@ class DAGScheduler:
         self,
         graph: TaskGraph,
         tickets: Optional[dict[str, str]] = None,
+        approved: bool = False,
     ) -> GraphResult:
-        """Executes a validated TaskGraph and returns a structured GraphResult."""
+        """Executes a validated TaskGraph and returns a structured GraphResult.
+
+        ``approved`` means the user already confirmed this whole plan (its consequential steps
+        were read back to them); risky nodes then run, each still receiving its own policy
+        ticket bound to the node's final, binding-resolved arguments.
+        """
         t0 = time.perf_counter()
         first_action_ms: float = 0.0
 
@@ -126,7 +132,7 @@ class DAGScheduler:
 
                 node = node_map[nid]
                 task = asyncio.create_task(
-                    self._execute_node_safe(node, node_results, semaphore, graph_id=graph.graph_id, tickets=tickets)
+                    self._execute_node_safe(node, node_results, semaphore, graph_id=graph.graph_id, tickets=tickets, approved=approved)
                 )
                 active_tasks[task] = nid
 
@@ -283,6 +289,7 @@ class DAGScheduler:
         semaphore: asyncio.Semaphore,
         graph_id: str = "",
         tickets: Optional[dict[str, str]] = None,
+        approved: bool = False,
     ) -> NodeResult:
         """Executes a single node safely with bindings, locks, timeout, and condition check."""
         t_start = time.perf_counter()
@@ -353,7 +360,7 @@ class DAGScheduler:
             tool_defn.risk in (RiskLevel.EXTERNAL_EFFECT, RiskLevel.DESTRUCTIVE, RiskLevel.PRIVILEGED)
             or tool_defn.requires_confirmation
         ):
-            if not ticket_id:
+            if not ticket_id and not approved:
                 dur = (time.perf_counter() - t_start) * 1000
                 return NodeResult(
                     node_id=node.id,
@@ -388,6 +395,19 @@ class DAGScheduler:
                 node_id=node.id,
                 dry_run_policy=self.config.dry_run_policy,
             )
+            cm = getattr(self.executor, "confirmation_manager", None)
+            if approved and not res.success and (res.data or {}).get("confirmation_required") and cm is not None:
+                # The user approved this plan; satisfy the ticket issued for this node's exact arguments.
+                node_ticket = res.data.get("ticket_id")
+                if node_ticket and cm.approve_ticket(node_ticket):
+                    res = await self.executor.execute(
+                        tool_obj,
+                        actual_args,
+                        ticket_id=node_ticket,
+                        graph_id=graph_id,
+                        node_id=node.id,
+                        dry_run_policy=self.config.dry_run_policy,
+                    )
             end_t = time.perf_counter()
             if res.success:
                 return NodeResult(
@@ -420,7 +440,9 @@ class DAGScheduler:
                     async with asyncio.timeout(timeout_s):
                         input_payload = tool_defn.input_model.model_validate(actual_args)
                         # Run tool (sync or async)
-                        if inspect.iscoroutinefunction(tool_obj.run):
+                        if inspect.iscoroutinefunction(getattr(tool_obj, "arun", None)):
+                            output_obj = await tool_obj.arun(input_payload)
+                        elif inspect.iscoroutinefunction(tool_obj.run):
                             output_obj = await tool_obj.run(input_payload)
                         else:
                             loop = asyncio.get_running_loop()

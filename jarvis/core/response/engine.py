@@ -208,13 +208,23 @@ class ResponseEngine:
         self._speech_tasks.add(task)
         task.add_done_callback(self._speech_tasks.discard)
 
-    def stop_speaking(self):
+    def stop_speaking(self) -> None:
+        """Immediately stop all speech: playing audio, queued audio and responses still being synthesized."""
+        # Bumping the generation makes in-flight synthesis tasks drop their audio instead of playing it.
         self._speech_generation += 1
         for task in self._pending_ack_tasks.values():
             task.cancel()
         self._pending_ack_tasks.clear()
-        self.audio_output.queue.clear()
-        self.audio_output.cancel_current()
+        output = getattr(self, "audio_output", None)
+        if output is not None:
+            if hasattr(output, "cancel_all"):
+                output.cancel_all()
+            else:
+                if hasattr(output, "queue"):
+                    output.queue.clear()
+                if hasattr(output, "cancel_current"):
+                    output.cancel_current()
+        logger.info("Speech output stopped via stop_speaking")
 
     async def close(self):
         self.stop_speaking()
@@ -416,14 +426,34 @@ class ResponseEngine:
             self._followup_timer.cancel()
 
         async def _close_after():
+            # The window counts silence *after* JARVIS finishes talking, so a long spoken answer
+            # does not use up the time the user has to reply.
             try:
-                await asyncio.sleep(duration_seconds)
+                remaining = duration_seconds
+                step = 0.1
+                while remaining > 0:
+                    await asyncio.sleep(step)
+                    if self._output_busy():
+                        remaining = duration_seconds
+                    else:
+                        remaining -= step
                 self.close_followup_window()
             except asyncio.CancelledError:
                 pass
 
         self._followup_timer = asyncio.create_task(_close_after())
         logger.info("Opened voice follow-up window for %.1fs (request %s)", duration_seconds, request_id)
+
+    def _output_busy(self) -> bool:
+        output = getattr(self, "audio_output", None)
+        if output is None:
+            return False
+        if getattr(output, "is_playing", False):
+            return True
+        try:
+            return len(output.queue) > 0
+        except Exception:
+            return False
 
     def close_followup_window(self) -> None:
         """Close active follow-up window."""
@@ -454,12 +484,3 @@ class ResponseEngine:
 
         self._active_requests.discard(request_id)
         return response
-
-    def stop_speaking(self) -> None:
-        """Immediately stop all speech output and audio queues."""
-        if hasattr(self, "audio_output") and self.audio_output:
-            if hasattr(self.audio_output, "cancel_all"):
-                self.audio_output.cancel_all()
-            elif hasattr(self.audio_output, "cancel_current"):
-                self.audio_output.cancel_current()
-        logger.info("Speech output stopped via stop_speaking")

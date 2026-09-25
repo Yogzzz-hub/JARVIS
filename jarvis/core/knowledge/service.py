@@ -5,6 +5,7 @@ under strict pre-ranking privacy scope filters and Reciprocal Rank Fusion (RRF).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -35,11 +36,62 @@ class KnowledgeService:
         search_engine: Optional[SearchEngine] = None,
         working_memory: Optional[WorkingMemory] = None,
         db_path: Optional[str | Path] = None,
+        embedder: Any = None,
     ) -> None:
         self.knowledge_engine = knowledge_engine
         self.search_engine = search_engine
         self.working_memory = working_memory
         self.db_path = str(db_path) if db_path else knowledge_engine.db_path
+        # Optional OllamaClient used for dense (embedding) retrieval; lexical search works without it.
+        self.embedder = embedder
+        self._embed_task: Optional[asyncio.Task] = None
+
+    @property
+    def engine(self) -> KnowledgeEngine:
+        """Alias kept for integrations that refer to the engine by this name."""
+        return self.knowledge_engine
+
+    async def _query_vector(self, text: str) -> tuple[Optional[list[float]], Optional[str]]:
+        """Embed the query when vectors exist for an available embedding model (bounded latency)."""
+        if self.embedder is None:
+            return None, None
+        try:
+            models = await asyncio.to_thread(self.knowledge_engine.vector_models)
+            if not models:
+                return None, None
+            model = await asyncio.wait_for(self.embedder.resolve("embed"), 3.0)
+            if model not in models:
+                return None, None
+            vectors = await asyncio.wait_for(self.embedder.embed([text], model=model), 4.0)
+            return (vectors[0] if vectors else None), model
+        except Exception as exc:
+            logger.debug("Query embedding unavailable: %s", exc)
+            return None, None
+
+    def schedule_embedding(self) -> None:
+        """Embed newly indexed chunks in the background (no-op without an embedding model)."""
+        if self.embedder is None or (self._embed_task and not self._embed_task.done()):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def _run():
+            try:
+                count = await self.knowledge_engine.embed_pending(self.embedder)
+                if count:
+                    logger.info("Embedded %d knowledge chunks", count)
+            except Exception as exc:
+                logger.debug("Background embedding skipped: %s", exc)
+
+        self._embed_task = loop.create_task(_run())
+
+    async def ingest(self, path: str, collection_name: str = "My Documents") -> Dict[str, Any]:
+        """Index a file or folder, then embed it in the background."""
+        stats = await asyncio.to_thread(self.knowledge_engine.ingest_path, path, collection_name)
+        self.schedule_embedding()
+        return stats
 
     async def search_unified(
         self,
@@ -67,11 +119,15 @@ class KnowledgeService:
 
         # 1. RAG Chunks and WhatsApp Ingested Documents
         try:
-            chunk_results = self.knowledge_engine.search(
-                query_text=clean_query,
-                collection_name=collection_name,
-                scope_filter=scope_filter,
-                limit=limit * 2,
+            query_vector, vector_model = await self._query_vector(clean_query)
+            chunk_results = await asyncio.to_thread(
+                self.knowledge_engine.search_hybrid,
+                clean_query,
+                query_vector,
+                vector_model,
+                collection_name,
+                scope_filter,
+                limit * 2,
             )
             candidates_by_source["chunks"] = chunk_results
         except Exception as e:

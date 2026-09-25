@@ -276,6 +276,37 @@ class WhatsAppInbox:
             )
             return [self._row_to_msg(r) for r in cursor.fetchall()]
 
+    def get_chat_history(self, chat_id: str, limit: int = 8) -> List[InboxMessage]:
+        """Most recent messages of one conversation, oldest first (for reply context)."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM whatsapp_messages WHERE chat_id = ? OR sender_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (chat_id, chat_id, limit),
+            )
+            return list(reversed([self._row_to_msg(r) for r in cursor.fetchall()]))
+
+    def find_latest_incoming(self, who: str = "") -> Optional[InboxMessage]:
+        """Latest message not sent by the owner, optionally from a sender name / number / JID."""
+        who_clean = (who or "").strip().casefold()
+        digits = "".join(ch for ch in who_clean if ch.isdigit())
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM whatsapp_messages WHERE is_from_me = 0 ORDER BY needs_reply DESC, timestamp DESC LIMIT 200"
+            ).fetchall()
+        candidates = [self._row_to_msg(r) for r in rows]
+        if not who_clean:
+            pending = [m for m in candidates if m.needs_reply and not m.replied]
+            return (pending or candidates or [None])[0]
+        for msg in candidates:
+            name = (msg.sender_display_name or "").casefold()
+            if who_clean == name or who_clean in name.split() or (len(who_clean) >= 3 and name.startswith(who_clean)):
+                return msg
+            if digits and len(digits) >= 6 and digits in "".join(ch for ch in msg.sender_id if ch.isdigit()):
+                return msg
+            if who_clean in (msg.chat_id.casefold(), msg.sender_id.casefold()):
+                return msg
+        return None
+
     def mark_as_replied(self, chat_id: str) -> int:
         """Marks all pending messages in a given chat as replied."""
         with self._get_conn() as conn:
