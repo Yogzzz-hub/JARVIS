@@ -141,6 +141,8 @@ def _looks_like_person(who: str, text: str) -> bool:
     low = who.lower()
     if not low or low in SELF_WORDS or len(low.split()) > 3:
         return False
+    if re.fullmatch(rf"(?:my\s+|the\s+)?(?:{PHONE_WORDS}|pc|laptop|computer|desktop)", low):
+        return False
     if "whatsapp" in text.lower():
         return True
     if low in RELATION_WORDS or re.fullmatch(r"\+?\d[\d\s-]{6,}", low):
@@ -181,14 +183,90 @@ def _is_compound(text: str) -> bool:
     return bool(_COMPOUND.search(text)) or bool(_COMPOUND_JOIN.search(text))
 
 
+# "everyone / all the guys / those who are messaging me" (people who wrote to the owner on WhatsApp)
+_BULK_PEOPLE = re.compile(
+    r"\b(?:all(?:\s+(?:the|of the|my))?(?:\s+(?:guys|people|persons|contacts|folks|ones|friends))?|everyone|everybody|every ?one|"
+    r"whoever|anyone|anybody|those(?:\s+(?:guys|people|persons|ones))?|these(?:\s+(?:guys|people|persons|ones))?|"
+    r"the\s+(?:guys|people|persons|ones|contacts|folks)|people|guys)\s+"
+    r"(?:who|that|which|whom)?\s*(?:are\s+|is\s+|have\s+|has\s+|were\s+|was\s+|had\s+|all\s+)?(?:been\s+|all\s+)?"
+    r"(?:messag|text|ping|whats\s?app|chat|writ|dm|contact|reach|wish)\w*\s+(?:to\s+|with\s+)?me\b(?:\s+(?:on|in|via)\s+whats\s?app)?"
+    r"(?:\s+(?:today|now|recently|so far|this morning|this evening|tonight|just now))?"
+)
+_BULK_ALL_MESSAGES = re.compile(
+    r"\b(?:reply|respond|answer)\s+(?:to\s+)?(?:all|every|each)\s+(?:of\s+)?(?:my\s+|the\s+)?"
+    r"(?:new\s+|unread\s+|pending\s+|recent\s+|latest\s+)*(?:whats\s?app\s+)?(?:messages?|chats?|texts?|people)\b"
+    r"|\b(?:reply|respond)\s+(?:to\s+)?(?:everyone|everybody|all)\b(?:\s+(?:on|in)\s+whats\s?app)?"
+)
+_BULK_VERB = re.compile(r"\b(?:reply|respond|answer|send|tell|message|text|inform|let|notify|write|msg|ping|say)\b")
+
+
+def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
+    """'Send all the guys who are messaging me that I'm busy' -> reply_whatsapp_all (personal chats only)."""
+    raw = (text or "").strip()
+    t = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
+    if not t:
+        return None
+    m = _BULK_PEOPLE.search(t) or _BULK_ALL_MESSAGES.search(t)
+    if not m or re.search(r"\b(?:e-?mails?|mails?|gmail|inbox|sms|missed calls?)\b", t[: m.end() + 12]):
+        return None
+    outside = (t[: m.start()] + " " + t[m.end():]).strip()
+    if not _BULK_VERB.search(outside) and not _BULK_VERB.search(m.group(0)[:12]):
+        return None  # "who is messaging me?" is a question, not a request to reply
+    if re.match(r"^(?:who|what|how many|did|has|have|is|are)\b", t) and not re.search(r"\b(?:reply|respond|send|tell)\b", t):
+        return None
+    tail = t[m.end():]
+    tail = re.sub(r"^\s*(?:,|\.|;|:|-)?\s*(?:and\s+)?(?:please\s+)?(?:just\s+)?(?:(?:tell|say|saying|inform|let)\s+(?:them|those|everyone|all)?\s*(?:know)?\s*)?"
+                  r"(?:know\s+)?(?:that|saying|with|:)?\s*", "", tail)
+    body = raw_body(raw, tail).strip(" ,.;:") if tail.strip() else ""
+    slots = {"message": body, "request": raw}
+    return _decision(request_id, t, "reply_whatsapp_all", slots, context_trace={"bulk_reply": True})
+
+
+_ON_PC = r"(?:\s+(?:for me|please|now|right now|quickly))?(?:\s+(?:on|in|to|from)\s+(?:my|this|the)\s+(?:pc|laptop|computer|system|machine|desktop))?(?:\s+(?:for me|please|now))?"
+_APP = r"(?P<app>[a-z0-9][a-z0-9 .+#&'-]{0,48}?)"
+
+
+def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
+    """install / uninstall / update applications (winget)."""
+    m = re.match(rf"^(?:install|set ?up|download and install|get and install)\s+(?:the\s+)?(?:app\s+|application\s+|software\s+)?{_APP}(?:\s+(?:app|application|software))?{_ON_PC}$", t)
+    if m and m.group("app").strip() not in ("it", "that", "this", "them", "updates", "all updates"):
+        return _decision(request_id, t, "install_software", {"name": m.group("app").strip()})
+    m = re.match(rf"^(?:uninstall|un install|remove|delete)\s+(?:the\s+)?(?:app\s+|application\s+|program\s+|software\s+)?{_APP}(?P<kind>\s+(?:app|application|program|software))?{_ON_PC}$", t)
+    if m and (t.startswith(("uninstall", "un install")) or m.group("kind") or re.search(r"\bfrom (?:my|this|the) (?:pc|laptop|computer|system)", t)):
+        return _decision(request_id, t, "uninstall_software", {"name": m.group("app").strip()})
+    if re.match(rf"^(?:update|upgrade)\s+(?:all\s+)?(?:(?:of\s+)?my\s+|the\s+)?(?:installed\s+)?(?:apps|applications|programs|software|softwares){_ON_PC}$", t) \
+            or re.match(r"^(?:check for|install)\s+(?:app|software)\s+updates$", t):
+        return _decision(request_id, t, "update_software", {})
+    m = re.match(rf"^(?:update|upgrade)\s+(?:the\s+|my\s+)?{_APP}\s+(?:app|application|software|program){_ON_PC}$", t)
+    if m:
+        return _decision(request_id, t, "update_software", {"name": m.group("app").strip()})
+    return None
+
+
 def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     """Return a routing decision for the extended domains, or None to continue normal routing."""
     raw = text.strip()
+    bulk = match_bulk_reply(raw, request_id)
+    if bulk:
+        return bulk
     t = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
     t = re.sub(r"^(?:please|kindly|jarvis|hey jarvis|ok jarvis|can you|could you|would you)\s+", "", t)
     t = re.sub(r"^(?:please|kindly)\s+", "", t)
     if not t:
         return None
+    software = match_software(re.sub(r"^(?:please|kindly|jarvis|hey jarvis|can you|could you|would you|just)\s+", "", t), request_id)
+    if software:
+        return software
+    m = re.match(r"^(?:send|push)\s+(?:a\s+|an\s+)?(?:notification|alert|reminder|note)\s+to\s+(?:my\s+|the\s+)?" + PHONE_WORDS +
+                 r"(?:\s+(?:saying|that says|with|:)\s+(?P<body>.+))?$", t)
+    if m:
+        return _decision(request_id, t, "notification_send",
+                         {"title": "JARVIS", "message": raw_body(raw, m.group("body")) if m.group("body") else "Message from JARVIS"})
+    # ---------------------------------------------------------------- screen understanding (vision)
+    if re.match(r"^(?:what(?:'s| is| does)|read|look at|describe|explain|check|can you see|tell me what)\b.*\b(?:my |the |this |on )?(?:screen|monitor|display|error on (?:my|the) screen)\b", t) \
+            and not re.search(r"\b(?:screenshot|brightness|resolution|record|share|lock|off|on my phone|phone)\b", t):
+        return _decision(request_id, t, "describe_screen", {"device": "pc", "question": raw})
+
     if _is_compound(t):
         # Multi-action requests belong to the planner; only messaging (whose body may contain verbs) continues.
         return _match_whatsapp(t, raw, request_id) if re.match(r"^(?:ask|remind|let|inform|wish|reply|respond|tell|text|message|msg|ping|whatsapp)\b", t) else None
@@ -286,7 +364,31 @@ def raw_body(raw: str, lowered_fragment: str) -> str:
     return lowered_fragment.strip()
 
 
+_TOGGLES = {
+    "wifi": r"wi-?fi|wireless", "bluetooth": r"blue ?tooth", "mobile_data": r"mobile data|data|internet|cellular data",
+    "airplane_mode": r"air ?plane mode|flight mode", "do_not_disturb": r"do not disturb|dnd|silent mode",
+    "auto_rotate": r"auto ?-?rotat(?:e|ion)|screen rotation",
+}
+
+
 def _match_phone(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    if re.search(r"\b(?:notifications?|alerts)\b", t) and re.match(r"^(?:read|show|check|what(?:'s| are)?|any|do i have|tell me)\b", t) \
+            and not re.match(r"^(?:send|push)\b", t):
+        return _decision(request_id, t, "android_notifications", {})
+    m = re.match(r"^(?:turn|switch|put|set)\s+(?P<state>on|off)\s+(?:the\s+)?(?P<what>.+?)" + ON_PHONE + r"$", t) \
+        or re.match(r"^(?:turn|switch|put|set)\s+(?:the\s+)?(?P<what>.+?)\s+(?P<state>on|off)" + ON_PHONE + r"$", t) \
+        or re.match(r"^(?P<state>enable|disable)\s+(?:the\s+)?(?P<what>.+?)" + ON_PHONE + r"$", t)
+    if m:
+        what = m.group("what").strip()
+        for setting, pattern in _TOGGLES.items():
+            if re.fullmatch(rf"(?:{pattern})", what):
+                return _decision(request_id, t, "android_toggle", {"setting": setting, "on": m.group("state") in ("on", "enable")})
+    m = re.match(r"^(?:tap|press|click|touch|hit)\s+(?:on\s+)?(?:the\s+)?(?P<label>.+?)(?:\s+button)?" + ON_PHONE + r"$", t)
+    if m and not re.match(r"^(?:home|back|power|volume)", m.group("label")):
+        return _decision(request_id, t, "android_tap_text", {"text": raw_body(raw, m.group("label"))})
+    if re.search(r"\b(?:what(?:'s| is)|read|look at|describe|see|check)\b.*\bscreen\b", t):
+        return _decision(request_id, t, "describe_screen", {"device": "phone", "question": raw})
+
     body = re.sub(ON_PHONE + r"\s*$", "", t).strip()
     body = re.sub(rf"^(?:on|in)\s+(?:my\s+|the\s+)?{PHONE_WORDS}\s*,?\s*", "", body)
     body = re.sub(rf"\s+(?:my|the)\s+{PHONE_WORDS}(?:'s)?\b", "", body).strip()

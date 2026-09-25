@@ -121,6 +121,7 @@ class AIHarness:
 
         self.transport = FakeWhatsAppTransport()
         self.registry.get("send_whatsapp_message").transport = self.transport
+        self.registry.get("send_whatsapp_bulk").transport = self.transport
 
         self.inbox = WhatsAppInbox(tmp_path / "inbox.db")
         self.knowledge = KnowledgeService(KnowledgeEngine(tmp_path / "knowledge.db"), embedder=self.llm)
@@ -133,7 +134,7 @@ class AIHarness:
                 tool.assistant = self.assistant
             if hasattr(tool, "knowledge_service") and getattr(tool, "knowledge_service") is None:
                 tool.knowledge_service = self.knowledge
-            if tool.definition.name == "reply_whatsapp_message":
+            if tool.definition.name in ("reply_whatsapp_message", "reply_whatsapp_all"):
                 tool.ai = self.whatsapp_ai
 
         self.bus = EventBus()

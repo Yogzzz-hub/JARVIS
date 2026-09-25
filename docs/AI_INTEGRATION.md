@@ -169,10 +169,49 @@ The 3D view falls back to a GPU vector (2D) reactor automatically when Qt Quick 
 renderer is active. Turn it off in *Settings > 3D Reactor*, or for one session with `set JARVIS_UI_2D=1`.
 *Low Resource Mode* stops all animation.
 
-## 11. Tests
+## 11. Voice accuracy and turn-taking
+
+* **Speech model**: `stt_model = "models/whisper/small.en"` (downloaded by `setup_models.py`), `stt_device = "auto"`
+  (NVIDIA GPU when present), `stt_beam_size = 5` for the final transcript (3 on CPU). On a good GPU,
+  `large-v3-turbo` is the most accurate choice.
+* **End of turn**: `endpoint_silence_ms = 800` - a pause this long ends your turn; when the sentence is obviously
+  unfinished ("send it to", "tell rahul that", "um") JARVIS waits twice as long; a short complete command
+  ("open chrome") ends after ~450 ms. Requests may be up to `max_utterance_s = 45` seconds.
+* **Wake response**: `wake_ack = "chime"` (default), `"voice"` (rotating "I'm listening", "Go ahead", ...) or `"none"`.
+  A misheard wake word at the start of the command ("Jervis", "Hey Javis") is removed before routing.
+* **UI watchdog**: if a backend event is missed, the dashboard returns to idle by itself instead of staying on
+  "Listening" or "Speaking".
+
+## 12. WhatsApp: everyone at once, chat memory, your style
+
+* "Tell everyone who messaged me that I'm in a meeting" -> `reply_whatsapp_all`: finds people waiting for a reply in
+  **personal chats** (groups are skipped unless you say "include groups"), writes one short personal message each
+  (by name, in your usual texting style) and lists them all in **one** confirmation. Phrases such as "don't reply in
+  groups" or "only person to person" are treated as instructions, never sent as text. A follow-up like "just reply to
+  those guys" reuses what you said a moment ago.
+* A plain "reply to the last message" never lands in a group.
+* **Chat memory (RAG)**: each chat is indexed into the knowledge base (`scope:whatsapp_history`), so questions such as
+  "what did Rahul say about the trip" are answered from your chats. Only your own assistant on the PC searches it;
+  replies to other people never see it. Turn off with `remember_chats = false` under `[whatsapp]`.
+* **Your style**: drafts include a few of your own recent messages as style examples (length, tone, language, emoji).
+
+## 13. Software, phone and screen
+
+* `install_software` / `uninstall_software` / `update_software` use winget (silent, agreements accepted); winget's
+  tables and exit codes ("already installed", "restart required", "no package") are parsed properly and failures say
+  why. "Update all my apps" runs in the background.
+* Phone (ADB): `android_notifications`, `android_tap_text` (reads the screen and taps the element by label),
+  `android_toggle` (Wi-Fi, Bluetooth, mobile data, airplane mode, do not disturb, auto-rotate).
+* `describe_screen` sends a downscaled screenshot of the PC or phone to the local **vision** model
+  (`[models] vision`, e.g. `ollama pull qwen2.5vl:3b`).
+* When Ollama is unreachable JARVIS starts it in the background and says so; a slow or confused classifier no longer
+  produces "AI model unavailable" - the request goes to the assistant / agent instead.
+
+## 14. Tests
 
 * `jarvis/tests/fake_ollama.py`: in-process fake Ollama server (no network) used by all AI tests.
 * `jarvis/tests/ai_harness.py`: full stack (router, planner, agent, RAG, WhatsApp AI) for end-to-end tests.
 * Generalization benchmark (deterministic, no model): `python tests/generalization/benchmark_runner.py`.
 * `test_streaming_answers.py`, `test_latency_caches.py`: streamed speech, caches.
 * `test_desktop_ui.py`: UI state/controller and a compile check of every QML file (skipped without PySide6).
+* `test_whatsapp_bulk_reply.py`, `test_voice_naturalness.py`, `test_software_install.py`, `test_phone_and_vision.py`.

@@ -456,3 +456,169 @@ class DraftWhatsAppReplyTool(Tool):
             "next_action": {"tool": "send_whatsapp_message", "arguments": {"recipient": draft.recipient_jid, "message": draft.text},
                             "display_recipient": draft.recipient},
         }
+
+
+# =====================================================================
+# Reply to everyone who messaged me (AI, direct chats only)
+# =====================================================================
+
+class ReplyWhatsAppAllInput(Contract):
+    message: str = Field(default="", max_length=2048, description="What to tell everyone who messaged (e.g. \"I'm in a meeting, free in an hour\"); empty = reuse the last instruction or draft a reply per chat")
+    request: str = Field(default="", max_length=2048, description="The owner's full request (used for constraints like 'don't reply in groups')")
+    hours: float = Field(default=12.0, gt=0, le=168, description="Only people who messaged within this many hours")
+    include_groups: bool = Field(default=False, description="Also reply in group chats (off by default)")
+    max_people: int = Field(default=10, ge=1, le=25, description="Maximum number of chats to reply to")
+
+
+class ReplyWhatsAppAllOutput(Contract):
+    status: str
+    count: int = 0
+    recipients: list[str] = Field(default_factory=list)
+    drafts: list[dict] = Field(default_factory=list)
+    skipped_groups: int = 0
+    message: str
+    confirm_prompt: str = ""
+    next_action: dict = Field(default_factory=dict)
+
+
+class ReplyWhatsAppAllTool(Tool):
+    """Drafts one personal reply for every person who messaged recently (one-to-one chats only); sending is confirmed."""
+
+    definition = ToolDefinition(
+        name="reply_whatsapp_all",
+        description="Replies to everyone who messaged you recently on WhatsApp (e.g. 'tell everyone who texted me I'm busy'). "
+                    "One-to-one chats only - groups are skipped unless asked. Drafts a personal message per person, then asks before sending.",
+        input_model=ReplyWhatsAppAllInput,
+        output_model=ReplyWhatsAppAllOutput,
+        read_only=True,
+        risk=RiskLevel.READ_ONLY,
+        timeout_s=120.0,
+        tags=("messaging", "whatsapp", "reply", "bulk", "ai"),
+        execution_method=ExecutionMethod.API,
+    )
+
+    def __init__(self, ai: Any = None, inbox: Any = None) -> None:
+        self.ai = ai
+        self.inbox = inbox
+
+    async def run(self, arguments: Any) -> dict[str, Any]:
+        import asyncio
+        from jarvis.integrations.whatsapp.ai import get_whatsapp_ai, split_bulk_instruction
+
+        if isinstance(arguments, dict):
+            arguments = ReplyWhatsAppAllInput(**arguments)
+        ai = self.ai or get_whatsapp_ai()
+        inbox = self.inbox or ai.inbox
+
+        message, wants_groups = split_bulk_instruction(arguments.message)
+        _, request_groups = split_bulk_instruction(arguments.request)
+        include_groups = arguments.include_groups or wants_groups or request_groups
+        reused = False
+        if not message:
+            message = ai.recent_instruction()
+            reused = bool(message)
+        if message:
+            ai.remember_instruction(message)
+
+        people = await asyncio.to_thread(inbox.recent_direct_senders, arguments.hours * 3600, arguments.max_people, True, include_groups)
+        all_recent = await asyncio.to_thread(inbox.recent_direct_senders, arguments.hours * 3600, 50, True, True)
+        skipped_groups = 0 if include_groups else sum(1 for m in all_recent if not inbox.is_direct_chat(m.chat_id))
+        if not people:
+            extra = f" ({skipped_groups} group chat{'s' if skipped_groups != 1 else ''} skipped)" if skipped_groups else ""
+            return {"status": "NOT_FOUND", "count": 0, "recipients": [], "drafts": [], "skipped_groups": skipped_groups,
+                    "message": f"Nobody is waiting for a reply in your personal chats from the last {arguments.hours:g} hours{extra}."}
+
+        async def draft_for(msg):
+            name = msg.sender_display_name or msg.sender_id.split("@")[0]
+            if message:
+                text = await ai.compose_for_person(name, msg.chat_id, message, msg.text)
+            else:
+                reply = await ai.draft_reply(msg.sender_id if "@" in msg.sender_id else msg.chat_id)
+                text = reply.text if reply else "Got your message, I'll get back to you soon."
+            target = msg.chat_id if "@" in msg.chat_id else msg.sender_id
+            return {"recipient": target, "name": name, "message": text, "their_message": (msg.text or "")[:200]}
+
+        drafts = await asyncio.gather(*(draft_for(m) for m in people))
+        names = [d["name"] for d in drafts]
+        who = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        lines = "; ".join(f"{d['name']}: \"{d['message']}\"" for d in drafts[:6])
+        more = f" (+{len(drafts) - 6} more)" if len(drafts) > 6 else ""
+        groups_note = f" I skipped {skipped_groups} group chat{'s' if skipped_groups != 1 else ''}." if skipped_groups else ""
+        basis = f" using your earlier message \"{message}\"" if reused else ""
+        prompt = (f"I'll reply to {len(drafts)} {'person' if len(drafts) == 1 else 'people'} in personal chats ({who}){basis}. "
+                  f"{lines}{more}.{groups_note} Shall I send {'it' if len(drafts) == 1 else 'them'}?")
+        return {
+            "status": "DRAFTED",
+            "count": len(drafts),
+            "recipients": names,
+            "drafts": drafts,
+            "skipped_groups": skipped_groups,
+            "message": prompt,
+            "confirm_prompt": prompt,
+            "next_action": {"tool": "send_whatsapp_bulk",
+                            "arguments": {"messages": [{"recipient": d["recipient"], "name": d["name"], "message": d["message"]} for d in drafts]},
+                            "display_recipient": who},
+        }
+
+
+class BulkMessageItem(Contract):
+    recipient: str = Field(min_length=1, max_length=256, description="WhatsApp JID or phone number")
+    name: str = Field(default="", max_length=256)
+    message: str = Field(min_length=1, max_length=4096)
+
+
+class SendWhatsAppBulkInput(Contract):
+    messages: list[BulkMessageItem] = Field(min_length=1, max_length=25, description="One message per recipient")
+    confirmation_ticket: Optional[str] = Field(default=None, description="Confirmation ticket ID if action required approval")
+
+
+class SendWhatsAppBulkOutput(Contract):
+    status: str
+    sent: list[str] = Field(default_factory=list)
+    failed: list[dict] = Field(default_factory=list)
+    message: str
+
+
+class SendWhatsAppBulkTool(Tool):
+    """Sends several (already approved) WhatsApp messages, one per person."""
+
+    definition = ToolDefinition(
+        name="send_whatsapp_bulk",
+        description="Sends a prepared WhatsApp message to each of several people (after confirmation). Risk level: EXTERNAL_EFFECT.",
+        input_model=SendWhatsAppBulkInput,
+        output_model=SendWhatsAppBulkOutput,
+        read_only=False,
+        risk=RiskLevel.EXTERNAL_EFFECT,
+        timeout_s=180.0,
+        tags=("messaging", "whatsapp", "communication", "bulk"),
+        execution_method=ExecutionMethod.CLI,
+        idempotency=IdempotencyClass.NON_IDEMPOTENT,
+    )
+
+    def __init__(self, transport: Any = None, confirmation_manager: Optional[ConfirmationManager] = None) -> None:
+        self.transport = transport
+        self.confirmation_manager = confirmation_manager
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = SendWhatsAppBulkInput(**arguments)
+        sender = SendWhatsAppMessageTool(transport=self.transport)
+        sent, failed = [], []
+        for item in arguments.messages:
+            name = item.name or item.recipient.split("@")[0]
+            try:
+                res = sender.run(SendWhatsAppMessageInput(recipient=item.recipient, message=item.message))
+            except Exception as exc:  # one failure must not stop the others
+                res = {"status": "FAILED", "message": str(exc)}
+            if res.get("status") == "SENT":
+                sent.append(name)
+            else:
+                failed.append({"name": name, "error": res.get("message", "failed")})
+        if sent and not failed:
+            status, text = "SENT", f"Sent to {len(sent)} {'person' if len(sent) == 1 else 'people'}: {', '.join(sent)}."
+        elif sent:
+            status = "PARTIAL"
+            text = f"Sent to {', '.join(sent)}; couldn't reach {', '.join(f['name'] for f in failed)}."
+        else:
+            status, text = "FAILED", f"Couldn't send any of the messages ({failed[0]['error'] if failed else 'unknown error'})."
+        return {"status": status, "sent": sent, "failed": failed, "message": text}

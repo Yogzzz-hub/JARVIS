@@ -173,6 +173,7 @@ class WhatsAppInbox:
         is_from_me: bool = False,
     ) -> InboxMessage:
         """Stores message and computes urgency and reply requirement."""
+        is_from_me = bool(is_from_me or getattr(message, "is_from_me", False))
         text = message.text or ""
         urgency, needs_reply, summary = UrgencyClassifier.analyze(text, is_from_me=is_from_me)
 
@@ -285,15 +286,85 @@ class WhatsAppInbox:
             )
             return list(reversed([self._row_to_msg(r) for r in cursor.fetchall()]))
 
-    def find_latest_incoming(self, who: str = "") -> Optional[InboxMessage]:
-        """Latest message not sent by the owner, optionally from a sender name / number / JID."""
+    @staticmethod
+    def is_direct_chat(chat_id: str) -> bool:
+        """One-to-one chat (not a group, broadcast list, status update or channel)."""
+        cid = (chat_id or "").lower()
+        return not (cid.endswith("@g.us") or cid.endswith("@broadcast") or cid.endswith("@newsletter")
+                    or cid.startswith("status@") or cid.endswith("@temp"))
+
+    def recent_direct_senders(self, since_s: float = 12 * 3600, limit: int = 15,
+                              unanswered_only: bool = True, include_groups: bool = False) -> List[InboxMessage]:
+        """Latest incoming message of each person who wrote recently, newest first.
+
+        One entry per chat. Group chats are skipped unless ``include_groups``; with ``unanswered_only``
+        a chat is skipped when the owner already wrote after the person's last message.
+        """
+        cutoff = time.time() - max(60.0, float(since_s))
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM whatsapp_messages WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT 2000", (cutoff,)
+            ).fetchall()
+        seen: set[str] = set()
+        out: List[InboxMessage] = []
+        for row in rows:
+            msg = self._row_to_msg(row)
+            if msg.chat_id in seen:
+                continue
+            seen.add(msg.chat_id)
+            if not include_groups and not self.is_direct_chat(msg.chat_id):
+                continue
+            if msg.is_from_me:
+                if unanswered_only:
+                    continue
+                # the owner spoke last; still list the person with their latest incoming message
+                prev = next((self._row_to_msg(r) for r in rows if r["chat_id"] == msg.chat_id and not r["is_from_me"]), None)
+                if prev is None:
+                    continue
+                msg = prev
+            if unanswered_only and msg.replied:
+                continue
+            out.append(msg)
+            if len(out) >= limit:
+                break
+        return out
+
+    def owner_samples(self, limit: int = 6, max_len: int = 160) -> List[str]:
+        """A few of the owner's own recent messages (used to match their texting style)."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT text FROM whatsapp_messages WHERE is_from_me = 1 AND length(text) BETWEEN 3 AND ? "
+                "ORDER BY timestamp DESC LIMIT ?", (max_len, limit * 3)
+            ).fetchall()
+        texts: List[str] = []
+        for (text,) in rows:
+            t = (text or "").strip()
+            if t and t not in texts and not t.lower().startswith(("http", "jarvis")):
+                texts.append(t)
+            if len(texts) >= limit:
+                break
+        return texts
+
+    def find_latest_incoming(self, who: str = "", direct_only: bool | None = None) -> Optional[InboxMessage]:
+        """Latest message not sent by the owner, optionally from a sender name / number / JID.
+
+        Without a name, only one-to-one chats are considered (a reply never lands in a group by
+        accident); with a name, one-to-one chats are preferred over group messages.
+        """
         who_clean = (who or "").strip().casefold()
         digits = "".join(ch for ch in who_clean if ch.isdigit())
         with self._get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM whatsapp_messages WHERE is_from_me = 0 ORDER BY needs_reply DESC, timestamp DESC LIMIT 200"
+                "SELECT * FROM whatsapp_messages WHERE is_from_me = 0 ORDER BY needs_reply DESC, timestamp DESC LIMIT 400"
             ).fetchall()
         candidates = [self._row_to_msg(r) for r in rows]
+        if direct_only is None:
+            direct_only = not who_clean
+        direct = [m for m in candidates if self.is_direct_chat(m.chat_id)]
+        if direct_only:
+            candidates = direct
+        else:
+            candidates = direct + [m for m in candidates if not self.is_direct_chat(m.chat_id)]
         if not who_clean:
             pending = [m for m in candidates if m.needs_reply and not m.replied]
             return (pending or candidates or [None])[0]

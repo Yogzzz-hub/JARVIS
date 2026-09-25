@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Shapes
 import "../components"
 import "../components/palette.js" as Palette
 
@@ -12,6 +13,38 @@ Item {
     readonly property color tint: Palette.stateColor(st)
     readonly property bool listening: stateModel ? stateModel.isListening : false
     readonly property bool lowRes: stateModel ? stateModel.lowResourceMode : false
+
+    // Incremental copy of the conversation: appended messages animate in, streamed text updates in place.
+    ListModel { id: convModel }
+    function syncConversation() {
+        var src = stateModel ? stateModel.conversation : []
+        if (src.length < convModel.count || (src.length > 0 && convModel.count > 0 && src.length === convModel.count
+                && src[0].time + src[0].text !== convModel.get(0).time + convModel.get(0).text && src.length >= 50)) {
+            // cleared, or the oldest message scrolled out of the history window
+            convModel.clear()
+        }
+        for (var i = 0; i < src.length; i++) {
+            var m = src[i]
+            var row = { role: m.role, text: m.text, time: m.time, streaming: !!m.streaming, state: m.state || "" }
+            if (i < convModel.count) {
+                var cur = convModel.get(i)
+                if (cur.text !== row.text || cur.streaming !== row.streaming || cur.state !== row.state)
+                    convModel.set(i, row)
+            } else {
+                convModel.append(row)
+            }
+        }
+    }
+    Connections {
+        target: stateModel
+        function onConversationChanged() { root.syncConversation() }
+    }
+    Component.onCompleted: syncConversation()
+
+    readonly property bool thinking: (st === "EXECUTING" || st === "ROUTING" || st === "PLANNING" || st === "UNDERSTANDING"
+                                      || st === "TRANSCRIBING") && convModel.count > 0 && convModel.get(convModel.count - 1).role === "user"
+
+    onStChanged: if (st === "LISTENING" && !lowRes) wakeRipple.restart()
 
     function send(text) {
         var t = (text || "").trim()
@@ -50,6 +83,113 @@ Item {
                     lowResourceMode: root.lowRes
                     prefer3D: stateModel ? stateModel.ui3d : true
                     onActivated: if (controller) controller.toggleTalk()
+
+                    // boot: the reactor powers up when the dashboard opens
+                    scale: 1.0
+                    Component.onCompleted: if (!root.lowRes) bootAnim.start()
+                    SequentialAnimation {
+                        id: bootAnim
+                        PropertyAction { target: reactor; property: "opacity"; value: 0 }
+                        PropertyAction { target: reactor; property: "scale"; value: 0.55 }
+                        PauseAnimation { duration: 120 }
+                        ParallelAnimation {
+                            NumberAnimation { target: reactor; property: "opacity"; to: 1; duration: 700; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: reactor; property: "scale"; to: 1; duration: 1100; easing.type: Easing.OutBack; easing.overshoot: 1.4 }
+                        }
+                    }
+                }
+
+                // radar sweep behind the reactor while JARVIS is working
+                Shape {
+                    id: radar
+                    anchors.centerIn: reactor
+                    width: reactor.width * 0.98
+                    height: width
+                    z: -1
+                    visible: opacity > 0.01
+                    opacity: Palette.isBusy(root.st) && !root.lowRes ? 0.55 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: 400 } }
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        strokeWidth: 0
+                        strokeColor: "transparent"
+                        fillGradient: ConicalGradient {
+                            centerX: radar.width / 2; centerY: radar.height / 2
+                            angle: sweepAngle.value
+                            GradientStop { position: 0.0; color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.35) }
+                            GradientStop { position: 0.12; color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.0) }
+                            GradientStop { position: 1.0; color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.0) }
+                        }
+                        PathAngleArc { centerX: radar.width / 2; centerY: radar.height / 2; radiusX: radar.width / 2; radiusY: radar.height / 2; startAngle: 0; sweepAngle: 360 }
+                    }
+                    QtObject { id: sweepAngle; property real value: 0 }
+                    NumberAnimation {
+                        target: sweepAngle; property: "value"; from: 360; to: 0; duration: 1800
+                        loops: Animation.Infinite; running: radar.visible
+                    }
+                }
+
+                // wake ripple: three shockwaves when JARVIS starts listening
+                Item {
+                    id: rippleHost
+                    anchors.centerIn: reactor
+                    width: reactor.width * 0.42
+                    height: width
+                    component Ring: Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width; height: width; radius: width / 2
+                        color: "transparent"
+                        border.width: 2
+                        border.color: root.tint
+                        opacity: 0
+                    }
+                    Ring { id: ring1 }
+                    Ring { id: ring2 }
+                    Ring { id: ring3 }
+                    component Wave: SequentialAnimation {
+                        property Item ring
+                        property int delay: 0
+                        property real peak: 0.9
+                        property real reach: 2.6
+                        PauseAnimation { duration: delay }
+                        PropertyAction { target: ring; property: "opacity"; value: peak }
+                        ParallelAnimation {
+                            NumberAnimation { target: ring; property: "scale"; from: 1; to: reach; duration: 950; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ring; property: "opacity"; to: 0; duration: 950; easing.type: Easing.InQuad }
+                        }
+                    }
+                    ParallelAnimation {
+                        id: wakeRipple
+                        Wave { ring: ring1 }
+                        Wave { ring: ring2; delay: 160; peak: 0.7; reach: 2.3 }
+                        Wave { ring: ring3; delay: 320; peak: 0.5; reach: 2.0 }
+                    }
+                }
+
+                // "systems online" boot caption
+                Text {
+                    id: bootText
+                    anchors.horizontalCenter: reactor.horizontalCenter
+                    anchors.top: reactor.bottom
+                    anchors.topMargin: -reactor.height * 0.12
+                    text: "SYSTEMS ONLINE"
+                    color: root.tint
+                    font.pixelSize: 12
+                    font.bold: true
+                    font.letterSpacing: 6
+                    opacity: 0
+                    SequentialAnimation on opacity {
+                        running: !root.lowRes
+                        PauseAnimation { duration: 700 }
+                        NumberAnimation { to: 0.9; duration: 400 }
+                        PauseAnimation { duration: 1400 }
+                        NumberAnimation { to: 0; duration: 700 }
+                    }
+                    SequentialAnimation on font.letterSpacing {
+                        running: !root.lowRes
+                        PauseAnimation { duration: 700 }
+                        NumberAnimation { from: 14; to: 6; duration: 900; easing.type: Easing.OutCubic }
+                    }
                 }
 
                 // HUD corner brackets
@@ -339,21 +479,63 @@ Item {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 10
-                    model: stateModel ? stateModel.conversation : []
+                    model: convModel
                     onCountChanged: Qt.callLater(chat.positionViewAtEnd)
                     onContentHeightChanged: if (atYEnd || chat.count < 3) Qt.callLater(chat.positionViewAtEnd)
                     boundsBehavior: Flickable.StopAtBounds
 
+                    // new messages glide in; nothing else re-animates
+                    add: Transition {
+                        enabled: !root.lowRes
+                        ParallelAnimation {
+                            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 260; easing.type: Easing.OutCubic }
+                            NumberAnimation { property: "scale"; from: 0.92; to: 1; duration: 320; easing.type: Easing.OutBack }
+                        }
+                    }
+                    addDisplaced: Transition { NumberAnimation { properties: "y"; duration: 200; easing.type: Easing.OutCubic } }
+
+                    footer: Item {
+                        width: chat.width
+                        height: root.thinking ? 44 : 0
+                        visible: root.thinking
+                        Rectangle {
+                            y: 8
+                            width: 64; height: 30; radius: 12
+                            color: Qt.rgba(1, 1, 1, 0.05)
+                            border.color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.35)
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 6
+                                Repeater {
+                                    model: 3
+                                    Rectangle {
+                                        width: 7; height: 7; radius: 4
+                                        color: root.tint
+                                        SequentialAnimation on opacity {
+                                            running: root.thinking && !root.lowRes
+                                            loops: Animation.Infinite
+                                            PauseAnimation { duration: index * 150 }
+                                            NumberAnimation { to: 0.2; duration: 300 }
+                                            NumberAnimation { to: 1.0; duration: 300 }
+                                            PauseAnimation { duration: (2 - index) * 150 }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     delegate: Item {
-                        readonly property bool mine: modelData.role === "user"
+                        readonly property bool mine: model.role === "user"
                         width: chat.width
                         height: bubble.height + 16
+                        transformOrigin: mine ? Item.Right : Item.Left
 
                         Text {
                             anchors.top: parent.top
                             anchors.left: mine ? undefined : parent.left
                             anchors.right: mine ? parent.right : undefined
-                            text: (mine ? "You" : "JARVIS") + "  ·  " + modelData.time
+                            text: (mine ? "You" : "JARVIS") + "  \u00B7  " + model.time
                             color: "#4B6584"
                             font.pixelSize: 9
                             font.bold: true
@@ -367,14 +549,15 @@ Item {
                             height: msg.implicitHeight + 18
                             radius: 12
                             color: mine ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.16)
-                                        : (modelData.state && modelData.state !== "SUCCESS" && modelData.state !== "WAITING_CONFIRMATION"
+                                        : (model.state && model.state !== "SUCCESS" && model.state !== "WAITING_CONFIRMATION"
                                            ? Qt.rgba(1, 0.32, 0.32, 0.10) : Qt.rgba(1, 1, 1, 0.05))
                             border.color: mine ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.35) : Qt.rgba(1, 1, 1, 0.08)
+                            Behavior on height { enabled: !root.lowRes; NumberAnimation { duration: 120 } }
                             Text {
                                 id: msg
                                 x: 12; y: 9
                                 width: Math.min(implicitWidth, chat.width * 0.88 - 24)
-                                text: modelData.text + (modelData.streaming ? " ▍" : "")
+                                text: model.text + (model.streaming ? " \u258D" : "")
                                 color: "#E8F1FA"
                                 font.pixelSize: 13
                                 wrapMode: Text.Wrap

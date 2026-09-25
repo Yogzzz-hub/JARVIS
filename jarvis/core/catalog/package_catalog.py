@@ -190,42 +190,28 @@ class PackageCatalog:
         return None
 
     def _search_winget(self, query: str) -> Optional[PackageEntry]:
-        """Queries winget CLI dynamically for matching package."""
-        winget_path = shutil.which("winget.exe") or shutil.which("winget")
-        if not winget_path:
+        """Finds the best winget package for a spoken name ("vlc", "android studio", "obs")."""
+        from jarvis.tools.system import winget
+
+        if not winget.executable():
             return None
-
         try:
-            res = subprocess.run(
-                [winget_path, "search", query, "--accept-source-agreements"],
-                capture_output=True,
-                text=True,
-                timeout=15.0,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if res.returncode != 0 or not res.stdout:
-                return None
-
-            # Parse lines looking for Name and Id
-            lines = res.stdout.strip().splitlines()
-            for line in lines:
-                parts = re.split(r"\s{2,}", line.strip())
-                if len(parts) >= 2 and "." in parts[1]:
-                    name, pkg_id = parts[0], parts[1]
-                    if any(c in pkg_id for c in ("-", ".")) and not pkg_id.startswith("-"):
-                        canonical = query.replace(" ", "").lower()
-                        return PackageEntry(
-                            package_id=pkg_id,
-                            display_name=name,
-                            canonical_name=canonical,
-                            aliases=(query.lower(), name.lower()),
-                            installer_type="winget",
-                            expected_executable_stems=(canonical,),
-                        )
+            pkg = winget.best_match(query, winget.search(query))
         except Exception as exc:
             logger.debug("Dynamic winget search error for %s: %s", query, exc)
-
-        return None
+            return None
+        if pkg is None:
+            return None
+        canonical = re.sub(r"[^a-z0-9]+", "", query.lower()) or pkg.package_id.lower()
+        stem = re.sub(r"[^a-z0-9]+", "", pkg.name.lower())
+        return PackageEntry(
+            package_id=pkg.package_id,
+            display_name=pkg.name,
+            canonical_name=canonical,
+            aliases=(query.lower(), pkg.name.lower()),
+            installer_type="winget",
+            expected_executable_stems=tuple(dict.fromkeys((canonical, stem))),
+        )
 
     def build_install_command(self, package: PackageEntry) -> str:
         """Constructs trusted silent administrative winget install command string."""

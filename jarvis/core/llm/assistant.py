@@ -277,6 +277,9 @@ class Assistant:
         if not query:
             return AssistantReply(text="I'm here. What can I do for you?", ok=True)
 
+        if knowledge_scopes is None and not channel.startswith("whatsapp"):
+            # The owner's own assistant may also recall their WhatsApp chats (never exposed on WhatsApp channels).
+            knowledge_scopes = {"scope:user", "scope:device", "scope:documents", "scope:projects", "scope:whatsapp_history"}
         knowledge_task = asyncio.create_task(self._knowledge_context(query, knowledge_scopes)) if use_knowledge else None
         want_web = needs_live_data(query) if use_web is None else use_web
         web_task = asyncio.create_task(self._web_context(query)) if want_web else None
@@ -307,8 +310,10 @@ class Assistant:
                 )
         except LLMUnavailable as exc:
             return AssistantReply(
-                text="My local AI model isn't running right now, so I can only handle direct commands. "
-                     "Start Ollama and I'll be able to answer questions again.",
+                text=("No AI model is installed yet. Run \"python scripts\\setup_models.py\" and ask me again."
+                      if "No installed Ollama model" in str(exc) else
+                      "I can't reach my local AI (Ollama) right now. I'm starting it - ask me again in a few seconds. "
+                      "Direct commands like \"open chrome\" still work meanwhile."),
                 ok=False, error=str(exc),
             )
         except LLMError as exc:
@@ -332,7 +337,7 @@ class Assistant:
         try:
             result = self.client.chat_sync(messages, role="chat", temperature=0.4, max_tokens=max_tokens or (180 if speakable else 600))
         except LLMUnavailable as exc:
-            return AssistantReply(text="My local AI model isn't running right now.", ok=False, error=str(exc))
+            return AssistantReply(text="I can't reach my local AI (Ollama) right now; ask me again in a few seconds.", ok=False, error=str(exc))
         except LLMError as exc:
             return AssistantReply(text="I couldn't come up with an answer just now.", ok=False, error=str(exc))
         text = to_speakable(result.text, max_chars=600) if speakable else result.text.strip()

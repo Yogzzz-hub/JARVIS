@@ -52,6 +52,7 @@ AGENT_EXCLUDED_TOOLS = frozenset({
     "voice_edit",
     "whatsapp_action",
     "reply_whatsapp_message",
+    "reply_whatsapp_all",
 })
 
 _retrievers: "weakref.WeakKeyDictionary[Any, Any]" = weakref.WeakKeyDictionary()
@@ -63,6 +64,7 @@ SLOT_ALIASES: dict[str, dict[str, str]] = {
     "knowledge_ingest": {"folder": "path", "file_path": "path"},
     "send_whatsapp_message": {"to": "recipient", "contact": "recipient", "name": "recipient", "text": "message", "body": "message"},
     "reply_whatsapp_message": {"to": "recipient", "contact": "recipient", "name": "recipient"},
+    "reply_whatsapp_all": {"text": "message", "body": "message", "instruction": "message"},
     "android_open_app": {"app": "app_name", "name": "app_name"},
     "search_web": {"q": "query", "question": "query"},
     "ollama_chat": {"question": "query", "text": "query"},

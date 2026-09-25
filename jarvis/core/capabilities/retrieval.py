@@ -86,6 +86,9 @@ def _stem_and_normalize(word: str) -> str:
     return w
 
 
+
+_PHONE_MENTION = re.compile(r"\b(?:phone|mobile|android|smartphone|cell ?phone|handset)\b")
+
 class CapabilityRetriever:
     """
     Sub-millisecond BM25 and semantic hybrid capability retriever with
@@ -229,6 +232,9 @@ class CapabilityRetriever:
                     all_scored[cap.id] = (cap, sc)
 
         results = [item for item in all_scored.values() if item[1] >= min_score]
+        if not _PHONE_MENTION.search(cleaned):
+            # Phone-only capabilities ("tap Allow on my phone") must never act on a request about the PC.
+            results = [item for item in results if not (item[0].target_tool or "").startswith("android_")]
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
 

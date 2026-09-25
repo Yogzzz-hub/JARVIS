@@ -66,7 +66,9 @@ class VoicePipeline:
         voice_enabled: bool = True,
         preroll_ms: int = 800,
         partial_interval_ms: int = 200,
+        max_utterance_s: float = 45.0,
     ):
+        self.max_utterance_s = max_utterance_s
         self.hub = hub
         self.wake_engine = wake_engine or OpenWakeWordEngine()
         self.ptt_engine = ptt_engine or PushToTalkEngine()
@@ -423,14 +425,14 @@ class VoicePipeline:
 
             if session.speech_start_ns > 0:
                 speech_elapsed = (now_loop_ns - session.speech_start_ns) / 1e9
-                if speech_elapsed > 10.0:
+                if speech_elapsed > self.max_utterance_s:
                     session.endpoint_reason = "max_utterance_timeout"
                     session.speech_end_ns = now_loop_ns
                     speech_ended = True
                     self._emit("voice.speech_ended", reason=session.endpoint_reason)
                     break
             else:
-                if elapsed_listening > 6.0:  # Allow 6.0s pause window for user to speak after ACK completes
+                if elapsed_listening > 8.0:  # time to start speaking after the wake chime
                     session.endpoint_reason = "wake_pause_timeout"
                     session.speech_end_ns = now_loop_ns
                     self._emit("voice.speech_ended", reason=session.endpoint_reason)
@@ -543,13 +545,12 @@ class VoicePipeline:
                 task.add_done_callback(self._command_tasks.discard)
             else:
                 logger.info("Wake-only or conversation activation detected: %r (clean_norm=%r)", final.text, clean_norm)
-                self._emit("voice.final", text="Hey Jarvis", session_id=session.session_id)
+                self._emit("voice.idle", reason="wake word only", session_id=session.session_id)
                 # Open active follow-up window (e.g. 10s)
                 if self.response_engine and hasattr(self.response_engine, "open_followup_window"):
                     self.response_engine.open_followup_window(session.session_id, duration_seconds=10.0)
         else:
             logger.info("No final transcript produced; holding follow-up window")
-            self._emit("voice.final", text="Hey Jarvis", session_id=session.session_id)
             if self.response_engine and hasattr(self.response_engine, "open_followup_window"):
                 self.response_engine.open_followup_window(session.session_id, duration_seconds=10.0)
             self._emit("voice.idle", reason="No speech recognized")
@@ -688,9 +689,25 @@ class VoicePipeline:
                 result = text[len(phrase):].strip().lstrip(",. ")
                 return result
 
+        # Misheard wake words ("Jervis", "Hey Javis", "PageRWIS, ...") at the very start.
+        import difflib
+        tokens = text.split()
+        if tokens:
+            def letters(tok: str) -> str:
+                return "".join(ch for ch in tok.lower() if ch.isalpha())
+
+            first = letters(tokens[0])
+            followed_by_pause = tokens[0].rstrip()[-1:] in (",", ".", "!", "?")
+            sim = max(difflib.SequenceMatcher(None, first, "jarvis").ratio(),
+                      difflib.SequenceMatcher(None, first, "heyjarvis").ratio()) if first else 0.0
+            if len(tokens) > 1 and (sim >= 0.8 or (followed_by_pause and first.endswith(("rvis", "rwis", "rvys", "rviss")))):
+                return text.split(None, 1)[1].strip().lstrip(",. ")
+            if len(tokens) > 2 and first in ("hey", "hi", "ok", "okay", "hello", "a", "hay") \
+                    and difflib.SequenceMatcher(None, letters(tokens[1]), "jarvis").ratio() >= 0.65:
+                return text.split(None, 2)[2].strip().lstrip(",. ")
+
         # Also strip leading conversational wake acks if followed by a command
         # (e.g. "Yes, open Chrome" -> "open Chrome")
-        tokens = text.split()
         if len(tokens) > 1 and tokens[0].lower().rstrip(",.!?") in ("yes", "yeah", "yep", "sure", "ok", "okay"):
             return text.split(None, 1)[1].strip().lstrip(",. ")
 

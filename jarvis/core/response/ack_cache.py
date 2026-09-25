@@ -41,6 +41,8 @@ WAKE_ACKS = [
     "Yes?",
     "I'm listening.",
 ]
+# Rotated when wake_ack = "voice" (any that exist in the cache or were synthesized at warm-up).
+WAKE_VOICE_ACKS = ["I'm listening.", "Go ahead.", "Mm-hmm?", "What's up?", "Tell me.", "Ready."]
 
 DEFAULT_GENERAL_ACKS = [
     "Understood.",
@@ -114,8 +116,11 @@ class AckCache:
         return chosen, pcm, duration
 
     def get_wake_ack(self) -> Tuple[str, bytes, float]:
-        """Ultra-fast lookup for instant wake ACK ('Yes?' or 'I'm listening.')."""
-        chosen = "Yes?" if "Yes?" in self._ram_cache else ("I'm listening." if "I'm listening." in self._ram_cache else "Okay.")
+        """Spoken wake acknowledgement, rotated so it never sounds canned (prefers phrases other than 'Yes?')."""
+        preferred = [p for p in WAKE_VOICE_ACKS if p in self._ram_cache and p not in self._recent_history]
+        fallback = [p for p in WAKE_VOICE_ACKS + ["Yes?", "Okay."] if p in self._ram_cache]
+        chosen = random.choice(preferred) if preferred else (fallback[0] if fallback else "Okay.")
+        self.record_played(chosen)
         pcm = self._ram_cache.get(chosen, b"")
         duration = self._durations.get(chosen, 300.0)
         return chosen, pcm, duration
@@ -142,6 +147,18 @@ class AckCache:
         if (norm_key.startswith("checking") or norm_key.startswith("searching") or "whatsapp" in norm_key) and "checking your whatsapp messages" in self._norm_cache:
             return self._norm_cache["checking your whatsapp messages"], self._norm_durations.get("checking your whatsapp messages", 350.0)
         return None
+
+    def add_phrase(self, phrase: str, pcm: bytes, sample_rate: int | None = None) -> None:
+        """Cache a phrase synthesized at runtime (e.g. extra wake acknowledgements)."""
+        if not pcm:
+            return
+        rate = sample_rate or self.sample_rate
+        duration_ms = len(pcm) / (self.channels * self.sample_width * rate) * 1000.0
+        self._ram_cache[phrase] = pcm
+        self._durations[phrase] = duration_ms
+        norm_key = phrase.strip().rstrip(".").lower()
+        self._norm_cache[norm_key] = pcm
+        self._norm_durations[norm_key] = duration_ms
 
     def record_played(self, phrase: str) -> None:
         """Record phrase in recent history deque."""

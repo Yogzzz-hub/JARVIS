@@ -122,3 +122,19 @@ class EarconManager:
             val = math.sin(2.0 * math.pi * freq * t) * envelope * 0.45
             samples.append(int(val * 32767))
         return struct.pack(f"<{len(samples)}h", *samples)
+
+
+def wake_chime_pcm(sample_rate: int = 22050) -> bytes:
+    """Two soft bell tones (with a quiet octave shimmer) - 'I'm listening' without words."""
+    notes = ((1318.5, 0.0), (1975.5, 0.075))  # E6 then B6
+    duration_s = 0.24
+    n = int(sample_rate * duration_s)
+    out = [0.0] * n
+    for freq, start in notes:
+        s0 = int(start * sample_rate)
+        for i in range(s0, n):
+            t = (i - s0) / sample_rate
+            attack = min(1.0, t / 0.006)
+            env = attack * math.exp(-t * 16.0)
+            out[i] += (math.sin(2 * math.pi * freq * t) + 0.25 * math.sin(2 * math.pi * freq * 2 * t)) * env * 0.22
+    return struct.pack(f"<{n}h", *(int(max(-1.0, min(1.0, v)) * 32767) for v in out))

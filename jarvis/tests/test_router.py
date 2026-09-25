@@ -258,8 +258,9 @@ async def test_ollama_unavailable_graceful_fallback():
     router = SmartRouter(llm_provider=MockFailingProvider())
     # Unmatched text falls back gracefully to clarify without crashing
     dec = await router.route(CommandRequest(text="unusual phrase that fails matching"))
-    assert dec.lane == RouteLane.CLARIFY
-    assert "AI model unavailable" in dec.clarification
+    # A classifier failure is not a refusal: the request goes on to the assistant / tool agent.
+    assert dec.intent == "ollama_chat" and dec.context_trace == {"fallback": "unknown_command"}
+    assert "unavailable" not in (dec.clarification or "").lower()
 
     # Deterministic commands MUST still work even when model provider fails!
     dec_det = await router.route(CommandRequest(text="open chrome"))

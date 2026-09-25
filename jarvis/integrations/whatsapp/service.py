@@ -288,6 +288,13 @@ class WhatsAppIntegrationService:
             event_bus=event_bus,
         )
 
+        # Chat memory: every conversation becomes searchable for the owner's questions.
+        self.memory = None
+        engine = getattr(self.knowledge_service, "knowledge_engine", None) if self.knowledge_service else None
+        if engine is not None and bool(wa_cfg.get("remember_chats", True)):
+            from jarvis.integrations.whatsapp.memory import WhatsAppMemory
+            self.memory = WhatsAppMemory(engine, self.gateway.inbox, owner_name=self.owner_name)
+
     async def start(self) -> None:
         """Start the WhatsApp integration."""
         if not self.enabled:
@@ -295,6 +302,16 @@ class WhatsAppIntegrationService:
             return
         logger.info("Starting WhatsApp omnichannel service (Owner: %s)...", self.owner_identities)
         await self.transport.start()
+        if self.memory is not None:
+            async def _index_history():
+                try:
+                    count = await asyncio.to_thread(self.memory.index_recent)
+                    if count and self.knowledge_service is not None:
+                        self.knowledge_service.schedule_embedding()
+                    logger.info("WhatsApp memory: %d chat sections searchable", count)
+                except Exception as exc:
+                    logger.debug("WhatsApp history indexing skipped: %s", exc)
+            self._memory_task = asyncio.create_task(_index_history())
 
     async def stop(self) -> None:
         """Stop the WhatsApp integration."""
@@ -314,6 +331,18 @@ class WhatsAppIntegrationService:
                 type=message.type,
             )
         await self.gateway.handle_incoming(message)
+        self._remember_chat(message.chat_id)
+
+    def _remember_chat(self, chat_id: str) -> None:
+        """Keep the chat searchable for the owner's questions (WhatsApp memory / RAG)."""
+        memory = getattr(self, "memory", None)
+        if memory is None or not chat_id:
+            return
+        on_done = getattr(self.knowledge_service, "schedule_embedding", None) if self.knowledge_service else None
+        try:
+            memory.schedule(chat_id, on_done=on_done)
+        except Exception as exc:
+            logger.debug("WhatsApp memory update skipped: %s", exc)
 
     def _on_bridge_status(self, status_payload: Dict[str, Any]) -> None:
         state = status_payload.get("state", "UNKNOWN")

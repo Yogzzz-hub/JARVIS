@@ -29,6 +29,12 @@ KNOWN_SHELL_COMMANDS = frozenset({
     "node", "pip", "npm", "git", "wmic", "cls", "path", "nslookup", "tracert"
 })
 
+
+def _llm_down(decision) -> bool:
+    """The classifier failed because Ollama is unreachable (not merely slow or confused)."""
+    trace = getattr(decision, "context_trace", None) or {}
+    return bool(trace.get("llm_unavailable")) or "AI model unavailable" in (getattr(decision, "clarification", "") or "")
+
 class SmartRouter:
     def __init__(
         self,
@@ -124,6 +130,16 @@ class SmartRouter:
             )
             self._record(decision)
             return decision
+
+        # 3a. "Reply to everyone who messaged me ... don't reply in groups": the constraint is part of the
+        # request, not a negation of it, so this is decided before the negation guard.
+        from jarvis.core.router.extended import match_bulk_reply
+        bulk_decision = match_bulk_reply(original_text, request_id)
+        if bulk_decision:
+            bulk_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
+            bulk_decision.breakdown_ms = breakdown
+            self._record(bulk_decision)
+            return bulk_decision
 
         # 3. NEGATION CHECK (prevents execution)
         is_negated, constraints = check_negation(routing_text)
@@ -1382,7 +1398,7 @@ class SmartRouter:
                 confidence=0.0,
                 source=RouteSource.TINY_MODEL,
                 complexity=ComplexityLevel.SIMPLE,
-                clarification=f"AI model unavailable: {exc}. Please rephrase your command.",
+                clarification=f"classifier_error: {type(exc).__name__}",
                 normalized_text=routing_text,
                 reason_code=ReasonCode.UNKNOWN_INTENT,
             )
@@ -1427,7 +1443,7 @@ class SmartRouter:
                         return llm_decision
 
             # If multi-step or planner required
-            if "AI model unavailable" not in (llm_decision.clarification or ""):
+            if not _llm_down(llm_decision):
                 sem_caps_low = self.capability_retriever.retrieve(routing_text, top_k=1, min_score=4.0)
                 if sem_caps_low:
                     llm_decision = RouteDecision(
@@ -1445,7 +1461,7 @@ class SmartRouter:
 
         # If LLM classified as unknown or clarify, route to dynamic Ollama chat unless model is unavailable or disabled!
         from jarvis.core.router.ollama import DisabledProvider
-        if not isinstance(self.llm_provider, DisabledProvider) and llm_decision.lane == RouteLane.CLARIFY and not llm_decision.intent and "AI model unavailable" not in (llm_decision.clarification or ""):
+        if not isinstance(self.llm_provider, DisabledProvider) and llm_decision.lane == RouteLane.CLARIFY and not llm_decision.intent and not _llm_down(llm_decision):
             llm_decision = RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.LANE_0,
