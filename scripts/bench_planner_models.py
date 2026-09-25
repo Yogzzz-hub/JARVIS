@@ -104,9 +104,10 @@ async def benchmark_models():
         print(f"Model {m}: {results[m]}")
 
     await client.aclose()
-    out_file = ROOT / "docs/planner-models-benchmark.json"
+    out_file = ROOT / "reports/planner-models-benchmark.json"
     if not out_file.parent.exists():
-        out_file = ROOT.parent / "docs/planner-models-benchmark.json"
+        out_file = ROOT.parent / "reports/planner-models-benchmark.json"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"Benchmark saved to {out_file}")
     print("============================================================")

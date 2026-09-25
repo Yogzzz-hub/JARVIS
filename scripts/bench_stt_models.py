@@ -172,8 +172,9 @@ def main() -> None:
     print("\nWINNER: 'base.en' for default English configuration; 'base' for multilingual Tanglish.")
     print("=" * 80)
 
-    # Write output to docs/stt-models-benchmark.json
-    out_file = ROOT / "docs" / "stt-models-benchmark.json"
+    # Write output to reports/stt-models-benchmark.json
+    out_file = ROOT / "reports" / "stt-models-benchmark.json"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(MODEL_PROFILES, indent=2), encoding="utf-8")
     print(f"Results saved to: {out_file}")
 

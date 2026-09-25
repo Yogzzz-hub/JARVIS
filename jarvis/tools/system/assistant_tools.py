@@ -278,6 +278,12 @@ class SetReminderTool(Tool):
         if isinstance(arguments, dict):
             arguments = SetReminderInput(**arguments)
         task, due = parse_reminder(arguments.text)
+        if arguments.text.lower().startswith("timer:") and due is not None:
+            span = arguments.text.split(":", 1)[1].strip()
+            span = span[3:] if span.lower().startswith("in ") else span
+            reminder = get_reminder_service().add(f"your {span} timer is done", due)
+            return {"reminder_id": reminder.id, "text": reminder.text, "due_iso": due.isoformat(timespec="seconds"),
+                    "message": f"Timer set for {span}."}
         reminder = get_reminder_service().add(task, due)
         when = describe_due(due)
         message = f"Okay, I'll remind you to {task} {when}." if due else f"Saved '{task}' to your reminders. Tell me a time if you want an alert."

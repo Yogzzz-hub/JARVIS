@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from jarvis.config import ROOT, Database
 
-TABLES = frozenset({"requests", "task_events", "tool_runs", "metrics"})
+TABLES = frozenset({"requests", "task_events", "tool_runs", "metrics", "jde_decisions"})
 
 class PersistenceWriter:
     def __init__(self, path: Path, size=4096, config: Database | None = None):

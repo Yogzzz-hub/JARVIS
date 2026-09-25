@@ -10,7 +10,7 @@ Measures complete timeline across voice command streams:
 - Real-Time Factor (RTF)
 - Resource utilization (RAM, VRAM, Idle CPU)
 
-Saves results to docs/voice-benchmark.json.
+Saves results to reports/voice-benchmark.json.
 """
 from __future__ import annotations
 
@@ -180,7 +180,7 @@ def main() -> None:
     print("\nReal-Time Factor (RTF):")
     print(f"  p50: {stats_rtf['p50']:.3f} | p95: {stats_rtf['p95']:.3f} | mean: {stats_rtf['mean']:.3f}")
 
-    report_path = ROOT / "docs/voice-benchmark.json"
+    report_path = ROOT / "reports/voice-benchmark.json"
     report_data = {
         "sessions": 100,
         "wake_triggers": 100,
@@ -216,6 +216,7 @@ def main() -> None:
         "vram_mb": 145.0,
         "idle_cpu_pct": 1.2,
     }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
     print(f"\nSaved updated voice benchmark results to {report_path}")
     print("=" * 70)

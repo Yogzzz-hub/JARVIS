@@ -26,7 +26,11 @@ _TOOL_RULES: list[tuple[str, str]] = [
     (r"^(?:media_control)$", "MEDIA"),
     (r"^(?:ollama_chat|agent_task)$", "KNOWLEDGE"),
     (r"^(?:knowledge_\w+|document_qa|search_notes|memos_recent)$", "RAG"),
-    (r"^(?:set_reminder|list_reminders|capture_note|memos_create|quick_note)$", "REMINDER"),
+    (r"^(?:set_reminder|list_reminders|capture_note|memos_create|quick_note|todo|stopwatch)$", "REMINDER"),
+    (r"^(?:remember_fact|recall_facts|forget_fact)$", "RAG"),
+    (r"^(?:quick_answer)$", "KNOWLEDGE"),
+    (r"^(?:create_shortcut|list_shortcuts|delete_shortcut)$", "WORKFLOW"),
+    (r"^(?:battery_status|network_info|command_history|generate_password|empty_recycle_bin)$", "SYSTEM"),
     (r"^(?:screen_click|computer_task|describe_screen|desktop_ui_\w+|dialog_interaction|keyboard_shortcut|dictate_text|"
      r"snap_window|arrange_windows|move_resize_window|switch_window|minimize_window|maximize_window|close_window|show_desktop)$", "DESKTOP"),
     (r"^(?:git_status|powershell_command|run_project_tests|diagnose_error|antigravity_ide_control)$", "DEVELOPMENT"),

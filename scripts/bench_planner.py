@@ -8,7 +8,7 @@ Measures p50, p95, p99, mean, and max for:
 5. Graph optimizer
 6. Scheduler dispatch
 7. Parallel DAG execution vs sequential execution
-Saves calibrated metrics to docs/planner-benchmark.json.
+Saves calibrated metrics to reports/planner-benchmark.json.
 """
 
 import asyncio
@@ -227,9 +227,10 @@ async def run_benchmark():
         },
     }
 
-    out_file = ROOT / "docs/planner-benchmark.json"
+    out_file = ROOT / "reports/planner-benchmark.json"
     if not out_file.parent.exists():
-        out_file = ROOT.parent / "docs/planner-benchmark.json"
+        out_file = ROOT.parent / "reports/planner-benchmark.json"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(out_data, indent=2), encoding="utf-8")
     print(f"\nSaved benchmark results to {out_file}")
     print("============================================================")

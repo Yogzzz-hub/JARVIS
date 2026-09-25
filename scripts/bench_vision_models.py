@@ -97,7 +97,8 @@ def run_vision_benchmark() -> None:
         "ram_allocated_mb": 42.5,
     }
 
-    out_path = Path("docs/vision-benchmark.json")
+    out_path = Path("reports/vision-benchmark.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(benchmark_data, indent=2), encoding="utf-8")
     print(f"\nBenchmark results saved to {out_path}")
 

@@ -51,9 +51,20 @@ UNSUPPORTED_DOMAINS_PATTERNS = [
 ]
 
 
+# Organising, remembering or messaging ABOUT a real-world thing is fully supported
+# ("remind me to call the doctor", "add call the plumber to my to-do list", "tell mom the cab is here").
+_PERSONAL_FRAME = re.compile(
+    r"^(?:please\s+)?(?:remind me|set (?:a |an )?(?:reminder|alarm|timer)|add .+ to (?:my |the )?(?:to-?\s?do|todo|task|shopping|checklist)"
+    r"|put .+ on (?:my |the )?(?:to-?\s?do|todo|task|shopping)|mark .+ (?:as )?(?:done|complete)|remember that|note that|take a note|make a note"
+    r"|(?:tell|text|message|whatsapp|msg|ping|inform|ask|reply to|remind)\s+(?!me\b)[a-z]+\b.*\b(?:that|saying|to|about)\b"
+    r"|(?:email|mail)\s+[a-z]+)", re.I)
+
+
 def check_unsupported_external(routing_text: str, request_id: str) -> RouteDecision | None:
     """Checks if the request targets external physical devices or unsupported services."""
     cleaned = routing_text.strip()
+    if _PERSONAL_FRAME.match(cleaned):
+        return None
     for pattern in UNSUPPORTED_DOMAINS_PATTERNS:
         if pattern.search(cleaned):
             return RouteDecision(

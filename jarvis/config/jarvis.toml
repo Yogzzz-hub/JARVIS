@@ -52,7 +52,7 @@ warm_on_start = true        # preload the fast model so the first command is qui
 [decision]
 # JARVIS Decision Engine (local, offline). "shadow" = the existing router acts, JDE only logs to
 # data/jde/shadow.jsonl. "read_only" = stage B (unmatched plain questions go to chat, not the agent).
-# "off" = JDE not loaded. See docs/JDE_ARCHITECTURE.md.
+# "off" = JDE not loaded. See README.md, section 6.
 stage = "shadow"
 
 [aliases]

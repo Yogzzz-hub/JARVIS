@@ -1,7 +1,7 @@
 """
 Benchmark suite for Phase 9 Google Workspace Connectors.
 Measures local preparation overhead, capability checks, cache lookups, and provider times.
-Saves results into docs/integrations-benchmark.json.
+Saves results into reports/integrations-benchmark.json.
 """
 from __future__ import annotations
 
@@ -172,7 +172,7 @@ async def main():
     assert cal_stats["p95"] < 2.0
     assert drive_stats["p95"] < 2.0
 
-    # Save results to docs/integrations-benchmark.json
+    # Save results to reports/integrations-benchmark.json
     bench_data = {
         "benchmark_timestamp": time.time(),
         "accounts_connected": 1,
@@ -196,7 +196,8 @@ async def main():
         "duplicate_external_effects_prevented": 3,
     }
 
-    out_path = ROOT / "docs" / "integrations-benchmark.json"
+    out_path = ROOT / "reports" / "integrations-benchmark.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(bench_data, indent=2), encoding="utf-8")
     print(f"\n[SAVED] Benchmark metrics written to {out_path}")
     print("=" * 65)

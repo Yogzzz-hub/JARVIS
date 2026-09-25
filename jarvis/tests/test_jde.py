@@ -194,3 +194,43 @@ def test_stage_b_only_diverts_calibrated_knowledge_questions(engine, tmp_path):
     rt = JDERuntime(stage="read_only", engine=engine, log_path=tmp_path / "s.jsonl")
     assert rt.answer_as_knowledge("send a whatsapp message to ravi saying i'm late") is False
     assert rt.answer_as_knowledge("delete everything in my downloads folder") is False
+
+
+def test_shadow_decisions_go_to_the_database_when_a_writer_is_attached(engine, tmp_path):
+    class Writer:
+        error = None
+
+        def __init__(self):
+            self.rows = []
+
+        def enqueue(self, table, request_id, payload):
+            self.rows.append((table, request_id, payload))
+            return True
+
+    writer = Writer()
+    rt = JDERuntime(stage="shadow", engine=engine, log_path=tmp_path / "unused.jsonl")
+    rt.attach_writer(writer)
+    rt.observe("open notepad", _FakeDecision(), request_id="req42")
+    rt.flush()
+    assert writer.rows and writer.rows[0][0] == "jde_decisions" and writer.rows[0][1] == "req42"
+    assert writer.rows[0][2]["jde"]["route"] in ROUTE_FAMILIES
+    assert not (tmp_path / "unused.jsonl").exists()
+    assert rt.warm() is True
+
+
+def test_migration_creates_assistant_and_decision_tables(tmp_path):
+    import asyncio
+    import sqlite3
+    from jarvis.core.persistence.writer import PersistenceWriter
+
+    async def run():
+        w = PersistenceWriter(tmp_path / "j.db")
+        await w.start()
+        w.enqueue("jde_decisions", "r1", {"ok": True})
+        await w.close()
+
+    asyncio.run(run())
+    con = sqlite3.connect(tmp_path / "j.db")
+    names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"todos", "memory_facts", "shortcuts", "jde_decisions"} <= names
+    assert con.execute("SELECT count(*) FROM jde_decisions").fetchone()[0] == 1

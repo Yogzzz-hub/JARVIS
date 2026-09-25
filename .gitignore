@@ -42,3 +42,7 @@ jarvis/.trash/
 
 # JDE encoder assets (built by scripts/setup_models.py --jde)
 models/jde/encoders/
+
+# Generated benchmark / evaluation output (the combined guide in README.md is the documentation)
+reports/
+docs/

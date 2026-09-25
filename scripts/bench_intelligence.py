@@ -240,7 +240,8 @@ def main():
             print(f"{op:<32} | {r['p50_ms']:<9.4f} | {r['p95_ms']:<9.4f} | {r['p99_ms']:<9.4f} | {r['mean_ms']:<9.4f} | < {tgt:<10.1f} | {status}")
 
         # Save metrics
-        out_file = REPO_ROOT / "docs" / "intelligence-benchmark.json"
+        out_file = REPO_ROOT / "reports" / "intelligence-benchmark.json"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
         with open(out_file, "w", encoding="utf-8") as f:
             json.dump({
                 "phase": 12,
