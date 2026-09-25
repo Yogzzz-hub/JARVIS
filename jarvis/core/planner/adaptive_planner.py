@@ -37,9 +37,11 @@ from jarvis.tools.registry import ToolRegistry
 
 
 PLANNER_SYSTEM_PROMPT = """You compile a user's request into a TaskGraph using ONLY the provided tools.
-Never invent a tool.
-Never generate shell commands.
-Never guess missing important information.
+Never invent a tool that is not in the provided tool list.
+For system tasks, package/software installations, or scripts, use the `powershell_command` tool with as_admin=true.
+For web/browser tasks, use browser_navigate, browser_click, browser_type, or browser_snapshot.
+For desktop UI tasks, use desktop_ui_snapshot or desktop_ui_click.
+Never guess missing critical parameters.
 If ambiguity prevents correct execution, output blocking_questions.
 If no supplied tool can perform a required capability, output missing_capabilities.
 Use independent nodes when operations can run concurrently.
@@ -69,9 +71,9 @@ class AdaptivePlanner:
         validator: Optional[GraphValidator] = None,
         optimizer: Optional[GraphOptimizer] = None,
         ollama_url: str = "http://127.0.0.1:11434",
-        small_model: str = "qwen3:1.7b",
-        full_model: str = "qwen3:4b",
-        timeout: float = 8.0,
+        small_model: str = "llama3.2:latest",
+        full_model: str = "llama3.2:latest",
+        timeout: float = 30.0,
     ):
         self.registry = registry
         self.cache = cache or PlanTemplateCache()
@@ -90,6 +92,23 @@ class AdaptivePlanner:
         if self._http_client is None or self._http_client.is_closed:
             self._http_client = httpx.AsyncClient(base_url=self.ollama_url, timeout=self.timeout)
         return self._http_client
+
+    async def _resolve_model(self, requested: str) -> str:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/api/tags", timeout=2.0)
+            if resp.status_code == 200:
+                names = [m.get("name", "") for m in resp.json().get("models", [])]
+                if requested in names:
+                    return requested
+                for n in names:
+                    if any(cand in n.lower() for cand in ("llama3.2", "qwen2.5-coder", "mistral", "llama3.1", "phi3")):
+                        return n
+                if names:
+                    return names[0]
+        except Exception:
+            pass
+        return requested
 
     async def plan(
         self,
@@ -159,6 +178,7 @@ class AdaptivePlanner:
         # Step 4: Complexity Scoring to select model
         complexity = self.complexity_analyzer.analyze(request_text, likely_tools_count=len(candidate_names))
         chosen_model = self.small_model if complexity != PlannerComplexity.HIGH else self.full_model
+        chosen_model = await self._resolve_model(chosen_model)
 
         # Step 5: Generate graph proposal from model
         graph_proposal, model_err = await self._generate_graph(
@@ -192,7 +212,7 @@ class AdaptivePlanner:
             )
 
         # Step 7: One-shot repair attempt (escalate model if small model failed)
-        repair_model = self.full_model
+        repair_model = await self._resolve_model(self.full_model)
         repaired_graph, repair_err = await self._repair_graph(
             request_text,
             graph_proposal,

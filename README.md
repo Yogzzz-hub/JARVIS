@@ -1,45 +1,75 @@
-# JARVIS EDGE — Phase 1
+# JARVIS EDGE v1.0
 
-Local Windows command service. No models, voice, planner, cloud connections or GPU computation.
+Your personal local AI command assistant for Windows. Fully offline, privacy-first.
 
-Use Python 3.12 and a virtual environment:
+**Deployment status:** the deterministic desktop core is operational. Voice,
+wake word, TTS, AI planning, browser/vision integration and package installation
+are not activated in this runtime. Feature flags currently accept only `false`;
+changing them to `true` is not sufficient to enable these subsystems.
+See [review and rating](docs/REVIEW_AND_RATING.md) and [daily use](docs/DAILY_USE.md).
 
+Setup: `powershell -NoProfile -File .\setup_jarvis.ps1`
+
+Diagnostics: `powershell -NoProfile -File .\diagnose_jarvis.ps1`
+
+## Quick Start
+
+### Option 1 — Double-click
+Run **`start.bat`** (or `start.ps1` in PowerShell).
+
+### Option 2 — Terminal
 ```powershell
-py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e '.[test]'
 python -m jarvis
 ```
 
-In another activated terminal:
+JARVIS starts on `http://127.0.0.1:8765`. You'll see `JARVIS_READY` when it's live.
+
+## Send Commands
+
+Open a **second terminal** (keep the server running):
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
 python -m jarvis.cli "open notepad"
-python -m jarvis.cli "time" --json
-python -m pytest
-python -m jarvis.scripts.bench_core
+python -m jarvis.cli "what time is it"
+python -m jarvis.cli "take a screenshot"
+python -m jarvis.cli "volume 50"
+python -m jarvis.cli "system info" --json
 ```
 
-This workspace also includes a local Python 3.12 runtime under `.runtime` and an
-already prepared `.venv`. Use `.\.venv\Scripts\python.exe` directly if activation
-is restricted. The system default `python` may be a different version.
+## Available Commands
 
-Commands: `open <indexed app>`, `volume <0-100>`, `volume`, `list <path>`,
-`screenshot`, `time`, `system info`. Paths containing spaces are accepted.
-Screenshots use unique PNG files under `jarvis/screenshots`.
+| Category     | Examples                                        |
+| ------------ | ----------------------------------------------- |
+| **Apps**      | `open chrome`, `open notepad`, `open calc`      |
+| **Volume**    | `volume 75`, `volume` (read current)            |
+| **Files**     | `list Desktop`, `find my resume`                |
+| **System**    | `time`, `system info`, `screenshot`             |
+| **Planning**  | `open chrome and notepad` (multi-step DAG)      |
 
-Configure once at startup in `jarvis/config/jarvis.toml`. User aliases must be
-absolute existing `.exe` paths. Restart to refresh the index. Unknown applications
-produce a failure; unidentifiable shortcuts may launch but cannot report verified success.
+## Configuration
 
-HTTP binds to `127.0.0.1:8765`. Native work has two admission slots; overload returns
-503. WebSocket commands require `version: 1`, `request_id`, `type: "command"`, and
-`text`. Ping uses the same version/id fields and `type: "ping"`. Binary frames are
-reserved and rejected explicitly. Browser Origin connections are rejected.
+Edit `jarvis/config/jarvis.toml` to configure:
 
-Press Ctrl+C for graceful shutdown. Cancellation cannot undo a native action that
-already started; the response states that limitation. Verification checks process
-existence, not whether an application window is foreground or responsive.
+- **Server**: host, port, backends
+- **Features**: deployment status flags; optional subsystem activation requires runtime integration
+- **Search**: file indexing roots and limits
+- **Aliases**: custom app aliases (absolute `.exe` paths)
 
-See [architecture](jarvis/docs/ARCHITECTURE.md), [performance](jarvis/docs/PERFORMANCE.md),
-[acceptance evidence](jarvis/docs/PROGRESS.md), and [licenses](jarvis/docs/LICENSES.md).
+Restart JARVIS after config changes.
+
+## Architecture
+
+- **Core Engine** — sub-50ms command processing
+- **Smart Router** — deterministic + AI routing lanes
+- **File Intelligence** — full-text search across Desktop/Documents/Downloads
+- **Planner** — multi-step DAG execution with parallel branches
+- **Policy Engine** — risk-based approval with verification
+- **Voice I/O** — streaming STT + local TTS (when enabled)
+- **Computer Agent** — GUI automation via UIA + vision fallback
+- **Browser Agent** — structured web interaction
+- **Memory System** — layered contextual memory
+- **Workflow Learning** — reusable approved patterns
+
+See [docs/](docs/) for detailed architecture documentation.

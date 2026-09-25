@@ -72,15 +72,23 @@ class AudioOutputQueue:
 
             # 2. Duplicate FINAL prevention
             if response.type == ResponseType.FINAL:
-                if current_state in (
-                    ResponseLifecycle.FINAL_QUEUED,
-                    ResponseLifecycle.FINAL_STARTED,
-                    ResponseLifecycle.FINAL_COMPLETED,
-                ):
-                    logger.debug("Duplicate FINAL for request %s dropped", req_id)
-                    self.total_duplicates_prevented += 1
-                    return False
-                self._request_lifecycles[req_id] = ResponseLifecycle.FINAL_QUEUED
+                is_chunk = getattr(response, "is_chunk", False)
+                if not is_chunk:
+                    if current_state in (
+                        ResponseLifecycle.FINAL_QUEUED,
+                        ResponseLifecycle.FINAL_STARTED,
+                        ResponseLifecycle.FINAL_COMPLETED,
+                    ):
+                        logger.debug("Duplicate FINAL for request %s dropped", req_id)
+                        self.total_duplicates_prevented += 1
+                        return False
+                    self._request_lifecycles[req_id] = ResponseLifecycle.FINAL_QUEUED
+                else:
+                    if current_state == ResponseLifecycle.FINAL_COMPLETED:
+                        logger.debug("Chunk after FINAL_COMPLETED for request %s dropped", req_id)
+                        self.total_duplicates_prevented += 1
+                        return False
+                    self._request_lifecycles[req_id] = ResponseLifecycle.FINAL_QUEUED
 
                 # 3. Drop obsolete pending ACK for this request if still in queue
                 self._drop_pending_acks_for_request(req_id)
@@ -163,10 +171,13 @@ class AudioOutputQueue:
             self._active_requests.discard(request_id)
 
     def _drop_pending_acks_for_request(self, request_id: str) -> None:
-        """Internal helper to remove ACKs for a specific request when final arrives."""
+        """Internal helper to remove generic ACKs for a specific request when final arrives."""
+        generic_fillers = {
+            "Understood.", "Got it.", "I'm on it.", "Okay.", "Starting now.", "I'll handle that.",
+        }
         new_heap = []
         for prio, count, resp in self._heap:
-            if resp.request_id == request_id and resp.type == ResponseType.ACK:
+            if resp.request_id == request_id and resp.type == ResponseType.ACK and resp.text in generic_fillers:
                 resp.delivery_status = DeliveryStatus.DROPPED_STALE
                 self.total_dropped_obsolete_ack += 1
             else:

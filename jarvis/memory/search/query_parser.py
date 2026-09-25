@@ -48,6 +48,18 @@ TYPE_MAP = {
     "directory": "[directory]",
 }
 
+DIRECTORY_PATTERN = re.compile(
+    r"\b(?:in|from|inside|under)\s+(?:my\s+|the\s+)?(?P<dir>downloads?|desktop|documents?|docs)(?:\s+(?:folder|directory))?\b",
+    re.IGNORECASE,
+)
+
+CONTENT_SEARCH_PATTERN = re.compile(
+    r"\b(?:(?:the\s+)?files?\s+)?(?:containing|with\s+content|with\s+text|having\s+text|having\s+content)\s+[\"']?(?P<phrase>[^\"'\n\r]+)[\"']?",
+    re.IGNORECASE,
+)
+
+QUOTES_PATTERN = re.compile(r'["\']([^"\']+)["\']')
+
 TEMPORAL_PHRASES = (
     "opened yesterday",
     "used yesterday",
@@ -97,9 +109,11 @@ SEMANTIC_PATTERN = re.compile(
 
 FILLER_WORDS = re.compile(
     r"^(?:hey\s+|jarvis\s+|bro\s+|could\s+you\s+|can\s+you\s+|please\s+|kindly\s+|"
-    r"find\s+file\s+|find\s+that\s+|find\s+my\s+|find\s+|search\s+for\s+|search\s+|"
-    r"where\s+is\s+that\s+|where\s+is\s+my\s+|where\s+is\s+|where\s+are\s+that\s+|where\s+are\s+my\s+|where\s+are\s+|locate\s+|show\s+my\s+recent\s+|"
-    r"show\s+my\s+|show\s+files\s+|show\s+|open\s+my\s+|open\s+that\s+|open\s+file\s+|open\s+)+",
+    r"find\s+files?\s+named\s+|find\s+files?\s+called\s+|find\s+files?\s+|find\s+file\s+|find\s+that\s+|find\s+my\s+|find\s+|"
+    r"search\s+for\s+files?\s+named\s+|search\s+for\s+|search\s+|"
+    r"where\s+is\s+that\s+|where\s+is\s+my\s+|where\s+is\s+the\s+file\s+|where\s+is\s+|where\s+are\s+that\s+|where\s+are\s+my\s+|where\s+are\s+|locate\s+|"
+    r"show\s+my\s+recent\s+|show\s+my\s+|show\s+files\s+|show\s+|open\s+my\s+|open\s+that\s+|open\s+file\s+|open\s+|"
+    r"files?\s+named\s+|files?\s+called\s+|named\s+|called\s+)+",
     re.IGNORECASE,
 )
 
@@ -124,28 +138,68 @@ def parse_search_query(query_text: str) -> SearchQuery:
     # 1. Detect Context Reference (e.g. "open that file", "the second one")
     context_ref = bool(CONTEXT_PATTERNS.search(lowered))
 
-    # 2. Detect Temporal Hints
-    temp_match = TEMPORAL_PATTERN.search(lowered)
+    # 2. Detect Directory / Location Hint (e.g. "in my downloads folder", "in desktop")
+    directory_hint = None
+    dir_match = DIRECTORY_PATTERN.search(lowered)
+    query_without_dir = lowered
+    if dir_match:
+        matched_dir = dir_match.group("dir").lower()
+        if matched_dir in ("downloads", "download"):
+            directory_hint = "downloads"
+        elif matched_dir in ("documents", "document", "docs"):
+            directory_hint = "documents"
+        elif matched_dir == "desktop":
+            directory_hint = "desktop"
+        else:
+            directory_hint = matched_dir
+        query_without_dir = DIRECTORY_PATTERN.sub(" ", lowered).strip()
+
+    # 3. Detect Content Search / Exact Phrase
+    content_match = CONTENT_SEARCH_PATTERN.search(raw)
+    quotes_match = QUOTES_PATTERN.search(raw)
+    if content_match:
+        phrase = content_match.group("phrase").strip().strip('"\'')
+        tokens = tokenize_filename(phrase) if phrase else []
+        return SearchQuery(
+            raw_query=raw,
+            text=phrase,
+            type_hint=None,
+            temporal_hint=None,
+            latest=False,
+            context_reference=False,
+            semantic=True,
+            tokens=tokens,
+            directory_hint=directory_hint,
+        )
+
+    # 4. Detect Temporal Hints
+    temp_match = TEMPORAL_PATTERN.search(query_without_dir)
     temporal_hint = temp_match.group(0) if temp_match else None
-    latest = any(w in lowered for w in ("latest", "newest", "recent", "recently", "used recently", "opened recently"))
+    latest = any(w in query_without_dir for w in ("latest", "newest", "recent", "recently", "used recently", "opened recently"))
 
-    # 3. Detect Semantic Intent (Descriptive query vs direct filename)
-    semantic = bool(SEMANTIC_PATTERN.search(lowered))
+    # 5. Detect Semantic Intent (Descriptive query vs direct filename)
+    semantic = bool(SEMANTIC_PATTERN.search(query_without_dir))
 
-    # 4. Detect Type Hint
+    # 6. Detect Type Hint
     type_hint = None
-    ext_match = EXT_PATTERN.search(lowered)
+    ext_match = EXT_PATTERN.search(query_without_dir)
     if ext_match:
         type_hint = f".{ext_match.group(1)}"
     else:
-        padded = f" {lowered} "
+        padded = f" {query_without_dir} "
+        # Prioritize concrete file formats first over general directories
         for phrase, ext in sorted(TYPE_MAP.items(), key=lambda x: len(x[0]), reverse=True):
-            if f" {phrase} " in padded:
+            if ext != "[directory]" and f" {phrase} " in padded:
                 type_hint = ext
                 break
+        if not type_hint and not directory_hint:
+            for phrase, ext in (("folder", "[directory]"), ("directory", "[directory]")):
+                if f" {phrase} " in padded:
+                    type_hint = ext
+                    break
 
-    # 5. Extract and Clean Search Terms
-    cleaned = FILLER_WORDS.sub("", lowered).strip()
+    # 7. Extract and Clean Search Terms
+    cleaned = FILLER_WORDS.sub("", query_without_dir).strip()
     cleaned = CONTEXT_PATTERNS.sub("", cleaned).strip()
     if temporal_hint:
         cleaned = TEMPORAL_PATTERN.sub(" ", cleaned)
@@ -158,7 +212,7 @@ def parse_search_query(query_text: str) -> SearchQuery:
 
     # Fallback to raw only if no hints were extracted
     if not cleaned:
-        if type_hint or temporal_hint or context_ref:
+        if type_hint or temporal_hint or context_ref or directory_hint:
             final_text = ""
         else:
             final_text = raw
@@ -177,4 +231,5 @@ def parse_search_query(query_text: str) -> SearchQuery:
         context_reference=context_ref,
         semantic=semantic,
         tokens=tokens,
+        directory_hint=directory_hint,
     )

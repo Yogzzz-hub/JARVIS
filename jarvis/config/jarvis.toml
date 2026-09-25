@@ -25,19 +25,30 @@ logs = "logs/jarvis.jsonl"
 models = "models"
 
 [features]
-router_ai = false
-planner = false
-voice = false
-tts = false
+router_ai = true
+planner = true
+voice = true
+tts = true
 phone = false
 google = false
-browser = false
+browser = true
 vision = false
 
 [models]
-fast = ""
-planner = ""
-vision = ""
+fast = "qwen3:0.6b"
+planner = "qwen3:1.7b"
+vision = "qwen3-vl:2b"
 
 [aliases]
 # Additional aliases must be absolute existing executable paths.
+
+[voice]
+device = "default"
+wake_enabled = true
+ptt_enabled = true
+model_path = "models/wake/hey_jarvis_v0.1.onnx"
+threshold = 0.55
+stt_model = "models/whisper/base"
+stt_device = "cpu"
+compute_type = "int8"
+preroll_ms = 500

@@ -73,3 +73,4 @@ class RouteDecision(BaseModel):
     subcommands: list[SubCommand] = Field(default_factory=list)
     constraints: list[dict[str, Any]] = Field(default_factory=list)
     breakdown_ms: dict[str, float] = Field(default_factory=dict)
+    context_trace: dict[str, Any] | None = None

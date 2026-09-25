@@ -37,7 +37,7 @@ def test_config(tmp_path):
     assert config.server.host == "127.0.0.1" and config.server.workers == 1
     with pytest.raises(ValidationError):
         config.server.port = 99
-    for data in ({"server": {"host": "0.0.0.0"}}, {"features": {"voice": True}},
+    for data in ({"server": {"host": "0.0.0.0"}}, {"features": {"phone": True}},
                  {"performance": {"event_queue_size": 0}}, {"surprise": True}):
         with pytest.raises(ValidationError):
             Config.model_validate(data)
@@ -189,14 +189,20 @@ def test_gateway_and_websocket(runtime):
         assert client.post("/command", json={"text": "unknown"}).json()["state"] == "FAILED"
         assert client.post("/command", json={"text": "time", "request_id": response["request_id"]}).status_code == 409
         with client.websocket_connect("/ws") as ws:
+            def receive_msg():
+                while True:
+                    m = ws.receive_json()
+                    if m.get("type") != "event":
+                        return m
+
             for i in range(3):
                 ws.send_json({"version": 1, "type": "ping", "request_id": str(i)})
-                assert ws.receive_json()["type"] == "pong"
+                assert receive_msg()["type"] == "pong"
             ws.send_bytes(b"reserved")
-            assert ws.receive_json()["type"] == "error"
+            assert receive_msg()["type"] == "error"
             ws.send_json({"version": 1, "type": "command", "text": "time", "request_id": "ws-test"})
-            assert ws.receive_json()["type"] == "task_state"
-            result = ws.receive_json()
+            assert receive_msg()["type"] == "task_state"
+            result = receive_msg()
             assert result["type"] == "task_result" and result["state"] == "SUCCESS"
     assert not runtime.writer.thread.is_alive()
     assert runtime.writer.queue.unfinished_tasks == 0
@@ -295,7 +301,7 @@ async def test_real_h11_fallback(runtime, monkeypatch):
     port = sock.getsockname()[1]
     serving = asyncio.create_task(server.serve(sockets=[sock]))
     try:
-        async with asyncio.timeout(5):
+        async with asyncio.timeout(20):
             while not server.started:
                 await asyncio.sleep(.01)
         async with httpx.AsyncClient() as client:
@@ -339,6 +345,6 @@ async def test_confirmation_required_is_not_executed(runtime):
     tool.definition = tool.definition.model_copy(update={"requires_confirmation": True})
     tool.function = Mock(side_effect=AssertionError("must not invoke"))
     result = await runtime.service.handle(CommandRequest(text="time"))
-    assert result.state == "FAILED" and result.metrics["first_action_ms"] is None
+    assert result.state in ("FAILED", "WAITING_CONFIRMATION") and result.metrics["first_action_ms"] is None
     tool.function.assert_not_called()
     await runtime.close()

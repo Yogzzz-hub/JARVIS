@@ -330,3 +330,99 @@ async def test_golden_dataset_evaluation():
     intent_acc = (correct_intent / total) * 100
     assert lane_acc >= 90.0, f"Lane accuracy {lane_acc:.2f}% below target"
     assert intent_acc >= 85.0, f"Intent accuracy {intent_acc:.2f}% below target"
+
+@pytest.mark.asyncio
+async def test_direct_app_name_typing():
+    router = SmartRouter()
+    for app in ("chrome", "notepad", "calculator", "calc", "youtube", "whatsapp", "spotify"):
+        dec = await router.route(CommandRequest(text=app))
+        assert dec.lane == RouteLane.LANE_0, f"Failed for {app}: lane is {dec.lane}"
+        assert dec.intent == "open_app", f"Failed for {app}: intent is {dec.intent}"
+        assert dec.slots.get("name") in (app, "calculator"), f"Failed slot for {app}: {dec.slots}"
+
+@pytest.mark.asyncio
+async def test_conversational_affirmation_leading_commands():
+    router = SmartRouter()
+    dec = await router.route(CommandRequest(text="yes, open chrome"))
+    assert dec.lane == RouteLane.LANE_0
+    assert dec.intent == "open_app"
+
+    dec2 = await router.route(CommandRequest(text="yeah launch notepad"))
+    assert dec2.lane == RouteLane.LANE_0
+    assert dec2.intent == "open_app"
+
+@pytest.mark.asyncio
+async def test_dictation_typing_commands():
+    router = SmartRouter()
+    dec = await router.route(CommandRequest(text="type hello world"))
+    assert dec.lane == RouteLane.LANE_0
+    assert dec.intent == "dictate_text"
+    assert dec.slots.get("text") == "hello world"
+
+    dec2 = await router.route(CommandRequest(text="dictate meeting notes for today"))
+    assert dec2.lane == RouteLane.LANE_0
+    assert dec2.intent == "dictate_text"
+    assert dec2.slots.get("text") == "meeting notes for today"
+
+def test_voice_pipeline_strip_wake_phrases():
+    from jarvis.core.audio.pipeline import VoicePipeline
+    assert VoicePipeline._strip_wake_phrase("Hey Jarvis, open Chrome") == "open Chrome"
+    assert VoicePipeline._strip_wake_phrase("Hey Jarvis open Chrome") == "open Chrome"
+    assert VoicePipeline._strip_wake_phrase("Yes, open Chrome") == "open Chrome"
+    assert VoicePipeline._strip_wake_phrase("Yes open Chrome") == "open Chrome"
+    assert VoicePipeline._strip_wake_phrase("Yeah launch notepad") == "launch notepad"
+    assert VoicePipeline._strip_wake_phrase("Hey Jarvis") == ""
+    assert VoicePipeline._strip_wake_phrase("Yes") == "Yes"
+
+@pytest.mark.asyncio
+async def test_advanced_multimedia_and_window_commands():
+    router = SmartRouter()
+
+    # 1. YouTube play command
+    dec = await router.route(CommandRequest(text="open youtube and play believer"))
+    assert dec.lane == RouteLane.LANE_0
+    assert dec.intent in ("play_youtube", "compound")
+    if dec.intent == "play_youtube":
+        assert "believer" in dec.slots.get("query", "").lower()
+    else:
+        assert any(sub.tool == "play_youtube" for sub in dec.subcommands)
+
+    # 2. Live news search command
+    dec_news = await router.route(CommandRequest(text="search news in india"))
+    assert dec_news.lane == RouteLane.LANE_0
+    assert dec_news.intent in ("search_news", "compound")
+    if dec_news.intent == "search_news":
+        assert "india" in dec_news.slots.get("query", "").lower()
+
+    # 3. Window control commands
+    dec_max = await router.route(CommandRequest(text="maximize window"))
+    assert dec_max.lane == RouteLane.LANE_0
+    assert dec_max.intent == "maximize_window"
+
+    for phrase in ("fulll screen", "full screen", "fullscreen", "make it full screen"):
+        dec_fs = await router.route(CommandRequest(text=phrase))
+        assert dec_fs.lane == RouteLane.LANE_0
+        assert dec_fs.intent == "maximize_window"
+
+    dec_min = await router.route(CommandRequest(text="minimize window"))
+    assert dec_min.lane == RouteLane.LANE_0
+    assert dec_min.intent == "minimize_window"
+
+    dec_desk = await router.route(CommandRequest(text="show desktop"))
+    assert dec_desk.lane == RouteLane.LANE_0
+    assert dec_desk.intent == "show_desktop"
+
+    # 4. Hardware media controls
+    dec_media = await router.route(CommandRequest(text="next track"))
+    assert dec_media.lane == RouteLane.LANE_0
+    assert dec_media.intent == "media_control"
+    assert dec_media.slots.get("action") in ("next track", "next_track")
+
+    # 5. Compound heterogeneous command
+    dec_compound = await router.route(CommandRequest(text="maximize window and play believer on youtube"))
+    assert dec_compound.lane == RouteLane.LANE_0
+    assert dec_compound.complexity == ComplexityLevel.COMPOUND
+    assert len(dec_compound.subcommands) == 2
+    assert dec_compound.subcommands[0].tool == "maximize_window"
+    assert dec_compound.subcommands[1].tool == "play_youtube"
+

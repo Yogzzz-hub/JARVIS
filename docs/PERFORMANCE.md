@@ -51,12 +51,16 @@ Measured from 1,000 iterations per benchmark metric using high-precision `time.p
 | Total latency | 58.0343 ms | 113.1598 ms | 113.1598 ms | 66.7394 ms | 113.1598 ms |
 
 ## Resource Usage
-- Idle RAM: 54.15 MB (RSS)
-- Peak RAM: 56.83 MB
-- Idle CPU: 0.78% of one core (effectively near zero)
-- Startup time: 855 ms – 2097 ms (~0.85s – 2.1s)
+- Backend Idle RAM: 54.15 MB (RSS)
+- Backend Peak RAM: 56.83 MB
+- Backend Idle CPU: 0.78% of one core (effectively near zero)
+- Backend Startup time: 855 ms – 2097 ms (~0.85s – 2.1s)
+- UI Idle RAM (Tray): ~85 MB
+- UI Active Dashboard RAM: ~215 MB
+- UI Idle CPU: 0.0% – 1.0%
 
 ## Targets
+
 
 Registry lookup p95 < 0.25 ms: PASS (0.0002 ms actual, 1250x faster than target)
 Command resolution p95 < 2 ms: PASS (0.0007 ms actual, 2850x faster than target)

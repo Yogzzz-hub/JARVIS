@@ -132,6 +132,28 @@ class WindowsActionRunner:
             evidence={"action": "invoke", "name": elem.name, "automation_id": elem.automation_id},
         )
 
+    def click(
+        self,
+        target: Any = None,
+        window_id: str = "",
+        target_name: Optional[str] = None,
+        automation_id: Optional[str] = None,
+        control_type: Optional[str] = None,
+    ) -> InteractionOutcome:
+        """Alias for invoke supporting both direct element and property lookups."""
+        if target is not None:
+            if isinstance(target, str):
+                target_name = target_name or target
+            elif hasattr(target, "name"):
+                target_name = getattr(target, "name", None)
+                automation_id = getattr(target, "automation_id", None)
+        return self.invoke(
+            window_id=window_id,
+            target_name=target_name,
+            automation_id=automation_id,
+            control_type=control_type,
+        )
+
     def set_value(
         self,
         window_id: str,

@@ -1,8 +1,37 @@
 .venv/
 .runtime/
 __pycache__/
+*.py[cod]
 .pytest_cache/
 *.egg-info/
-jarvis/db/*.db*
+.vscode/
 jarvis/logs/*.jsonl*
 jarvis/screenshots/
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local credentials & secrets
+config/google_client_secret.json
+config/google_accounts.json
+
+# Local data & browser cache
+contacts.vcf
+tmp_test_dir/
+data/
+jarvis/jarvis/
+data/whatsapp_auth/
+data/whatsapp_temp/
+integrations/data/whatsapp_auth/
+integrations/data/whatsapp_temp/
+integrations/data/
+integrations/whatsapp/bridge/node_modules/
+integrations/whatsapp/bridge/auth_info/
+
+# Large model binaries (>50MB)
+models/whisper/base/model.bin
+models/piper/**/*.onnx
+models/piper/.cache/

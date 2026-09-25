@@ -52,7 +52,7 @@ class MicSource:
         frame_samples: int = CANONICAL_SAMPLES_PER_FRAME,
         queue_size: int = 200,
     ):
-        self.device = device
+        self.device = None if device in (None, "", "default") else device
         self.target_rate = sample_rate
         self.frame_samples = frame_samples
         self._queue: asyncio.Queue[AudioFrame] = asyncio.Queue(maxsize=queue_size)
@@ -60,19 +60,46 @@ class MicSource:
         self._seq = 0
         self._running = False
         self.dropped_frames = 0
+        self.input_overflows = 0
         self._native_rate: int | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
         import sounddevice as sd
 
+        if self._running:
+            return
         self._loop = asyncio.get_running_loop()
-        # Query device to get native sample rate
+
+        # 1. Prefer direct canonical rate capture (16kHz) to avoid resampling overhead
+        try:
+            self._stream = sd.InputStream(
+                device=self.device,
+                samplerate=self.target_rate,
+                channels=CANONICAL_CHANNELS,
+                dtype="int16",
+                blocksize=self.frame_samples,
+                callback=self._callback,
+            )
+            self._native_rate = self.target_rate
+            self._stream.start()
+            self._running = True
+            logger.info(
+                "MicSource started natively at %d Hz on device %s",
+                self.target_rate, self.device or "default",
+            )
+            return
+        except Exception as exc:
+            logger.debug(
+                "Direct %d Hz input stream failed, falling back to query: %s",
+                self.target_rate, exc,
+            )
+
+        # 2. Fall back to native rate query + resampling if required by device driver
         dev_info = sd.query_devices(self.device, "input")
         self._native_rate = int(dev_info["default_samplerate"])
         actual_rate = self._native_rate
 
-        # Calculate frame size for native rate
         native_frame_samples = int(self.frame_samples * actual_rate / self.target_rate)
 
         self._stream = sd.InputStream(
@@ -84,9 +111,15 @@ class MicSource:
             callback=self._callback,
         )
         self._running = True
-        self._stream.start()
+        try:
+            self._stream.start()
+        except Exception:
+            self._running = False
+            self._stream.close()
+            self._stream = None
+            raise
         logger.info(
-            "MicSource started: device=%s, native_rate=%d, target_rate=%d",
+            "MicSource started with resampler: device=%s, native_rate=%d, target_rate=%d",
             self.device or "default", actual_rate, self.target_rate,
         )
 
@@ -95,6 +128,8 @@ class MicSource:
         if not self._running:
             return
         ts = perf_counter_ns()
+        if status:
+            self.input_overflows += 1
         self._seq += 1
         pcm_data = indata[:, 0].tobytes()  # mono channel, already int16
 

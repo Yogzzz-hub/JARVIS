@@ -119,7 +119,8 @@ class BargeInController:
 
     def should_suppress_wake_word(self) -> bool:
         """Returns True if wake-word detection should be gated because Jarvis is outputting audio."""
-        return self.output_manager.is_playing
+        return (self.output_manager.is_playing or
+                (perf_counter_ns() - self.output_manager.last_playback_stop_ns) / 1e6 < 500)
 
     @staticmethod
     def _normalize_words(text: str) -> str:

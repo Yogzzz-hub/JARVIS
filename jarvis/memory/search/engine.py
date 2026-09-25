@@ -34,9 +34,9 @@ class SearchEngine:
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
-            con = sqlite3.connect(self.db_path, check_same_thread=False)
+            con = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None, timeout=10.0)
             con.row_factory = sqlite3.Row
-            con.execute("PRAGMA busy_timeout=3000")
+            con.execute("PRAGMA busy_timeout=10000")
             con.execute("PRAGMA query_only=ON")
             try:
                 con.execute("PRAGMA mmap_size=268435456")
@@ -190,17 +190,23 @@ class SearchEngine:
 
         if not tokens and query.type_hint:
             # Type-only query (e.g. "show python scripts", "find pdfs")
+            order_clause = "modified_ns DESC, open_count DESC" if (query.latest or query.temporal_hint) else "open_count DESC, modified_ns DESC"
+            where_clause = "extension = ? AND is_available = 1"
+            params: list[Any] = [query.type_hint.casefold()]
+            if query.directory_hint:
+                where_clause += " AND path_norm LIKE ?"
+                params.append(f"%{query.directory_hint.lower()}%")
             try:
                 cur = con.execute(
-                    """
+                    f"""
                     SELECT id, path, name, name_norm, stem, extension, size_bytes,
                            modified_ns, open_count, last_opened_ns
                     FROM files
-                    WHERE extension = ? AND is_available = 1
-                    ORDER BY open_count DESC, modified_ns DESC
+                    WHERE {where_clause}
+                    ORDER BY {order_clause}
                     LIMIT 20
                     """,
-                    (query.type_hint.casefold(),),
+                    params,
                 )
                 for row in cur.fetchall():
                     d = dict(row)
@@ -296,12 +302,18 @@ class SearchEngine:
         # 6. LEVEL 4: FTS5 Content Search (for semantic queries or descriptive queries)
         t_content_0 = time.perf_counter_ns()
         should_search_content = query.semantic or (not candidates and not query.type_hint and len(tokens) >= 1)
-        if should_search_content and tokens:
-            content_clauses = [f'content:"{t.replace(chr(34), chr(34)+chr(34))}"' for t in tokens]
+        if should_search_content and (tokens or clean_text):
+            content_clauses = []
+            if clean_text and len(clean_text.split()) > 1:
+                clean_esc = clean_text.replace('"', '""')
+                content_clauses.append(f'content:"{clean_esc}"')
+            for t in tokens:
+                content_clauses.append(f'content:"{t.replace(chr(34), chr(34)+chr(34))}"')
             content_match_expr = " OR ".join(content_clauses)
+            dir_filter = f" AND f.path_norm LIKE '%{query.directory_hint.lower()}%'" if query.directory_hint else ""
             try:
                 cur = con.execute(
-                    """
+                    f"""
                     SELECT f.id, f.path, f.name, f.name_norm, f.stem, f.extension, f.size_bytes,
                            f.modified_ns, f.open_count, f.last_opened_ns,
                            fc.content_excerpt,
@@ -309,7 +321,7 @@ class SearchEngine:
                     FROM files_fts
                     JOIN files f ON f.id = files_fts.file_id
                     LEFT JOIN file_content fc ON fc.file_id = f.id
-                    WHERE files_fts MATCH ? AND f.is_available = 1
+                    WHERE files_fts MATCH ? AND f.is_available = 1{dir_filter}
                     ORDER BY bm25_score ASC
                     LIMIT 10
                     """,

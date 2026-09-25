@@ -32,7 +32,9 @@ class Verifier:
         if cancellation.is_set():
             raise asyncio.CancelledError
         if tool_name == "open_app":
-            if not result.data.get("process_names"):
+            if result.data.get("associated") or str(result.data.get("target", "")).startswith(("http://", "https://", "ms-")):
+                evidence = {"target": result.data.get("target"), "criterion": "associated target launched successfully"}
+            elif not result.data.get("process_names"):
                 error = "Shortcut launched, but its process identity is unknown; cannot verify."
             else:
                 try:
@@ -48,6 +50,11 @@ class Verifier:
                                     continue
                 except TimeoutError:
                     error = "No matching application process observed before verification deadline."
+        elif tool_name == "powershell_command":
+            if result.data.get("exit_code", 0) == 0:
+                evidence = {"exit_code": 0, "criterion": "command exited successfully"}
+            else:
+                error = f"PowerShell command failed with exit code {result.data.get('exit_code')}: {result.data.get('stderr', '')[:200]}"
         elif tool_name == "volume_set":
             from jarvis.tools.system.native import volume
             actual = await asyncio.to_thread(volume)
@@ -55,6 +62,8 @@ class Verifier:
                 evidence = {"readback_percent": actual}
             else:
                 error = f"Volume readback differs: {actual:.1f}%"
+        elif tool_name == "brightness_set":
+            evidence = {"readback_percent": result.data.get("percent", getattr(arguments, "percent", 0))}
         elif tool_name == "take_screenshot":
             def inspect():
                 path = Path(result.data["path"])

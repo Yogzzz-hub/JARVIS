@@ -33,37 +33,53 @@ class WindowsUIABackend:
         if not self.is_available:
             return []
 
-        results = []
-        try:
-            fg_hwnd = win32gui.GetForegroundWindow()
+        results: List[Dict[str, Any]] = []
 
-            def enum_windows_callback(hwnd: int, extra: Any) -> bool:
-                if not win32gui.IsWindowVisible(hwnd):
+        def _enum_worker() -> None:
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+                if hdesk:
+                    user32.SetThreadDesktop(hdesk)
+
+                fg_hwnd = win32gui.GetForegroundWindow()
+
+                def enum_windows_callback(hwnd: int, extra: Any) -> bool:
+                    if not win32gui.IsWindowVisible(hwnd):
+                        return True
+                    try:
+                        title = win32gui.GetWindowText(hwnd).strip()
+                    except Exception:
+                        return True
+                    if not title:
+                        return True
+
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    # Filter out shell tray, tooltips, program manager
+                    class_name = win32gui.GetClassName(hwnd)
+                    if class_name in ("Progman", "Shell_TrayWnd", "Button"):
+                        return True
+
+                    results.append({
+                        "window_id": str(hwnd),
+                        "hwnd": hwnd,
+                        "process_id": pid,
+                        "window_title": title,
+                        "class_name": class_name,
+                        "foreground": (hwnd == fg_hwnd),
+                        "enabled": bool(win32gui.IsWindowEnabled(hwnd)),
+                    })
                     return True
-                title = win32gui.GetWindowText(hwnd).strip()
-                if not title:
-                    return True
 
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                # Filter out shell tray, tooltips, program manager
-                class_name = win32gui.GetClassName(hwnd)
-                if class_name in ("Progman", "Shell_TrayWnd", "Button"):
-                    return True
+                win32gui.EnumWindows(enum_windows_callback, None)
+            except Exception as e:
+                logger.warning(f"Failed to enumerate windows: {e}")
 
-                results.append({
-                    "window_id": str(hwnd),
-                    "hwnd": hwnd,
-                    "process_id": pid,
-                    "window_title": title,
-                    "class_name": class_name,
-                    "foreground": (hwnd == fg_hwnd),
-                    "enabled": bool(win32gui.IsWindowEnabled(hwnd)),
-                })
-                return True
-
-            win32gui.EnumWindows(enum_windows_callback, None)
-        except Exception as e:
-            logger.warning(f"Failed to enumerate windows: {e}")
+        import threading
+        t = threading.Thread(target=_enum_worker, daemon=True)
+        t.start()
+        t.join(timeout=2.0)
         return results
 
     def find_window_control(self, window_id: str) -> Optional[Any]:

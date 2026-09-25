@@ -57,8 +57,8 @@ class SileroVADEngine:
         speech_start_threshold: float = 0.5,
         speech_end_threshold: float = 0.35,
         min_speech_ms: int = 100,
-        min_silence_ms: int = 350,
-        speech_pad_ms: int = 200,
+        min_silence_ms: int = 250,
+        speech_pad_ms: int = 150,
         max_utterance_seconds: int = 60,
     ):
         self.speech_start_threshold = speech_start_threshold
@@ -74,6 +74,8 @@ class SileroVADEngine:
         self._buffer = np.array([], dtype=np.float32)
         self._vad = None
         self._loaded = False
+        self._last_probability = 0.0
+        self._audio_ns = 0
 
     def _ensure_loaded(self):
         if self._loaded:
@@ -99,20 +101,23 @@ class SileroVADEngine:
                 inference_ms=0.0, state=self._state,
             )
 
+        now = frame.timestamp_ns if getattr(frame, "timestamp_ns", 0) > 0 else perf_counter_ns()
+        self._last_now_ns = now
+
         # Convert PCM16 to float32 normalized [-1, 1]
         samples = np.frombuffer(frame.pcm, dtype=np.int16).astype(np.float32) / 32768.0
         self._buffer = np.concatenate([self._buffer, samples])
 
-        probability = 0.0
+        probability = self._last_probability
 
         # Process in 512-sample chunks
         while len(self._buffer) >= SILERO_CHUNK_SAMPLES:
             chunk = self._buffer[:SILERO_CHUNK_SAMPLES]
             self._buffer = self._buffer[SILERO_CHUNK_SAMPLES:]
             probability = float(self._vad.process(chunk.tobytes()))
+        self._last_probability = probability
 
         inference_ms = (perf_counter_ns() - t0) / 1e6
-        now = perf_counter_ns()
 
         # State machine with hysteresis
         is_speech = False
@@ -121,6 +126,7 @@ class SileroVADEngine:
             if probability >= self.speech_start_threshold:
                 self._state = VADState.POSSIBLE_SPEECH
                 self._speech_start_ns = now
+                self._silence_start_ns = 0
                 is_speech = False
 
         elif self._state == VADState.POSSIBLE_SPEECH:
@@ -155,8 +161,6 @@ class SileroVADEngine:
                 if silence_ms >= self.min_silence_ms:
                     # Endpoint detected
                     self._state = VADState.SILENCE
-                    self._speech_start_ns = 0
-                    self._silence_start_ns = 0
                     is_speech = False
                 else:
                     is_speech = True  # Still within trailing silence window
@@ -177,28 +181,36 @@ class SileroVADEngine:
         """Current speech duration in ms (0 if not speaking)."""
         if self._speech_start_ns == 0:
             return 0.0
-        return (perf_counter_ns() - self._speech_start_ns) / 1e6
+        now = getattr(self, "_last_now_ns", 0) or perf_counter_ns()
+        return (now - self._speech_start_ns) / 1e6
 
     @property
     def silence_duration_ms(self) -> float:
         """Current trailing silence duration in ms."""
         if self._silence_start_ns == 0:
             return 0.0
-        return (perf_counter_ns() - self._silence_start_ns) / 1e6
+        now = getattr(self, "_last_now_ns", 0) or perf_counter_ns()
+        return (now - self._silence_start_ns) / 1e6
 
     def reset(self) -> None:
         """Reset VAD state for new session."""
         self._state = VADState.SILENCE
+        self._last_probability = 0.0
+        self._audio_ns = 0
         self._speech_start_ns = 0
         self._silence_start_ns = 0
+        self._last_now_ns = 0
         self._buffer = np.array([], dtype=np.float32)
         if self._vad:
             try:
-                self._vad = None
-                from silero_vad_lite import SileroVAD
-                self._vad = SileroVAD(16000)
+                self._vad.reset()
             except Exception:
-                pass
+                self._vad = None
+                try:
+                    from silero_vad_lite import SileroVAD
+                    self._vad = SileroVAD(16000)
+                except Exception:
+                    pass
 
     def close(self) -> None:
         """Release resources."""
@@ -207,19 +219,24 @@ class SileroVADEngine:
         self._buffer = np.array([], dtype=np.float32)
 
 
+CONTINUATION_INDICATORS = frozenset({
+    "and", "then", "after that", "with", "for", "to", "or", "but", "also"
+})
+
+
 class EndpointDetector:
     """Adaptive end-of-speech detection.
 
-    Combines VAD silence duration with transcript stability and
-    router completeness signals for optimal endpointing.
+    Combines VAD silence duration with transcript stability, linguistic continuation hints,
+    and router completeness signals for optimal endpointing.
     """
 
     def __init__(
         self,
-        default_silence_ms: int = 350,
-        short_command_silence_ms: int = 250,
-        long_utterance_silence_ms: int = 500,
-        incomplete_silence_ms: int = 600,
+        default_silence_ms: int = 320,
+        short_command_silence_ms: int = 180,
+        long_utterance_silence_ms: int = 420,
+        incomplete_silence_ms: int = 500,
     ):
         self.default_silence_ms = default_silence_ms
         self.short_command_silence_ms = short_command_silence_ms
@@ -242,16 +259,26 @@ class EndpointDetector:
         if vad_state != VADState.SILENCE and vad_state != VADState.TRAILING_SILENCE:
             return False, "speech_active"
 
+        # Check linguistic continuation indicators
+        words = stable_text.strip().lower().split()
+        last_word = words[-1] if words else ""
+        last_two = " ".join(words[-2:]) if len(words) >= 2 else ""
+        is_continuation = (
+            incomplete_hint
+            or last_word in CONTINUATION_INDICATORS
+            or last_two in CONTINUATION_INDICATORS
+        )
+
+        # Incomplete linguistic structure / continuation word — wait longer
+        if is_continuation:
+            if silence_ms >= self.incomplete_silence_ms:
+                return True, "incomplete_timeout" if incomplete_hint else "continuation_timeout"
+            return False, "waiting_incomplete" if incomplete_hint else "waiting_continuation"
+
         # Short deterministic command with router confirmation
         if router_complete and stable_text and utterance_ms < 4000:
             if silence_ms >= self.short_command_silence_ms:
                 return True, "short_command_complete"
-
-        # Incomplete linguistic structure — wait longer
-        if incomplete_hint:
-            if silence_ms >= self.incomplete_silence_ms:
-                return True, "incomplete_timeout"
-            return False, "waiting_incomplete"
 
         # Long utterance — use longer silence
         if utterance_ms > 8000:
@@ -259,7 +286,7 @@ class EndpointDetector:
                 return True, "long_utterance_silence"
             return False, "waiting_long"
 
-        # Default
+        # Default natural sentence silence (300-350ms)
         if silence_ms >= self.default_silence_ms:
             return True, "default_silence"
 

@@ -36,6 +36,9 @@ INSTANT_INTENTS = {
     "volume_get",
     "system_info",
     "list_directory",
+    "set_voice",
+    "show_dashboard",
+    "wake_greeting",
 }
 
 
@@ -84,6 +87,141 @@ class ResponseEngine:
         self.total_acks_sent = 0
         self.total_final_only = 0
         self.total_acks_cancelled_merge = 0
+        self.enabled = False
+        self._speech_tasks = set()
+        self._speech_lock = asyncio.Lock()
+        self._speech_generation = 0
+        self.event_bus = None
+
+    def schedule_final(self, request_id, text):
+        self.cancel_pending_ack(request_id)
+        self.progress.cancel(request_id)
+        generation = self._speech_generation
+
+        async def deliver():
+            try:
+                async with self._speech_lock:
+                    if generation != self._speech_generation:
+                        return
+
+                    clean_text = text.strip()
+                    if not clean_text:
+                        return
+
+                    # 1. Zero-latency path: Check generic phrase cache
+                    cached_pcm = getattr(self.tts, "_generic_phrase_cache", {}).get(clean_text)
+                    if cached_pcm:
+                        resp = SpokenResponse(
+                            text=clean_text,
+                            type=ResponseType.FINAL,
+                            request_id=request_id,
+                            priority=ResponsePriority.FINAL,
+                            audio_bytes=cached_pcm,
+                            sample_rate=self.tts.sample_rate,
+                            source="cache",
+                        )
+                        resp.tts_start_ns = perf_counter_ns()
+                        resp.first_pcm_ready_ns = perf_counter_ns()
+                        if not self.audio_output.play(resp):
+                            raise RuntimeError("Audio output queue rejected cached final response")
+                        return
+
+                    # 2. Streaming sentence synthesis
+                    chunk_idx = 0
+                    stream_failed = False
+                    tts_start = perf_counter_ns()
+                    try:
+                        pending_chunk = None
+                        pending_backend = "piper"
+                        async for chunk, backend in self.tts.stream(clean_text):
+                            if generation != self._speech_generation:
+                                return
+                            if pending_chunk is not None:
+                                resp = SpokenResponse(
+                                    text=clean_text if chunk_idx == 0 else f"chunk_{chunk_idx}",
+                                    type=ResponseType.FINAL,
+                                    request_id=request_id,
+                                    priority=ResponsePriority.FINAL,
+                                    audio_bytes=pending_chunk.pcm,
+                                    sample_rate=pending_chunk.sample_rate or self.tts.sample_rate,
+                                    source=pending_backend,
+                                    is_chunk=True,
+                                    chunk_index=chunk_idx,
+                                    is_last_chunk=False,
+                                )
+                                resp.tts_start_ns = tts_start
+                                resp.first_pcm_ready_ns = perf_counter_ns()
+                                self.audio_output.play(resp)
+                                chunk_idx += 1
+                            pending_chunk = chunk
+                            pending_backend = backend
+
+                        if pending_chunk is not None:
+                            resp = SpokenResponse(
+                                text=clean_text if chunk_idx == 0 else f"chunk_{chunk_idx}",
+                                type=ResponseType.FINAL,
+                                request_id=request_id,
+                                priority=ResponsePriority.FINAL,
+                                audio_bytes=pending_chunk.pcm,
+                                sample_rate=pending_chunk.sample_rate or self.tts.sample_rate,
+                                source=pending_backend,
+                                is_chunk=(chunk_idx > 0),
+                                chunk_index=chunk_idx,
+                                is_last_chunk=True,
+                            )
+                            resp.tts_start_ns = tts_start
+                            resp.first_pcm_ready_ns = perf_counter_ns()
+                            if not self.audio_output.play(resp):
+                                raise RuntimeError("Audio output queue rejected final chunk")
+                            return
+                    except Exception as st_err:
+                        logger.warning("TTS streaming failed (%s); falling back to direct synthesize", st_err)
+                        stream_failed = True
+
+                    if chunk_idx == 0 or stream_failed:
+                        response = SpokenResponse(
+                            text=clean_text,
+                            type=ResponseType.FINAL,
+                            request_id=request_id,
+                            priority=ResponsePriority.FINAL,
+                        )
+                        response.tts_start_ns = tts_start
+                        pcm, backend = await asyncio.to_thread(self.tts.synthesize, clean_text)
+                        if generation != self._speech_generation:
+                            return
+                        if not pcm:
+                            raise RuntimeError("TTS produced no audio (" + backend + ")")
+                        response.audio_bytes = pcm
+                        response.sample_rate = self.tts.sample_rate
+                        response.source = backend
+                        response.first_pcm_ready_ns = perf_counter_ns()
+                        if not self.audio_output.play(response):
+                            raise RuntimeError("Audio output queue rejected final response")
+            except Exception as exc:
+                logger.exception("Spoken response failed")
+                if self.event_bus:
+                    self.event_bus.emit("tts.error", request_id, error=str(exc))
+            finally:
+                self._active_requests.discard(request_id)
+
+        task = asyncio.create_task(deliver())
+        self._speech_tasks.add(task)
+        task.add_done_callback(self._speech_tasks.discard)
+
+    def stop_speaking(self):
+        self._speech_generation += 1
+        for task in self._pending_ack_tasks.values():
+            task.cancel()
+        self._pending_ack_tasks.clear()
+        self.audio_output.queue.clear()
+        self.audio_output.cancel_current()
+
+    async def close(self):
+        self.stop_speaking()
+        self.close_followup_window()
+        await asyncio.gather(*tuple(self._speech_tasks), return_exceptions=True)
+        await asyncio.to_thread(self.audio_output.stop)
+        self.tts.unload()
 
     def warm_up(self) -> None:
         """Pre-warm TTS and ACK cache."""
@@ -151,6 +289,31 @@ class ResponseEngine:
         if enqueued:
             self.total_acks_sent += 1
             logger.info("Dispatched ACK %r for request %s", phrase, request_id)
+
+    def play_wake_ack(self, session_id: str = "") -> Optional[SpokenResponse]:
+        """Ultra-low-latency dispatch of cached wake ACK ('Yes?' or 'I'm listening.').
+
+        Zero LLM, zero synthesis on hot path. Target p50 < 100ms.
+        """
+        phrase, pcm, duration_ms = self.ack_cache.get_wake_ack()
+        if not pcm:
+            return None
+        response = SpokenResponse(
+            text=phrase,
+            type=ResponseType.ACK,
+            request_id=session_id or f"wake_{perf_counter_ns()}",
+            priority=ResponsePriority.ACK,
+            interruptible=True,
+            audio_bytes=pcm,
+            sample_rate=self.ack_cache.sample_rate,
+            duration_ms=duration_ms,
+        )
+        response.first_pcm_ready_ns = perf_counter_ns()
+        if self.audio_output.play(response):
+            self.total_acks_sent += 1
+            logger.info("Dispatched instant wake ACK %r (session %s)", phrase, session_id)
+            return response
+        return None
 
     def cancel_pending_ack(self, request_id: str) -> bool:
         """Cancel a pending ACK task (used when fast action completes within merge window)."""
@@ -291,3 +454,12 @@ class ResponseEngine:
 
         self._active_requests.discard(request_id)
         return response
+
+    def stop_speaking(self) -> None:
+        """Immediately stop all speech output and audio queues."""
+        if hasattr(self, "audio_output") and self.audio_output:
+            if hasattr(self.audio_output, "cancel_all"):
+                self.audio_output.cancel_all()
+            elif hasattr(self.audio_output, "cancel_current"):
+                self.audio_output.cancel_current()
+        logger.info("Speech output stopped via stop_speaking")

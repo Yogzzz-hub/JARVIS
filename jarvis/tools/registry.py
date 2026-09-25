@@ -4,7 +4,11 @@ from jarvis.tools.base import Tool, ToolDefinition
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Tool] = {}
+        self._aliases: dict[str, str] = {}
         self._schema: tuple[dict, ...] | None = None
+
+    def register_alias(self, alias: str, target: str):
+        self._aliases[alias] = target
 
     def register(self, tool: Tool):
         if self._schema is not None:
@@ -30,10 +34,11 @@ class ToolRegistry:
             } for t in self._tools.values())
 
     def get(self, name: str) -> Tool:
-        return self._tools[name]
+        target = self._aliases.get(name, name)
+        return self._tools[target]
 
     def contains(self, name: str) -> bool:
-        return name in self._tools
+        return name in self._tools or (name in self._aliases and self._aliases[name] in self._tools)
 
     def list(self) -> tuple[Tool, ...]:
         return tuple(self._tools.values())

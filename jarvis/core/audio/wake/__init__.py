@@ -61,6 +61,7 @@ class OpenWakeWordEngine:
         self._buffer = np.array([], dtype=np.int16)
         self._model_name = "unknown"
         self._loaded = False
+        self.last_score = 0.0
 
     def _ensure_loaded(self):
         if self._loaded:
@@ -70,6 +71,12 @@ class OpenWakeWordEngine:
             kwargs = {"inference_framework": self.inference_framework}
             if self._model_path:
                 kwargs["wakeword_models"] = [self._model_path]
+                from pathlib import Path
+                directory = Path(self._model_path).parent
+                for key, filename in (("melspec_model_path", "melspectrogram.onnx"),
+                                      ("embedding_model_path", "embedding_model.onnx")):
+                    if (directory / filename).exists():
+                        kwargs[key] = str(directory / filename)
             self._model = Model(**kwargs)
             if self._model.models:
                 self._model_name = list(self._model.models.keys())[0]
@@ -99,6 +106,7 @@ class OpenWakeWordEngine:
 
             prediction = self._model.predict(chunk)
             score = max(prediction.values()) if prediction else 0.0
+            self.last_score = float(score)
 
             now = perf_counter_ns()
 
@@ -128,6 +136,7 @@ class OpenWakeWordEngine:
     def reset(self) -> None:
         """Reset internal state for new session."""
         self._buffer = np.array([], dtype=np.int16)
+        self._last_trigger_ns = 0
         if self._model:
             self._model.reset()
 

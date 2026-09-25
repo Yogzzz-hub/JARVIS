@@ -139,3 +139,65 @@ async def test_startup_reconciliation_crash_during_execution(temp_ledger):
 
     entry = ledger.get_entry_by_id("act_crash_start")
     assert entry.status == LedgerState.UNCERTAIN
+
+
+def test_atomic_claim_and_cas(temp_ledger):
+    ledger = temp_ledger
+    ledger.prepare_action(
+        action_id="act_cas_1",
+        fingerprint="fp_cas_1",
+        request_id="req_cas",
+        graph_id="grp_cas",
+        node_id="n_cas",
+        tool="deploy_server",
+        risk=RiskLevel.EXTERNAL_EFFECT,
+        idempotency=IdempotencyClass.NON_IDEMPOTENT,
+        args_hash="h_cas",
+    )
+
+    # First claim succeeds
+    claimed1 = ledger.claim_action(
+        action_id="act_cas_1",
+        fingerprint="fp_cas_1",
+        risk=RiskLevel.EXTERNAL_EFFECT,
+        expected_states=(LedgerState.PREPARED,),
+        new_state=LedgerState.STARTED,
+        idempotency_key="idemp_key_999",
+    )
+    assert claimed1 is True
+
+    # Second claim on same action_id fails (CAS check on status PREPARED fails because it's now STARTED)
+    claimed2 = ledger.claim_action(
+        action_id="act_cas_1",
+        fingerprint="fp_cas_1",
+        risk=RiskLevel.EXTERNAL_EFFECT,
+        expected_states=(LedgerState.PREPARED,),
+        new_state=LedgerState.STARTED,
+    )
+    assert claimed2 is False
+
+    entry = ledger.get_entry_by_id("act_cas_1")
+    assert entry.idempotency_key == "idemp_key_999"
+    assert entry.status == LedgerState.STARTED
+
+
+def test_external_acknowledgement_transition(temp_ledger):
+    ledger = temp_ledger
+    ledger.prepare_action(
+        action_id="act_ext_ack",
+        fingerprint="fp_ext_ack",
+        request_id="req_ext",
+        graph_id="grp_ext",
+        node_id="n_ext",
+        tool="publish_event",
+        risk=RiskLevel.EXTERNAL_EFFECT,
+        idempotency=IdempotencyClass.NON_IDEMPOTENT,
+        args_hash="h_ext",
+    )
+    ledger.start_action("act_ext_ack", "fp_ext_ack", RiskLevel.EXTERNAL_EFFECT)
+
+    # Provider acknowledged receipt
+    ledger.record_external_ack("act_ext_ack", "fp_ext_ack", RiskLevel.EXTERNAL_EFFECT, '{"message_id": "msg_xyz123"}')
+    entry = ledger.get_entry_by_id("act_ext_ack")
+    assert entry.status == LedgerState.EXTERNALLY_ACKNOWLEDGED
+    assert entry.provider_ack_json == '{"message_id": "msg_xyz123"}'

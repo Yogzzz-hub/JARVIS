@@ -36,10 +36,12 @@ class FileIndexer:
 
     def _resolve_roots(self) -> list[Path]:
         resolved = []
+        seen = set()
         for r in self.config.roots:
             expanded = os.path.expandvars(r)
-            p = Path(expanded)
-            if p.exists() and p.is_dir():
+            p = Path(expanded).resolve()
+            if p.exists() and p.is_dir() and p not in seen:
+                seen.add(p)
                 resolved.append(p)
         return resolved
 
@@ -60,72 +62,71 @@ class FileIndexer:
         indexed_count = 0
         batch_size = self.config.enrichment_batch_size
 
-        with self._get_connection() as con:
-            for root in roots:
-                stack = [root]
-                while stack:
-                    curr = stack.pop()
-                    try:
-                        with os.scandir(curr) as it:
-                            for entry in it:
-                                try:
-                                    entry_path = Path(entry.path)
-                                    if self._is_excluded(entry_path):
-                                        continue
-
-                                    is_dir = entry.is_dir(follow_symlinks=False)
-                                    if is_dir:
-                                        stack.append(entry_path)
-
-                                    stat = entry.stat(follow_symlinks=False)
-                                    name = entry.name
-                                    name_norm = name.lower()
-                                    stem = entry_path.stem.lower()
-                                    ext = entry_path.suffix.lower() if not is_dir else "[directory]"
-                                    path_str = str(entry_path)
-                                    path_norm = path_str.lower()
-                                    parent_str = str(entry_path.parent)
-
-                                    batch.append((
-                                        path_str,
-                                        path_norm,
-                                        parent_str,
-                                        name,
-                                        name_norm,
-                                        stem,
-                                        ext,
-                                        stat.st_size if not is_dir else 0,
-                                        int(stat.st_ctime * 1e9),
-                                        int(stat.st_mtime * 1e9),
-                                        now_ns,
-                                        now_ns,
-                                        1 if is_dir else 0,
-                                        1 if entry.name.startswith(".") else 0,
-                                        1,
-                                        "PENDING" if not is_dir else "SKIPPED",
-                                    ))
-
-                                    if len(batch) >= batch_size:
-                                        self._commit_metadata_batch(con, batch)
-                                        indexed_count += len(batch)
-                                        batch.clear()
-
-                                except (PermissionError, OSError):
+        for root in roots:
+            stack = [root]
+            while stack:
+                curr = stack.pop()
+                try:
+                    with os.scandir(curr) as it:
+                        for entry in it:
+                            try:
+                                entry_path = Path(entry.path)
+                                if self._is_excluded(entry_path):
                                     continue
-                    except (PermissionError, OSError):
-                        continue
 
-            if batch:
-                self._commit_metadata_batch(con, batch)
-                indexed_count += len(batch)
-                batch.clear()
+                                is_dir = entry.is_dir(follow_symlinks=False)
+                                if is_dir:
+                                    stack.append(entry_path)
+
+                                stat = entry.stat(follow_symlinks=False)
+                                name = entry.name
+                                name_norm = name.lower()
+                                stem = entry_path.stem.lower()
+                                ext = entry_path.suffix.lower() if not is_dir else "[directory]"
+                                path_str = str(entry_path)
+                                path_norm = path_str.lower()
+                                parent_str = str(entry_path.parent)
+
+                                batch.append((
+                                    path_str,
+                                    path_norm,
+                                    parent_str,
+                                    name,
+                                    name_norm,
+                                    stem,
+                                    ext,
+                                    stat.st_size if not is_dir else 0,
+                                    int(stat.st_ctime * 1e9),
+                                    int(stat.st_mtime * 1e9),
+                                    now_ns,
+                                    now_ns,
+                                    1 if is_dir else 0,
+                                    1 if entry.name.startswith(".") else 0,
+                                    1,
+                                    "PENDING" if not is_dir else "SKIPPED",
+                                ))
+
+                                if len(batch) >= batch_size:
+                                    self._commit_metadata_batch(batch)
+                                    indexed_count += len(batch)
+                                    batch.clear()
+
+                            except (PermissionError, OSError):
+                                continue
+                except (PermissionError, OSError):
+                    continue
+
+        if batch:
+            self._commit_metadata_batch(batch)
+            indexed_count += len(batch)
+            batch.clear()
 
         self.total_indexed = indexed_count
         return indexed_count
 
-    def _commit_metadata_batch(self, con: sqlite3.Connection, batch: list[tuple]):
-        # Insert or replace into files
-        cur = con.cursor()
+    def _commit_metadata_batch(self, batch: list[tuple]):
+        with self._get_connection() as con:
+            cur = con.cursor()
         cur.executemany(
             """
             INSERT INTO files (

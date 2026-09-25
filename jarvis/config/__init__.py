@@ -35,25 +35,27 @@ class Paths(Frozen):
     models: str = "models"
 
 class Features(Frozen):
-    router_ai: Literal[False] = False
-    planner: Literal[False] = False
-    voice: Literal[False] = False
-    tts: Literal[False] = False
+    router_ai: bool = True
+    planner: bool = True
+    voice: bool = False
+    tts: bool = False
     phone: Literal[False] = False
     google: Literal[False] = False
-    browser: Literal[False] = False
-    vision: Literal[False] = False
+    browser: bool = False
+    vision: bool = False
 
 class Models(Frozen):
-    fast: Literal[""] = ""
-    planner: Literal[""] = ""
-    vision: Literal[""] = ""
+    fast: str = ""
+    planner: str = ""
+    vision: str = ""
 
 class SearchConfig(Frozen):
     roots: tuple[str, ...] = (
         "%USERPROFILE%\\Desktop",
         "%USERPROFILE%\\Documents",
         "%USERPROFILE%\\Downloads",
+        "%USERPROFILE%\\OneDrive\\Desktop",
+        "%USERPROFILE%\\OneDrive\\Documents",
     )
     exclude_patterns: tuple[str, ...] = (
         ".git", "node_modules", "venv", ".venv", "__pycache__", "AppData",
@@ -70,6 +72,17 @@ class SearchConfig(Frozen):
     enable_usn: bool = False
     enable_semantic: bool = True
 
+class VoiceConfig(Frozen):
+    device: str | int | None = None
+    wake_enabled: bool = True
+    ptt_enabled: bool = True
+    model_path: str = "models/wake/hey_jarvis_v0.1.onnx"
+    threshold: float = Field(default=0.5, ge=0, le=1)
+    stt_model: str = "base"
+    stt_device: Literal["cpu", "cuda"] = "cpu"
+    compute_type: str = "int8"
+    preroll_ms: int = Field(default=500, ge=0, le=2000)
+
 class Config(Frozen):
     server: Server = Server()
     performance: Performance = Performance()
@@ -78,10 +91,15 @@ class Config(Frozen):
     features: Features = Features()
     models: Models = Models()
     search: SearchConfig = SearchConfig()
+    voice: VoiceConfig = VoiceConfig()
     aliases: tuple[tuple[str, str], ...] = ()
 
 def load(path: Path | None = None) -> Config:
     with (path or ROOT / "config/jarvis.toml").open("rb") as file:
         data = tomllib.load(file)
     data["aliases"] = tuple(data.get("aliases", {}).items())
+    # TOML arrays decode as lists; preserve strict tuple schemas internally.
+    for key in ("roots", "exclude_patterns"):
+        if key in data.get("search", {}):
+            data["search"][key] = tuple(data["search"][key])
     return Config.model_validate(data)

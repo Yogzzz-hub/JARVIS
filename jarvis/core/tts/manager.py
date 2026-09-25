@@ -27,6 +27,12 @@ GENERIC_CACHEABLE_PHRASES = {
     "The file has been deleted.",
     "Task cancelled.",
     "Task completed and verified.",
+    "Task completed.",
+    "Opening browser.",
+    "Opening Chrome.",
+    "What shall I do now?",
+    "Yes?",
+    "I'm listening.",
 }
 
 
@@ -55,6 +61,7 @@ class TTSManager:
         self.sapi_fallbacks = 0
         self.text_only_fallbacks = 0
         self.active_backend = "piper"
+        self.sample_rate = 22050
 
     def warm_up(self) -> None:
         """Pre-warm primary Piper engine if keep_warm is enabled."""
@@ -63,6 +70,14 @@ class TTSManager:
                 self.piper.load()
                 self.active_backend = "piper"
                 logger.info("Piper TTS engine pre-warmed successfully")
+                for p in ("Done.", "Task completed.", "Opening Chrome.", "Stopped."):
+                    if p not in self._generic_phrase_cache:
+                        try:
+                            pcm = self.piper.synthesize(p)
+                            if pcm:
+                                self._generic_phrase_cache[p] = pcm
+                        except Exception:
+                            pass
             except Exception as exc:
                 logger.warning("Piper pre-warm failed; preparing SAPI fallback: %s", exc)
                 self.piper_failures += 1
@@ -89,6 +104,12 @@ class TTSManager:
         try:
             pcm = self.piper.synthesize(clean_text)
             if pcm:
+                sr = 22050
+                if hasattr(self.piper, "_voice") and self.piper._voice is not None and hasattr(self.piper._voice, "config"):
+                    sr = getattr(self.piper._voice.config, "sample_rate", 22050)
+                elif hasattr(self.piper, "sample_rate"):
+                    sr = getattr(self.piper, "sample_rate", 22050)
+                self.sample_rate = sr
                 self.piper_syntheses += 1
                 self.active_backend = "piper"
                 self._maybe_cache_generic(clean_text, pcm)
@@ -103,6 +124,7 @@ class TTSManager:
         try:
             pcm = self.sapi.synthesize(clean_text)
             if pcm:
+                self.sample_rate = getattr(self.sapi, "sample_rate", 22050)
                 self.sapi_syntheses += 1
                 self.active_backend = "sapi"
                 self._maybe_cache_generic(clean_text, pcm)
@@ -162,3 +184,34 @@ class TTSManager:
         self.piper.unload()
         self.sapi.unload()
         self._generic_phrase_cache.clear()
+
+    def set_voice(self, gender: str) -> str:
+        """Switch between male and female Piper voices."""
+        g = gender.lower().strip()
+        from pathlib import Path
+        project = Path(__file__).resolve().parents[3]
+        if "fem" in g or "woman" in g:
+            model_path = project / "models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+            label = "female"
+        else:
+            model_path = project / "models/piper/en/en_US/ryan/medium/en_US-ryan-medium.onnx"
+            label = "male"
+
+        from jarvis.core.tts.piper_engine import PiperEngine
+        try:
+            self.piper.unload()
+        except Exception:
+            pass
+        self.piper = PiperEngine(model_path=model_path)
+        self.piper.load()
+        if hasattr(self.piper, "_voice") and self.piper._voice is not None and hasattr(self.piper._voice, "config"):
+            self.sample_rate = self.piper._voice.config.sample_rate
+        self.active_backend = "piper"
+        self._generic_phrase_cache.clear()
+        try:
+            if hasattr(self.sapi, "set_gender"):
+                self.sapi.set_gender(label)
+        except Exception:
+            pass
+        logger.info("Voice switched to %s (%s)", label, model_path.name)
+        return label

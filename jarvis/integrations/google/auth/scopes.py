@@ -89,6 +89,13 @@ SERVICE_DEFAULT_CAPABILITIES: Dict[str, Tuple[GoogleCapability, ...]] = {
     "gmail": (GoogleCapability.GMAIL_READ, GoogleCapability.GMAIL_DRAFT),
     "calendar": (GoogleCapability.CALENDAR_READ,),
     "drive": (GoogleCapability.DRIVE_APP_FILE_READ, GoogleCapability.DRIVE_APP_FILE_WRITE),
+    "all": (
+        GoogleCapability.GMAIL_READ,
+        GoogleCapability.GMAIL_DRAFT,
+        GoogleCapability.CALENDAR_READ,
+        GoogleCapability.DRIVE_APP_FILE_READ,
+        GoogleCapability.DRIVE_APP_FILE_WRITE,
+    ),
 }
 
 

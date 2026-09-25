@@ -33,6 +33,14 @@ class WindowManager:
 
         return filtered
 
+    def get_active_window(self) -> Optional[Dict[str, Any]]:
+        """Get the current foreground / active window."""
+        windows = self.backend.list_windows()
+        for w in windows:
+            if w.get("foreground"):
+                return w
+        return windows[0] if windows else None
+
     def resolve_target_window(
         self,
         query: str,

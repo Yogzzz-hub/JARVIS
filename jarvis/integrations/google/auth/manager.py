@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CREDENTIALS_DIR = Path.home() / ".jarvis" / "credentials"
 DEFAULT_CLIENT_SECRET_FILE = DEFAULT_CREDENTIALS_DIR / "google_client_secret.json"
+LOCAL_CONFIG_SECRET_FILE = Path("config/google_client_secret.json")
+ACCOUNTS_METADATA_FILE = Path("config/google_accounts.json")
 
 
 class GoogleAuthManager:
@@ -31,19 +33,133 @@ class GoogleAuthManager:
         client_secret_path: Optional[Path | str] = None,
     ) -> None:
         self.token_store = token_store or SecureTokenStore()
-        self.client_secret_path = Path(client_secret_path) if client_secret_path else DEFAULT_CLIENT_SECRET_FILE
+        if client_secret_path:
+            self.client_secret_path = Path(client_secret_path)
+        elif LOCAL_CONFIG_SECRET_FILE.exists():
+            self.client_secret_path = LOCAL_CONFIG_SECRET_FILE
+        else:
+            self.client_secret_path = DEFAULT_CLIENT_SECRET_FILE
+
         self._accounts: Dict[str, GoogleAccount] = {}
         self._refresh_locks: Dict[str, asyncio.Lock] = {}
         self._credentials_cache: Dict[str, Any] = {}
+        self._load_accounts_metadata()
 
     @property
     def has_client_secret(self) -> bool:
         """Check if OAuth client_secret.json file exists on host."""
         return self.client_secret_path.exists() and self.client_secret_path.stat().st_size > 0
 
+    def _save_accounts_metadata(self) -> None:
+        ACCOUNTS_METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = [acc.model_dump(mode="json") for acc in self._accounts.values()]
+        with open(ACCOUNTS_METADATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    def _load_accounts_metadata(self) -> None:
+        if ACCOUNTS_METADATA_FILE.exists():
+            try:
+                with open(ACCOUNTS_METADATA_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for item in data:
+                        acc = GoogleAccount.model_validate(item)
+                        self._accounts[acc.account_id] = acc
+            except Exception as e:
+                logger.warning("Failed loading Google accounts metadata: %s", e)
+
+    def authorize_capabilities(
+        self,
+        capabilities: Iterable[GoogleCapability],
+        account_id: Optional[str] = None,
+        display_label: str = "Personal Google",
+    ) -> GoogleAccount:
+        """Run desktop loopback OAuth flow and register account."""
+        if not self.has_client_secret:
+            raise FileNotFoundError(
+                f"Google OAuth client secrets file not found at {self.client_secret_path}. "
+                "Please place google_client_secret.json in config/ directory."
+            )
+
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        from googleapiclient.discovery import build
+
+        requested_scopes = set()
+        for cap in capabilities:
+            scope_uri = ScopeRegistry.get_scope_for_capability(cap)
+            if scope_uri:
+                requested_scopes.add(scope_uri)
+        requested_scopes.add("https://www.googleapis.com/auth/userinfo.email")
+        requested_scopes.add("openid")
+
+        with open(self.client_secret_path, "r", encoding="utf-8") as f:
+            secret_data = json.load(f)
+
+        client_info = secret_data.get("installed") or secret_data.get("web")
+        if not client_info:
+            raise ValueError("Invalid google_client_secret.json: missing 'installed' or 'web' key")
+
+        flow_config = {"installed": client_info}
+        flow = InstalledAppFlow.from_client_config(
+            flow_config,
+            scopes=sorted(list(requested_scopes)),
+        )
+
+        creds = flow.run_local_server(
+            host="127.0.0.1",
+            port=8080,
+            authorization_prompt_message="Opening browser for Google authorization...",
+            success_message="Google authorization successful! You can now close this browser window.",
+            open_browser=True,
+        )
+
+        email = "user@gmail.com"
+        try:
+            oauth2_service = build("oauth2", "v2", credentials=creds)
+            user_info = oauth2_service.userinfo().get().execute()
+            email = user_info.get("email", email)
+        except Exception as e:
+            logger.warning("Could not fetch userinfo email: %s", e)
+
+        acc_id = account_id or f"google_{email.replace('@', '_').replace('.', '_')}"
+
+        if creds.refresh_token:
+            self.token_store.store_refresh_token(
+                account_id=acc_id,
+                refresh_token=creds.refresh_token,
+                client_id=client_info.get("client_id"),
+                client_secret=client_info.get("client_secret"),
+                token_uri=client_info.get("token_uri", "https://oauth2.googleapis.com/token"),
+            )
+
+        enabled_services = set()
+        for cap in capabilities:
+            cap_val = cap.value if hasattr(cap, "value") else str(cap)
+            if "gmail" in cap_val.lower():
+                enabled_services.add("gmail")
+            elif "calendar" in cap_val.lower():
+                enabled_services.add("calendar")
+            elif "drive" in cap_val.lower():
+                enabled_services.add("drive")
+
+        account = GoogleAccount(
+            account_id=acc_id,
+            email=email,
+            display_label=display_label,
+            granted_scopes=set(creds.scopes or requested_scopes),
+            enabled_services=enabled_services,
+            status=AccountStatus.READY,
+        )
+
+        self.register_account(account)
+        self._credentials_cache[acc_id] = creds
+        self._save_accounts_metadata()
+        logger.info("Successfully connected Google account %s (%s)", acc_id, email)
+        return account
+
     def register_account(self, account: GoogleAccount) -> None:
         """Register or update an account in memory."""
         self._accounts[account.account_id] = account
+        self._save_accounts_metadata()
 
     def get_account(self, identifier: Optional[str] = None) -> Optional[GoogleAccount]:
         """Retrieve account by ID, email, or display label.

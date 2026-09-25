@@ -131,7 +131,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # connect
     p_connect = subparsers.add_parser("connect", help="Connect a Google service via OAuth")
-    p_connect.add_argument("service", choices=["gmail", "calendar", "drive"], help="Service to connect")
+    p_connect.add_argument("service", choices=["gmail", "calendar", "drive", "all"], help="Service to connect")
     p_connect.add_argument("--account", default="default", help="Account identifier")
     p_connect.add_argument("--label", default=None, help="Display label (e.g. 'Personal Gmail')")
 

@@ -24,6 +24,13 @@ class EventBus:
         queue = asyncio.Queue(self.size)
         worker = asyncio.create_task(self._consume(queue, callback))
         self.subscribers.append((queue, worker))
+        return queue, worker
+
+    async def unsubscribe(self, subscription):
+        if subscription in self.subscribers:
+            self.subscribers.remove(subscription)
+        subscription[1].cancel()
+        await asyncio.gather(subscription[1], return_exceptions=True)
 
     async def _consume(self, queue, callback):
         while True:

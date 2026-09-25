@@ -47,32 +47,68 @@ class OllamaProvider:
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:11434",
-        model: str = "qwen3:0.6b",
-        timeout: float = 3.0,
+        model: str = "llama3.2:latest",
+        timeout: float = 30.0,
+        capability_retriever: Any = None,
+        capability_registry: Any = None,
     ):
         self.base_url = base_url
         self.model = model
         self.timeout = timeout
+        self.capability_retriever = capability_retriever
+        self.capability_registry = capability_registry
         self._client: httpx.AsyncClient | None = None
+        self._resolved_model: str | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
         return self._client
 
-    def _build_prompt(self, text: str, candidates: list[IntentDefinition]) -> str:
-        intent_lines = []
-        for c in candidates:
-            req = f" required_slots: {list(c.required_slots)}" if c.required_slots else ""
-            intent_lines.append(f"- {c.name}: {c.examples[:2]}{req}")
+    async def _resolve_model(self, client: httpx.AsyncClient) -> str:
+        if self._resolved_model:
+            return self._resolved_model
+        try:
+            resp = await client.get("/api/tags", timeout=2.5)
+            if resp.status_code == 200:
+                models = [m.get("name", "") for m in resp.json().get("models", [])]
+                if self.model in models:
+                    self._resolved_model = self.model
+                    return self._resolved_model
+                # Find matching model or pick first fast model
+                for m in models:
+                    if any(cand in m.lower() for cand in ("llama3.2", "qwen2.5-coder:1.5b", "qwen2.5-coder:3b", "phi3", "mistral")):
+                        self._resolved_model = m
+                        return self._resolved_model
+                if models:
+                    self._resolved_model = models[0]
+                    return self._resolved_model
+        except Exception:
+            pass
+        self._resolved_model = self.model
+        return self._resolved_model
 
-        intents_block = "\n".join(intent_lines)
-        return (
-            "You are a command intent classifier. Classify user text into exactly ONE candidate intent, "
-            "or set unknown=true if unfamiliar or not an imperative command.\n\n"
-            f"Candidate Intents:\n{intents_block}\n\n"
-            f'User Text: "{text}"'
-        )
+    def _build_prompt(self, text: str, candidates: list[IntentDefinition]) -> str:
+        try:
+            from jarvis.core.capabilities.context import CapabilityContextBuilder
+            return CapabilityContextBuilder.build_classifier_prompt(
+                text,
+                candidates=candidates,
+                retriever=self.capability_retriever,
+            )
+        except Exception:
+            intent_lines = []
+            for c in candidates:
+                req = f" required_slots: {list(c.required_slots)}" if c.required_slots else ""
+                intent_lines.append(f"- {c.name}: {c.examples[:2]}{req}")
+
+            intents_block = "\n".join(intent_lines)
+            return (
+                "You are a command intent classifier. Classify user text into exactly ONE candidate intent, "
+                "or set unknown=true if unfamiliar or not an imperative command.\n\n"
+                f"Candidate Intents:\n{intents_block}\n\n"
+                f'User Text: "{text}"'
+            )
 
     async def classify(
         self,
@@ -93,12 +129,14 @@ class OllamaProvider:
                 "temperature": 0.0,
                 "num_predict": 128,
             },
-            "keep_alive": "2m",
+            "keep_alive": "60m",
         }
 
         try:
             client = await self._get_client()
-            resp = await client.post("/api/generate", json=payload)
+            active_model = await self._resolve_model(client)
+            payload["model"] = active_model
+            resp = await client.post("/api/generate", json=payload, timeout=self.timeout)
             if resp.status_code != 200:
                 raise RuntimeError(f"Ollama returned HTTP {resp.status_code}: {resp.text}")
 
@@ -124,6 +162,23 @@ class OllamaProvider:
             unknown = bool(parsed.get("unknown", False))
             missing_slots = parsed.get("missing_slots", [])
 
+            # Map canonical capability ID to target tool name if Ollama returned canonical format
+            from jarvis.core.capabilities.canonical import to_canonical
+            if intent:
+                canon = to_canonical(intent)
+                if self.capability_registry:
+                    cap_def = self.capability_registry.get(canon)
+                    if cap_def and cap_def.target_tool:
+                        intent = cap_def.target_tool
+                elif canon == "whatsapp.send":
+                    intent = "send_whatsapp_message"
+                elif canon == "phone.mirror_open":
+                    intent = "android_open_control"
+                elif canon == "phone.mirror_close":
+                    intent = "android_close_control"
+                elif canon == "phone.status":
+                    intent = "android_status"
+
             total_ms = (time.perf_counter_ns() - t0) / 1e6
 
             # 1. Multi-step request detected
@@ -146,6 +201,31 @@ class OllamaProvider:
 
             # 2. Unknown or not a command
             if unknown or not is_command or intent is None or intent == "null":
+                # Check if semantic capability retrieval can rescue the intent
+                if self.capability_retriever:
+                    try:
+                        from jarvis.core.capabilities.slot_extractor import extract_slots
+                        sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
+                        if sem_caps:
+                            best_cap, score = sem_caps[0]
+                            slots, missing = extract_slots(best_cap, text)
+                            if not missing:
+                                return RouteDecision(
+                                    request_id=request_id,
+                                    lane=RouteLane.LANE_0,
+                                    intent=best_cap.target_tool,
+                                    slots=slots,
+                                    confidence=min(1.0, score / 20.0),
+                                    source=RouteSource.EXACT,
+                                    complexity=ComplexityLevel.SIMPLE,
+                                    normalized_text=text,
+                                    reason_code=ReasonCode.EXACT_PATTERN,
+                                    routing_ms=total_ms,
+                                    breakdown_ms=breakdown,
+                                )
+                    except Exception:
+                        pass
+
                 return RouteDecision(
                     request_id=request_id,
                     lane=RouteLane.CLARIFY,
@@ -199,7 +279,32 @@ class OllamaProvider:
 
         except Exception as exc:
             total_ms = (time.perf_counter_ns() - t0) / 1e6
-            # Graceful degradation when Ollama is stopped / times out
+            # If Ollama timed out or failed, attempt semantic capability retrieval fallback first!
+            if self.capability_retriever:
+                try:
+                    from jarvis.core.capabilities.slot_extractor import extract_slots
+                    sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
+                    if sem_caps:
+                        best_cap, score = sem_caps[0]
+                        slots, missing = extract_slots(best_cap, text)
+                        if not missing:
+                            return RouteDecision(
+                                request_id=request_id,
+                                lane=RouteLane.LANE_0,
+                                intent=best_cap.target_tool,
+                                slots=slots,
+                                confidence=min(1.0, score / 20.0),
+                                source=RouteSource.EXACT,
+                                complexity=ComplexityLevel.SIMPLE,
+                                normalized_text=text,
+                                reason_code=ReasonCode.EXACT_PATTERN,
+                                routing_ms=total_ms,
+                                breakdown_ms=breakdown,
+                            )
+                except Exception:
+                    pass
+
+            # Graceful degradation when Ollama is stopped / times out and no capability matches
             return RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.CLARIFY,
@@ -219,6 +324,20 @@ class OllamaProvider:
     async def close(self):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
+
+
+class DisabledProvider:
+    """Explicit offline configuration: never contact a model server."""
+    async def classify(self, text, candidates, request_id):
+        return RouteDecision(
+            request_id=request_id, lane=RouteLane.CLARIFY, confidence=0.0,
+            source=RouteSource.EXACT, normalized_text=text,
+            clarification="I didn't quite catch that. How can I help you?",
+            reason_code=ReasonCode.UNKNOWN_INTENT,
+        )
+
+    async def close(self):
+        pass
 
 
 class MockFailingProvider:
@@ -267,4 +386,3 @@ class MockStructuredProvider:
 
     async def close(self):
         pass
-

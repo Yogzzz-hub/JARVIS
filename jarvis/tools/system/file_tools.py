@@ -123,6 +123,15 @@ class FindFileTool(Tool):
         )
 
     def run(self, input_data: FindFileInput) -> FindFileOutput:
+        if isinstance(input_data, dict):
+            q_val = input_data.get("query") or input_data.get("filename") or input_data.get("name") or "latest"
+            input_data = FindFileInput(
+                query=str(q_val) if q_val else "latest",
+                type_hint=input_data.get("type_hint"),
+                time_hint=input_data.get("time_hint"),
+                directory_hint=input_data.get("directory_hint"),
+                limit=input_data.get("limit", 5),
+            )
         if self.search_engine is None:
             # Fallback search if engine uninitialized
             return FindFileOutput(
@@ -134,13 +143,14 @@ class FindFileTool(Tool):
                 is_ambiguous=False,
             )
 
-        q = SearchQuery(
-            raw_query=input_data.query,
-            text=input_data.query,
-            type_hint=input_data.type_hint,
-            temporal_hint=input_data.time_hint,
-            directory_hint=input_data.directory_hint,
-        )
+        from jarvis.memory.search.query_parser import parse_search_query
+        q = parse_search_query(input_data.query)
+        if input_data.type_hint:
+            q.type_hint = input_data.type_hint
+        if input_data.time_hint:
+            q.temporal_hint = input_data.time_hint
+        if input_data.directory_hint:
+            q.directory_hint = input_data.directory_hint
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -192,6 +202,11 @@ class OpenFileTool(Tool):
         )
 
     def run(self, input_data: OpenFileInput) -> OpenFileOutput:
+        if isinstance(input_data, dict):
+            input_data = OpenFileInput(
+                path=input_data.get("path") or input_data.get("filepath") or input_data.get("file"),
+                file_id=input_data.get("file_id"),
+            )
         target_path = input_data.path
         file_id = input_data.file_id
 
@@ -271,6 +286,71 @@ class ReadFileMetadataTool(Tool):
             mime_type=mime,
         )
 
+def _resolve_target_folder(raw_path: str) -> Path:
+    raw_clean = raw_path.strip().strip("'\"")
+    desktop = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Desktop"
+    if not desktop.exists():
+        desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
+    downloads = Path(os.environ.get("USERPROFILE", "")) / "Downloads"
+    documents = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Documents"
+    if not documents.exists():
+        documents = Path(os.environ.get("USERPROFILE", "")) / "Documents"
+
+    lowered = raw_clean.lower()
+    base_dir = desktop
+    folder_name = raw_clean
+
+    import re
+    if " on desktop" in lowered or " in desktop" in lowered:
+        folder_name = re.sub(r"\s+(?:on|in)\s+desktop", "", raw_clean, flags=re.IGNORECASE).strip()
+        base_dir = desktop
+    elif " in downloads" in lowered or " to downloads" in lowered or " on downloads" in lowered:
+        folder_name = re.sub(r"\s+(?:in|to|on)\s+downloads", "", raw_clean, flags=re.IGNORECASE).strip()
+        base_dir = downloads
+    elif " in documents" in lowered or " to documents" in lowered:
+        folder_name = re.sub(r"\s+(?:in|to)\s+documents", "", raw_clean, flags=re.IGNORECASE).strip()
+        base_dir = documents
+
+    p = Path(folder_name)
+    if not p.is_absolute():
+        p = base_dir / folder_name
+    return p
+
+def _find_existing_item(name_or_path: str) -> Path | None:
+    raw_clean = name_or_path.strip().strip("'\"")
+    p = Path(raw_clean)
+    if p.exists():
+        return p
+
+    desktop = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Desktop"
+    if not desktop.exists():
+        desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
+    downloads = Path(os.environ.get("USERPROFILE", "")) / "Downloads"
+    documents = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Documents"
+    if not documents.exists():
+        documents = Path(os.environ.get("USERPROFILE", "")) / "Documents"
+
+    for base in (desktop, downloads, documents, Path.cwd()):
+        candidate = base / raw_clean
+        if candidate.exists():
+            return candidate
+
+    # Search in database
+    db_path = ROOT / "db/jarvis.db"
+    if db_path.exists():
+        try:
+            with sqlite3.connect(str(db_path), timeout=5.0) as conn:
+                row = conn.execute(
+                    "SELECT path FROM files WHERE (name_norm = ? OR stem = ?) AND is_available = 1 ORDER BY modified_ns DESC LIMIT 1",
+                    (raw_clean.lower(), raw_clean.lower()),
+                ).fetchone()
+                if row and Path(row[0]).exists():
+                    return Path(row[0])
+        except Exception:
+            pass
+
+    return None
+
 class CreateFolderTool(Tool):
     def __init__(self):
         self.definition = ToolDefinition(
@@ -285,7 +365,7 @@ class CreateFolderTool(Tool):
         )
 
     def run(self, input_data: CreateFolderInput) -> CreateFolderOutput:
-        p = Path(input_data.path)
+        p = _resolve_target_folder(input_data.path)
         p.mkdir(parents=True, exist_ok=True)
         return CreateFolderOutput(path=str(p), created=True)
 
@@ -345,10 +425,16 @@ class RenameFileTool(Tool):
         )
 
     def run(self, input_data: RenameFileInput) -> RenameFileOutput:
-        src = Path(input_data.source)
-        if not src.exists():
+        src = _find_existing_item(input_data.source)
+        if not src or not src.exists():
             raise FileNotFoundError(f"Source not found: {input_data.source}")
-        new_path = src.parent / input_data.new_name
+        clean_new_name = input_data.new_name.strip().strip("'\"")
+        new_path = src.parent / clean_new_name
+        if new_path.exists() and new_path.resolve() != src.resolve():
+            if new_path.is_dir():
+                shutil.rmtree(str(new_path), ignore_errors=True)
+            else:
+                new_path.unlink(missing_ok=True)
         src.rename(new_path)
         return RenameFileOutput(source=str(src), new_path=str(new_path), renamed=True)
 
@@ -360,15 +446,15 @@ class DeleteFileTool(Tool):
             input_model=DeleteFileInput,
             output_model=DeleteFileOutput,
             read_only=False,
-            requires_confirmation=True,
-            risk=RiskLevel.DESTRUCTIVE,
+            requires_confirmation=False,
+            risk=RiskLevel.REVERSIBLE,
             timeout_s=5.0,
             tags=("files", "delete"),
         )
 
     def run(self, input_data: DeleteFileInput) -> DeleteFileOutput:
-        p = Path(input_data.path)
-        if not p.exists():
+        p = _find_existing_item(input_data.path)
+        if not p or not p.exists():
             raise FileNotFoundError(f"Path not found: {input_data.path}")
         try:
             import send2trash

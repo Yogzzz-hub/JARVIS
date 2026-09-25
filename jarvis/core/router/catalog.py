@@ -69,20 +69,24 @@ class IntentCatalog:
                     if defn.name not in self.token_index[token_cf]:
                         self.token_index[token_cf].append(defn.name)
 
-    def retrieve_candidate_intents(self, tokens: list[str], max_candidates: int = 8) -> list[str]:
-        """Retrieves candidate intent names from token index, prioritizing first action tokens."""
+    def retrieve_candidate_intents(self, tokens: list[str], max_candidates: int = 24) -> list[str]:
+        """Retrieves candidate intent names from token index, prioritizing specific (rarer) tokens."""
         candidates: list[str] = []
         seen = set()
 
-        for token in tokens:
-            cf = token.casefold()
-            if cf in self.token_index:
-                for intent_name in self.token_index[cf]:
-                    if intent_name not in seen:
-                        seen.add(intent_name)
-                        candidates.append(intent_name)
-                        if len(candidates) >= max_candidates:
-                            return candidates
+        # Sort tokens by rarity (fewer matching intents first) so specific words like "desktop" or "microphone" take precedence over generic words like "show"
+        sorted_tokens = sorted(
+            [t.casefold() for t in tokens if t.casefold() in self.token_index],
+            key=lambda t: len(self.token_index[t]),
+        )
+
+        for cf in sorted_tokens:
+            for intent_name in self.token_index[cf]:
+                if intent_name not in seen:
+                    seen.add(intent_name)
+                    candidates.append(intent_name)
+                    if len(candidates) >= max_candidates:
+                        return candidates
 
         # If no candidates matched tokens, return standard common candidates
         if not candidates:
@@ -90,8 +94,30 @@ class IntentCatalog:
 
         return candidates
 
+    def is_known_app(self, name: str) -> bool:
+        name_clean = name.strip().lower()
+        if not name_clean or len(name_clean) > 40:
+            return False
+        action_prefixes = ("play ", "search ", "open ", "close ", "type ", "send ", "check ", "run ", "show ", "take ", "set ", "maximize", "minimize")
+        if any(name_clean.startswith(prefix) for prefix in action_prefixes):
+            return False
+        open_defn = self.intents.get("open_app")
+        if open_defn:
+            if name_clean in open_defn.aliases:
+                return True
+            for k, vals in open_defn.aliases.items():
+                if name_clean == k.lower() or name_clean in [v.lower() for v in vals]:
+                    return True
+            if name_clean in open_defn.keywords:
+                return True
+        if re.match(r"^[a-zA-Z0-9_\-\.\s]{2,30}$", name_clean):
+            if name_clean not in {"and", "then", "please", "now", "it", "this", "app", "window"}:
+                return True
+        return False
+
     @classmethod
     def get_default(cls) -> "IntentCatalog":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+

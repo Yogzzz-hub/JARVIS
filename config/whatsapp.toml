@@ -1,0 +1,41 @@
+# JARVIS EDGE WhatsApp Omnichannel Configuration
+# Transports, Security Boundaries, Owner Pairing, and Privacy Scopes
+
+[whatsapp]
+enabled = true
+bridge_host = "127.0.0.1"
+bridge_port = 8768
+auth_dir = "data/whatsapp_auth"
+temp_dir = "data/whatsapp_temp"
+mode = "DRAFT_ONLY"  # "OFF", "DRAFT_ONLY", "ALLOWLIST_AUTO_REPLY"
+voice_reply_enabled = false
+max_reconnect_attempts = 10
+reconnect_backoff_ms = 2000
+rate_limit_per_minute = 30
+max_media_size_bytes = 26214400  # 25 MB
+
+[whatsapp.owner]
+# Stable identity: E.164 phone numbers or JIDs authorized for remote PC control
+# Non-owner senders are strictly treated as conversational data with zero PC action access.
+phone_numbers = ["+916381456199", "916381456199@s.whatsapp.net", "6381456199", "6381456199@s.whatsapp.net"]
+require_pairing_confirmation = true
+
+[whatsapp.allowlist]
+# Contacts permitted for auto-reply when mode is "ALLOWLIST_AUTO_REPLY"
+auto_reply_contacts = []
+# Group auto-reply is disabled by default for safety
+auto_reply_groups = []
+
+[whatsapp.pulse]
+ack_latency_threshold_ms = 250.0
+progress_updates_enabled = true
+
+[whatsapp.contacts]
+# Standard contacts mapping display name to phone number or JID
+Mom = "+1234567891"
+Dad = "+1234567892"
+Rahul = "+1234567893"
+Boss = "+1234567894"
+Office = "+1234567895"
+YogaCEO = "+919941999415"
+YogaFrd = "+919941999415"

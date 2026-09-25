@@ -30,10 +30,15 @@ class AudioOutputManager:
         device: Optional[str | int] = None,
         sample_rate: int = 22050,
         mock_output: bool = False,
+        event_callback: Callable | None = None,
     ) -> None:
         self.device = device
         self.sample_rate = sample_rate
         self.mock_output = mock_output
+        self.event_callback = event_callback
+        self.last_error = ""
+        self.last_stream_flush_ms = None
+        self._cancel_ns = 0
         self.queue = AudioOutputQueue(max_size=10)
 
         self._running = False
@@ -53,6 +58,11 @@ class AudioOutputManager:
         self.total_interrupted = 0
         self.total_device_errors = 0
         self.last_first_audio_delay_ms = 0.0
+
+        # Cached device parameters
+        self._cached_native_rate: Optional[int] = None
+        self._cached_active_device = self.device
+        self._resample_factors: dict[tuple[int, int], tuple[int, int]] = {}
 
     @property
     def is_playing(self) -> bool:
@@ -87,6 +97,7 @@ class AudioOutputManager:
     def cancel_current(self) -> None:
         """Immediately interrupt and stop currently playing audio (barge-in)."""
         if self._is_playing:
+            self._cancel_ns = perf_counter_ns()
             self._stop_current_flag.set()
             if self._current_response and self._current_response.interruptible:
                 self._current_response.delivery_status = DeliveryStatus.INTERRUPTED
@@ -105,6 +116,16 @@ class AudioOutputManager:
         if self._current_response and self._current_response.request_id == request_id:
             self.cancel_current()
         self.queue.cancel_request(request_id)
+
+    def cancel_all(self) -> None:
+        """Immediately interrupt current playback and purge the entire queue."""
+        self.cancel_current()
+        with self.queue._lock:
+            for prio, count, resp in self.queue._heap:
+                resp.delivery_status = DeliveryStatus.DROPPED_STALE
+            self.queue._heap.clear()
+            self.queue._active_requests.clear()
+        logger.info("All audio playback stopped and queue cleared")
 
     def _playback_loop(self) -> None:
         """Background playback loop consuming from AudioOutputQueue."""
@@ -126,12 +147,7 @@ class AudioOutputManager:
         self._current_response = response
         self._currently_spoken_text = response.text
         self._stop_current_flag.clear()
-        self._is_playing = True
-        response.delivery_status = DeliveryStatus.PLAYING
-        response.playback_started_ns = perf_counter_ns()
-
-        if response.tts_start_ns > 0:
-            self.last_first_audio_delay_ms = (response.playback_started_ns - response.tts_start_ns) / 1e6
+        self._is_playing = False
 
         try:
             pcm_bytes = response.audio_bytes
@@ -139,6 +155,7 @@ class AudioOutputManager:
 
             # If mock output or hardware disabled, simulate playback duration
             if self.mock_output:
+                self._is_playing = True
                 duration_s = len(pcm_bytes) / (2 * sr)
                 step = 0.05
                 elapsed = 0.0
@@ -155,48 +172,112 @@ class AudioOutputManager:
                 self.total_played += 1
 
         except Exception as exc:
+            self.last_error = str(exc)
             logger.error("Audio playback error: %s", exc)
             self.total_device_errors += 1
             response.delivery_status = DeliveryStatus.FAILED_FALLBACK
+            self._emit("tts.error", response, error=str(exc))
         finally:
             response.playback_finished_ns = perf_counter_ns()
             self._last_playback_stop_ns = response.playback_finished_ns
             self._is_playing = False
             self._currently_spoken_text = ""
             self._current_response = None
+            self._emit("tts.stopped", response, status=response.delivery_status.value,
+                       first_audio_ms=self.last_first_audio_delay_ms,
+                       stream_flush_ms=self.last_stream_flush_ms)
             if response.type == ResponseType.FINAL:
-                self.queue.mark_request_completed(response.request_id)
+                if not getattr(response, "is_chunk", False) or getattr(response, "is_last_chunk", True):
+                    self.queue.mark_request_completed(response.request_id)
 
     def _stream_pcm_to_device(self, pcm_bytes: bytes, sample_rate: int) -> None:
         """Stream raw int16 PCM bytes to sounddevice OutputStream in small chunks."""
-        try:
-            import sounddevice as sd
+        import math
+        import sounddevice as sd
+        from scipy.signal import resample_poly
 
-            audio_data = np.frombuffer(pcm_bytes, dtype=np.int16)
-            chunk_size = 1024  # ~46 ms chunks at 22050 Hz
+        audio_data = np.frombuffer(pcm_bytes, dtype=np.int16)
+        active_rate = sample_rate
+        active_device = self._cached_active_device
 
-            device_idx = self.device
-            with sd.OutputStream(
-                samplerate=sample_rate,
+        # Cache native rate once
+        if self._cached_native_rate is None:
+            try:
+                dev_info = sd.query_devices(active_device, "output")
+                self._cached_native_rate = int(dev_info.get("default_samplerate", 48000))
+            except Exception:
+                self._cached_native_rate = 48000
+
+        def _try_open_stream(dev, rate):
+            return sd.OutputStream(
+                samplerate=rate,
                 channels=1,
                 dtype="int16",
-                device=device_idx,
-            ) as stream:
-                if self._current_response:
-                    self._current_response.first_audio_device_write_ns = perf_counter_ns()
+                device=dev,
+            )
 
+        stream = None
+        # 1. Try specified device at requested sample_rate
+        try:
+            stream = _try_open_stream(active_device, active_rate)
+        except Exception:
+            # Resample to cached native rate
+            native_rate = self._cached_native_rate or 48000
+            try:
+                stream = _try_open_stream(active_device, native_rate)
+                cache_key = (active_rate, native_rate)
+                if cache_key not in self._resample_factors:
+                    gcd = math.gcd(active_rate, native_rate)
+                    self._resample_factors[cache_key] = (native_rate // gcd, active_rate // gcd)
+                up, down = self._resample_factors[cache_key]
+                resampled = resample_poly(audio_data.astype(np.float32), up, down)
+                audio_data = np.clip(resampled, -32768, 32767).astype(np.int16)
+                active_rate = native_rate
+            except Exception:
+                # Fallback to default output device
+                active_device = None
+                self._cached_active_device = None
+                try:
+                    stream = _try_open_stream(None, 48000)
+                    cache_key = (sample_rate, 48000)
+                    if cache_key not in self._resample_factors:
+                        gcd = math.gcd(sample_rate, 48000)
+                        self._resample_factors[cache_key] = (48000 // gcd, sample_rate // gcd)
+                    up, down = self._resample_factors[cache_key]
+                    resampled = resample_poly(audio_data.astype(np.float32), up, down)
+                    audio_data = np.clip(resampled, -32768, 32767).astype(np.int16)
+                    active_rate = 48000
+                except Exception:
+                    pass
+
+        if stream is None:
+            raise RuntimeError(f"Could not open audio output stream on {self.device}")
+
+        chunk_size = max(1, int(active_rate * 0.08))
+        with stream:
+            self._stream = stream
+            try:
                 for i in range(0, len(audio_data), chunk_size):
                     if self._stop_current_flag.is_set():
+                        stream.abort()
+                        self.last_stream_flush_ms = (perf_counter_ns() - self._cancel_ns) / 1e6
                         break
-                    chunk = audio_data[i : i + chunk_size]
-                    stream.write(chunk)
+                    stream.write(audio_data[i : i + chunk_size])
+                    if not self._is_playing:
+                        self._is_playing = True
+                        response = self._current_response
+                        response.delivery_status = DeliveryStatus.PLAYING
+                        response.playback_started_ns = perf_counter_ns()
+                        response.first_audio_device_write_ns = response.playback_started_ns
+                        if response.tts_start_ns:
+                            self.last_first_audio_delay_ms = (response.playback_started_ns - response.tts_start_ns) / 1e6
+                        self._emit("tts.started", response)
+            finally:
+                self._stream = None
 
-        except Exception as exc:
-            logger.warning("Hardware audio playback failed (fallback to simulated): %s", exc)
-            self._device_available = False
-            # Simulate remaining time so pipeline does not crash
-            dur_s = len(pcm_bytes) / (2 * sample_rate)
-            time.sleep(min(dur_s, 0.5))
+    def _emit(self, name, response, **data):
+        if self.event_callback:
+            self.event_callback(name, response.request_id, {"text": response.text, **data})
 
     def stop(self) -> None:
         """Stop playback thread and close resources."""

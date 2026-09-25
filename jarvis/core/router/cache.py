@@ -21,6 +21,9 @@ class RouteTemplate:
     registry_version: str
     success_count: int = 1
     last_used: float = 0.0
+    complexity: ComplexityLevel = ComplexityLevel.SIMPLE
+    subcommands: tuple[Any, ...] = ()
+    risk: Any = None
 
 class HotRouteCache:
     def __init__(self, capacity: int = 2048):
@@ -52,7 +55,9 @@ class HotRouteCache:
                 slots=dict(entry.slots),
                 confidence=entry.confidence,
                 source=RouteSource.HOT_CACHE,
-                complexity=ComplexityLevel.SIMPLE,
+                complexity=entry.complexity,
+                subcommands=list(entry.subcommands) if entry.subcommands else [],
+                risk=entry.risk,
                 normalized_text=normalized_text,
                 cache_hit=True,
                 reason_code=ReasonCode.EXACT_PATTERN,
@@ -75,6 +80,9 @@ class HotRouteCache:
             entry = self._cache[normalized_text]
             entry.last_used = time.time()
             entry.success_count += 1
+            entry.complexity = decision.complexity
+            entry.subcommands = tuple(decision.subcommands) if decision.subcommands else ()
+            entry.risk = decision.risk
             return
 
         if len(self._cache) >= self.capacity:
@@ -89,6 +97,9 @@ class HotRouteCache:
             registry_version=registry_version,
             success_count=1,
             last_used=time.time(),
+            complexity=decision.complexity,
+            subcommands=tuple(decision.subcommands) if decision.subcommands else (),
+            risk=decision.risk,
         )
 
     def record_success_for_promotion(

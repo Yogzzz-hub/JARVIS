@@ -9,6 +9,38 @@ from jarvis.core.computer.models import TargetConfidence, UIElement, UIObservati
 class UIALocator:
     """Resolves structured UI targets strictly according to locator priority rules."""
 
+    def resolve(
+        self,
+        window_id: str = "",
+        name: Optional[str] = None,
+        automation_id: Optional[str] = None,
+        control_type: Optional[str] = None,
+        role: Optional[str] = None,
+        ancestor_hint: Optional[str] = None,
+    ) -> Tuple[Optional[UIElement], TargetConfidence]:
+        from jarvis.core.computer.windows.snapshot import UIASnapshotBuilder
+        builder = UIASnapshotBuilder()
+        obs = builder.capture_snapshot(window_id=window_id or "")
+        target, conf = self.resolve_target(
+            obs,
+            name=name,
+            automation_id=automation_id,
+            control_type=control_type,
+            role=role,
+            ancestor_hint=ancestor_hint,
+        )
+        if not target and window_id:
+            obs_root = builder.capture_snapshot(window_id="")
+            target, conf = self.resolve_target(
+                obs_root,
+                name=name,
+                automation_id=automation_id,
+                control_type=control_type,
+                role=role,
+                ancestor_hint=ancestor_hint,
+            )
+        return target, conf
+
     @classmethod
     def resolve_target(
         cls,

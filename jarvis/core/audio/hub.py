@@ -33,6 +33,8 @@ class AudioConsumer:
             self.total += 1
         except asyncio.QueueFull:
             self.dropped += 1
+            self.queue.get_nowait()
+            self.queue.put_nowait(frame)
 
 
 class AudioHub:
@@ -47,6 +49,7 @@ class AudioHub:
         source: AudioSource | None = None,
         ring_buffer_ms: int = 2000,
         sample_rate: int = CANONICAL_SAMPLE_RATE,
+        on_frame: Callable | None = None,
     ):
         self.source = source or MicSource()
         self.ring = RingBuffer(duration_ms=ring_buffer_ms, sample_rate=sample_rate)
@@ -55,6 +58,7 @@ class AudioHub:
         self._task: asyncio.Task | None = None
         self.total_frames = 0
         self.total_dropped = 0
+        self.on_frame = on_frame
 
     def register(self, name: str, queue_size: int = 100) -> AudioConsumer:
         """Register a consumer before start. Returns consumer handle."""
@@ -65,6 +69,8 @@ class AudioHub:
 
     async def start(self) -> None:
         """Start audio capture and distribution."""
+        if self._running:
+            return
         await self.source.start()
         self._running = True
         self._task = asyncio.create_task(self._distribute())
@@ -80,6 +86,8 @@ class AudioHub:
 
                 # Always write to ring buffer
                 self.ring.write(frame)
+                if self.on_frame:
+                    self.on_frame(frame)
 
                 # Fan out to all consumers
                 for consumer in self._consumers:

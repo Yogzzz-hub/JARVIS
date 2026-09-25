@@ -32,16 +32,47 @@ def canonicalize_path(path_str: str | Path) -> Path:
     2. Expand ~ to user home
     3. Normalize slashes, eliminate redundant separators and traversal ('..')
     4. Resolve symlinks / junctions where the target exists
+    5. Resolve simple names/relative paths to common user roots (Desktop, Downloads, Documents)
     """
-    raw = str(path_str).strip()
+    raw = str(path_str).strip().strip("'\"")
     expanded = os.path.expanduser(os.path.expandvars(raw))
     p = Path(expanded)
-    try:
-        # Resolve resolves symlinks and normalizes '..'
-        resolved = p.resolve(strict=False)
-        return resolved
-    except Exception:
-        return Path(os.path.normpath(expanded))
+    if p.is_absolute():
+        try:
+            return p.resolve(strict=False)
+        except Exception:
+            return Path(os.path.normpath(expanded))
+
+    # For relative names, check common user locations if exists
+    desktop = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Desktop"
+    if not desktop.exists():
+        desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
+    downloads = Path(os.environ.get("USERPROFILE", "")) / "Downloads"
+    documents = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Documents"
+    if not documents.exists():
+        documents = Path(os.environ.get("USERPROFILE", "")) / "Documents"
+
+    for base in (desktop, downloads, documents, Path.cwd()):
+        candidate = base / raw
+        if candidate.exists():
+            return candidate.resolve(strict=False)
+
+    # If location keyword is present in relative string
+    lowered = raw.lower()
+    base_dir = desktop
+    clean_name = raw
+    import re
+    if " on desktop" in lowered or " in desktop" in lowered:
+        clean_name = re.sub(r"\s+(?:on|in)\s+desktop", "", raw, flags=re.IGNORECASE).strip()
+        base_dir = desktop
+    elif " in downloads" in lowered or " to downloads" in lowered or " on downloads" in lowered:
+        clean_name = re.sub(r"\s+(?:in|to|on)\s+downloads", "", raw, flags=re.IGNORECASE).strip()
+        base_dir = downloads
+    elif " in documents" in lowered or " to documents" in lowered:
+        clean_name = re.sub(r"\s+(?:in|to)\s+documents", "", raw, flags=re.IGNORECASE).strip()
+        base_dir = documents
+
+    return (base_dir / clean_name).resolve(strict=False)
 
 def is_protected_path(
     path: str | Path,

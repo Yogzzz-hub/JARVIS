@@ -7,16 +7,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from jarvis.tools.base import RiskLevel, IdempotencyClass
 
 class LedgerState(StrEnum):
+    REQUESTED = "REQUESTED"
     PREPARED = "PREPARED"
+    AUTHORISED = "AUTHORISED"
     STARTED = "STARTED"
+    EXTERNALLY_ACKNOWLEDGED = "EXTERNALLY_ACKNOWLEDGED"
     VERIFIED = "VERIFIED"
+    FAILED = "FAILED"
     FAILED_SAFE_TO_RETRY = "FAILED_SAFE_TO_RETRY"
     UNCERTAIN = "UNCERTAIN"
+    OUTCOME_UNKNOWN = "UNCERTAIN"  # Alias for UNCERTAIN / outcome-unknown
     COMMITTED = "COMMITTED"
     CANCELLED = "CANCELLED"
 
 class LedgerEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     action_id: str
     fingerprint: str
@@ -37,4 +42,7 @@ class LedgerEntry(BaseModel):
     error_class: str | None = None
     verification_json: str | None = None
     output_json: str | None = None
+    idempotency_key: str | None = None
+    provider_ack_json: str | None = None
+    target_references_json: str | None = None
 

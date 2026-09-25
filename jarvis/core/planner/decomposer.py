@@ -34,10 +34,19 @@ class DeterministicDecomposer:
             r"^(?:please\s+)?create\s+(?:a\s+)?(?:new\s+)?folder\s+(?:called\s+)?(.+?)(?:\s+on\s+desktop)?\s+and\s+find\s+(?:my\s+)?(.+?),\s*then\s+copy\s+(?:it|the\s+file|the\s+pdf)\s+(?:into|to)\s+(?:the\s+folder|it)\s+and\s+open\s+(?:it|the\s+folder).*$",
             re.IGNORECASE,
         )
+        self.p_install = re.compile(
+            r"^(?:please\s+)?(?:install|setup|download\s+and\s+install)\s+([a-zA-Z0-9_\-\.]+)(?:\s+(?:using|via)\s+winget)?$",
+            re.IGNORECASE,
+        )
 
     def decompose(self, text: str) -> Optional[TaskGraph]:
         """Attempts deterministic decomposition into a typed TaskGraph."""
         clean = text.strip()
+
+        # 0. Pattern: Install / setup software
+        m_inst = self.p_install.match(clean)
+        if m_inst:
+            return self._build_install_graph(clean, m_inst.group(1).strip())
 
         # 1. Pattern: Find X, copy to new folder Y on Desktop, open folder
         m = self.p_find_copy_open.match(clean)
@@ -214,3 +223,17 @@ class DeterministicDecomposer:
         if "documents" in dest_clean.lower():
             return os.path.expanduser("~/Documents")
         return dest_clean
+
+    def _build_install_graph(self, goal: str, app_name: str) -> TaskGraph:
+        return TaskGraph(
+            goal=goal,
+            goal_summary=f"Install {app_name}",
+            nodes=[
+                TaskNode(
+                    id="n1",
+                    tool="install_software",
+                    args={"name": app_name},
+                    description=f"Install {app_name} via trusted installer and update catalog",
+                )
+            ],
+        )

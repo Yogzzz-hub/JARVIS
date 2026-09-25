@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from jarvis.core.context.models import (
     ContextPacket,
     OperationalMode,
@@ -13,8 +13,10 @@ from jarvis.core.context.models import (
 )
 from jarvis.core.context.resolver import ReferenceResolver
 from jarvis.core.memory.models import MemoryItem, MemoryQuery
-from jarvis.core.memory.store import SQLiteMemoryStore
-from jarvis.core.memory.working import BoundedWorkingMemory
+
+if TYPE_CHECKING:
+    from jarvis.core.memory.store import SQLiteMemoryStore
+    from jarvis.core.memory.working import BoundedWorkingMemory
 
 
 MAX_CONTEXT_TOKENS = 512
@@ -87,6 +89,10 @@ class ContextAssembler:
         resolved_dict = {}
         if resolved_ref.referent is not None or resolved_ref.clarification_prompt is not None:
             resolved_dict["primary"] = resolved_ref
+        if getattr(resolved_ref, "resolved_entity", None):
+            resolved_dict["entity"] = resolved_ref.resolved_entity
+        if getattr(resolved_ref, "resolved_resource", None):
+            resolved_dict["resource"] = resolved_ref.resolved_resource
 
         # 2. Retrieve relevant memories from SQLite store
         relevant_memories: List[MemoryItem] = []

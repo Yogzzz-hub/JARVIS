@@ -30,6 +30,7 @@ class SAPIEngine:
         self._is_loaded = False
         self._cancelled = False
         self.total_syntheses = 0
+        self.sample_rate = 22050
 
     @property
     def backend_name(self) -> str:
@@ -55,6 +56,27 @@ class SAPIEngine:
             logger.warning("Failed to initialize Windows SAPI engine: %s", exc)
             self._is_loaded = False
 
+    def set_gender(self, gender: str) -> None:
+        """Switch SAPI voice gender if matching voice is available."""
+        self.load()
+        if not self._is_loaded or not self._engine:
+            return
+        try:
+            voices = self._engine.getProperty("voices")
+            is_fem = "fem" in gender.lower() or "woman" in gender.lower()
+            for v in voices:
+                v_name = v.name.lower()
+                if is_fem and ("zira" in v_name or "female" in v_name or "hazel" in v_name or "susan" in v_name):
+                    self._engine.setProperty("voice", v.id)
+                    logger.info("SAPI voice set to %s", v.name)
+                    break
+                elif not is_fem and ("david" in v_name or "male" in v_name or "george" in v_name):
+                    self._engine.setProperty("voice", v.id)
+                    logger.info("SAPI voice set to %s", v.name)
+                    break
+        except Exception as exc:
+            logger.warning("Could not set SAPI voice gender: %s", exc)
+
     def synthesize(self, text: str) -> bytes:
         """Synthesize text to PCM16 bytes via temporary WAV."""
         self.load()
@@ -70,6 +92,9 @@ class SAPIEngine:
                 return b""
 
             with wave.open(temp_path, "rb") as wf:
+                self.sample_rate = wf.getframerate()
+                if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
+                    raise ValueError("SAPI must produce mono PCM16")
                 pcm = wf.readframes(wf.getnframes())
 
             self.total_syntheses += 1

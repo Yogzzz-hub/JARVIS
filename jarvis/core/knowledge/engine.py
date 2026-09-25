@@ -1,4 +1,4 @@
-"""KnowledgeEngine providing explicit RAG collections, document chunking, and hybrid search."""
+"""KnowledgeEngine providing explicit RAG collections, document chunking, scoped hybrid search."""
 
 from __future__ import annotations
 
@@ -7,23 +7,27 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from jarvis.core.knowledge.models import (
     AccessPolicy,
     KnowledgeChunk,
     KnowledgeCollection,
     KnowledgeItem,
+    KnowledgeScopeFilter,
+    KnowledgeSourceType,
+    TrustLevel,
 )
 
 
 class KnowledgeEngine:
     """
     Manages user-selected local RAG collections with structural document chunking,
-    FTS5 lexical search, and strict untrusted-content boundaries.
+    FTS5 lexical search, namespace scopes, and strict untrusted-content boundaries.
     """
 
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._ensure_tables()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -42,12 +46,32 @@ class KnowledgeEngine:
                 except sqlite3.OperationalError:
                     pass
 
+            # Safe column additions for scoping
+            cursor = conn.cursor()
+            try:
+                cursor.execute("PRAGMA table_info(rag_chunks)")
+                existing_cols = {row["name"] for row in cursor.fetchall()}
+                if "owner_scope" not in existing_cols:
+                    cursor.execute("ALTER TABLE rag_chunks ADD COLUMN owner_scope TEXT DEFAULT 'scope:user'")
+                if "conversation_scope" not in existing_cols:
+                    cursor.execute("ALTER TABLE rag_chunks ADD COLUMN conversation_scope TEXT DEFAULT ''")
+                if "privacy_scope" not in existing_cols:
+                    cursor.execute("ALTER TABLE rag_chunks ADD COLUMN privacy_scope TEXT DEFAULT 'scope:documents'")
+                if "trust_level" not in existing_cols:
+                    cursor.execute("ALTER TABLE rag_chunks ADD COLUMN trust_level TEXT DEFAULT 'DATA_ONLY'")
+                if "source_type" not in existing_cols:
+                    cursor.execute("ALTER TABLE rag_chunks ADD COLUMN source_type TEXT DEFAULT 'RAG_CHUNK'")
+                conn.commit()
+            except Exception:
+                pass
+
     def create_collection(
         self,
         name: str,
         source_roots: List[str],
         file_filters: Optional[List[str]] = None,
         access_policy: AccessPolicy = AccessPolicy.PUBLIC,
+        owner_scope: str = "scope:user",
     ) -> KnowledgeCollection:
         col_id = f"col_{hashlib.sha256(name.encode('utf-8')).hexdigest()[:8]}"
         col = KnowledgeCollection(
@@ -56,6 +80,7 @@ class KnowledgeEngine:
             source_roots=source_roots,
             file_filters=file_filters or [".txt", ".md", ".pdf", ".py"],
             access_policy=access_policy,
+            owner_scope=owner_scope,
         )
 
         with self._get_connection() as conn:
@@ -82,9 +107,22 @@ class KnowledgeEngine:
         collection_id: str,
         file_path: str,
         text_content: str,
+        owner_scope: str = "scope:user",
+        conversation_scope: str = "",
+        privacy_scope: str = "scope:documents",
+        trust_level: str = TrustLevel.DATA_ONLY.value,
+        source_type: str = KnowledgeSourceType.RAG_CHUNK.value,
     ) -> int:
-        """Chunks and indexes document text into collection."""
-        chunks = self._chunk_text(text_content, file_path, collection_id)
+        """Chunks and indexes document text into collection with explicit scope tags."""
+        chunks = self._chunk_text(
+            text_content,
+            file_path,
+            collection_id,
+            owner_scope=owner_scope,
+            conversation_scope=conversation_scope,
+            privacy_scope=privacy_scope,
+            trust_level=trust_level,
+        )
         if not chunks:
             return 0
 
@@ -97,8 +135,9 @@ class KnowledgeEngine:
                     """
                     INSERT OR REPLACE INTO rag_chunks (
                         chunk_id, collection_id, file_path, section_title,
-                        line_start, line_end, content, content_hash
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        line_start, line_end, content, content_hash,
+                        owner_scope, conversation_scope, privacy_scope, trust_level, source_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         c.chunk_id,
@@ -109,6 +148,11 @@ class KnowledgeEngine:
                         c.line_end,
                         c.content,
                         c.content_hash,
+                        c.owner_scope,
+                        c.conversation_scope,
+                        c.privacy_scope,
+                        c.trust_level,
+                        source_type,
                     ),
                 )
                 cursor.execute(
@@ -125,9 +169,10 @@ class KnowledgeEngine:
         self,
         query_text: str,
         collection_name: Optional[str] = None,
+        scope_filter: Optional[KnowledgeScopeFilter] = None,
         limit: int = 5,
     ) -> List[KnowledgeItem]:
-        """Hybrid search across indexed RAG collections."""
+        """Hybrid search across indexed RAG collections with pre-ranking scope filtering."""
         clean_query = "".join(c if c.isalnum() or c in " *_" else " " for c in query_text).strip()
         if not clean_query:
             return []
@@ -135,7 +180,7 @@ class KnowledgeEngine:
         results: List[KnowledgeItem] = []
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            params = [clean_query]
+            params: List[Any] = [clean_query]
             sql = """
                 SELECT c.*, f.rank
                 FROM rag_chunks_fts f
@@ -149,28 +194,53 @@ class KnowledgeEngine:
                     sql += " AND c.collection_id = ?"
                     params.append(row["collection_id"])
 
+            # Retrieve broader candidate set to filter by scope before ranking
             sql += " ORDER BY rank LIMIT ?"
-            params.append(limit)
+            fetch_limit = max(limit * 4, 20)
+            params.append(fetch_limit)
 
             try:
                 cursor.execute(sql, params)
-                for r in cursor.fetchall():
+                raw_rows = cursor.fetchall()
+
+                for r in raw_rows:
+                    row_dict = dict(r)
+                    owner_scope = row_dict.get("owner_scope") or "scope:user"
+                    conv_scope = row_dict.get("conversation_scope") or ""
+                    priv_scope = row_dict.get("privacy_scope") or "scope:documents"
+                    trust = row_dict.get("trust_level") or TrustLevel.DATA_ONLY.value
+                    src_type = row_dict.get("source_type") or KnowledgeSourceType.RAG_CHUNK.value
+
+                    # Pre-ranking Scope Isolation Check
+                    if scope_filter:
+                        item_scopes = [s for s in (owner_scope, conv_scope, priv_scope) if s]
+                        if not scope_filter.is_accessible(item_scopes):
+                            continue
+
                     score = max(0.1, min(1.0, 1.0 / (1.0 + abs(float(r["rank"])))))
-                    snippet = r["content"][:200] + "..." if len(r["content"]) > 200 else r["content"]
+                    content_str = r["content"] or ""
+                    snippet = content_str[:200] + "..." if len(content_str) > 200 else content_str
+                    file_name = Path(r["file_path"]).name if r["file_path"] else "Document"
+
                     results.append(
                         KnowledgeItem(
-                            source_type="RAG_CHUNK",
+                            source_type=src_type,
                             resource_id=r["chunk_id"],
-                            title=f"{Path(r['file_path']).name} ({r['section_title'] or 'Section'})",
+                            title=f"{file_name} ({r['section_title'] or 'Section'})",
                             snippet=snippet,
                             relevance=score,
-                            trust="DATA_ONLY",  # Untrusted external data invariant
+                            trust=trust,
+                            owner_scope=owner_scope,
+                            conversation_scope=conv_scope,
+                            privacy_scope=priv_scope,
                             citation_metadata={
                                 "file_path": r["file_path"],
                                 "lines": f"{r['line_start']}-{r['line_end']}",
                             },
                         )
                     )
+                    if len(results) >= limit:
+                        break
             except sqlite3.OperationalError:
                 pass
         return results
@@ -181,10 +251,14 @@ class KnowledgeEngine:
         file_path: str,
         collection_id: str,
         max_chunk_chars: int = 1000,
+        owner_scope: str = "scope:user",
+        conversation_scope: str = "",
+        privacy_scope: str = "scope:documents",
+        trust_level: str = TrustLevel.DATA_ONLY.value,
     ) -> List[KnowledgeChunk]:
         paragraphs = text.split("\n\n")
         chunks: List[KnowledgeChunk] = []
-        current_chunk = []
+        current_chunk: List[str] = []
         current_len = 0
         line_num = 1
         chunk_line_start = 1
@@ -213,6 +287,10 @@ class KnowledgeEngine:
                         line_end=line_num,
                         content=content_str,
                         content_hash=chash,
+                        owner_scope=owner_scope,
+                        conversation_scope=conversation_scope,
+                        privacy_scope=privacy_scope,
+                        trust_level=trust_level,
                     )
                 )
                 current_chunk = [p_clean]
@@ -237,6 +315,10 @@ class KnowledgeEngine:
                     line_end=line_num,
                     content=content_str,
                     content_hash=chash,
+                    owner_scope=owner_scope,
+                    conversation_scope=conversation_scope,
+                    privacy_scope=privacy_scope,
+                    trust_level=trust_level,
                 )
             )
 

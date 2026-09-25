@@ -1,0 +1,47 @@
+# JARVIS EDGE v1.0 — Local Connectors Configuration
+# All external and local integrations are strictly optional.
+# Missing, stopped, or unconfigured connectors will never crash Jarvis or degrade native PC commands.
+
+[connectors.android]
+enabled = true
+scrcpy_path = ""
+adb_path = ""
+device_id = ""
+max_size = 1024
+max_fps = 30
+stay_awake = true
+
+[connectors.localsend]
+enabled = true
+base_url = "http://127.0.0.1:53317"
+default_target = ""
+port = 53317
+
+[connectors.browser]
+enabled = true
+headless = true
+profile_dir = ""
+
+[connectors.freshrss]
+enabled = false
+base_url = "http://127.0.0.1:8080/api/greader.php"
+username = ""
+api_password = ""
+
+[connectors.notifications]
+enabled = true
+provider = "ntfy"  # "ntfy" or "gotify"
+ntfy_url = "https://ntfy.sh"
+ntfy_topic = "jarvis_alerts_local"
+gotify_url = "http://127.0.0.1:80"
+gotify_token = ""
+
+[connectors.memos]
+enabled = false
+base_url = "http://127.0.0.1:5230/api/v1"
+access_token = ""
+
+[connectors.nodered]
+enabled = false
+base_url = "http://127.0.0.1:1880"
+api_key = ""

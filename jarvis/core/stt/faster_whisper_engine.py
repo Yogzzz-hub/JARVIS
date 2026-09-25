@@ -40,6 +40,7 @@ class FasterWhisperEngine:
         context_window_s: float = 6.0,
         step_size_ms: int = 400,
         initial_prompt: str = "",
+        language: str = "en",
     ):
         self.model_name_str = model
         self.device_preference = device
@@ -47,6 +48,7 @@ class FasterWhisperEngine:
         self.context_window_s = context_window_s
         self.step_size_ms = step_size_ms
         self.initial_prompt = initial_prompt
+        self.language = language
 
         self._model = None
         self._loaded = False
@@ -90,21 +92,28 @@ class FasterWhisperEngine:
                         device="cuda",
                         compute_type=compute,
                     )
+                    # Verify CUDA DLLs are present by running a tiny test slice
+                    dummy = np.zeros(1600, dtype=np.float32)
+                    _ = list(model.transcribe(dummy, beam_size=1, without_timestamps=True)[0])
                     self._device_actual = "cuda"
                     logger.info("Whisper loaded on CUDA: model=%s, compute=%s", self.model_name_str, compute)
                     return model
                 except Exception as exc:
-                    logger.warning("CUDA load failed, falling back to CPU: %s", exc)
+                    logger.warning("CUDA load/warmup failed, falling back to CPU: %s", exc)
 
             # CPU fallback
+            import os
+            num_threads = min(8, max(4, os.cpu_count() or 4))
             model = WhisperModel(
                 self.model_name_str,
                 device="cpu",
                 compute_type="int8",
+                cpu_threads=num_threads,
             )
             self._device_actual = "cpu"
-            logger.info("Whisper loaded on CPU: model=%s", self.model_name_str)
+            logger.info("Whisper loaded on CPU (%d threads): model=%s", num_threads, self.model_name_str)
             return model
+
 
         self._model = await asyncio.to_thread(_load)
         self._loaded = True
@@ -116,6 +125,7 @@ class FasterWhisperEngine:
         self._session_id = session_id
         self._audio_buffer = np.array([], dtype=np.float32)
         self._last_partial_text = ""
+        self._last_partial_sample_count = 0
 
     async def feed_audio(self, pcm: bytes, sample_rate: int = 16000) -> None:
         """Feed PCM16 audio into the transcription buffer."""
@@ -140,6 +150,7 @@ class FasterWhisperEngine:
         def _transcribe():
             segments, info = self._model.transcribe(
                 self._audio_buffer,
+                language=self.language,
                 beam_size=1,
                 best_of=1,
                 temperature=0.0,
@@ -157,6 +168,7 @@ class FasterWhisperEngine:
             return None
 
         self._last_partial_text = text
+        self._last_partial_sample_count = len(self._audio_buffer)
         duration_ms = len(self._audio_buffer) / 16.0  # 16 samples/ms at 16kHz
 
         return TranscriptPartial(
@@ -181,25 +193,43 @@ class FasterWhisperEngine:
                 device=self._device_actual,
             )
 
+        # Fast path: If recent partial was within 900ms of audio end (covers silence endpoint), reuse directly!
+        samples_since_partial = len(self._audio_buffer) - getattr(self, "_last_partial_sample_count", 0)
+        if self._last_partial_text and samples_since_partial < 16000 * 0.95:
+            duration_ms = len(self._audio_buffer) / 16.0
+            return TranscriptFinal(
+                session_id=self._session_id,
+                text=self._last_partial_text,
+                language=self.language or "en",
+                duration_ms=duration_ms,
+                stt_model=self.model_name_str,
+                backend="faster_whisper",
+                device=self._device_actual,
+                finalization_ms=(perf_counter_ns() - t0) / 1e6,
+                segments=[],
+            )
+
         def _transcribe_final():
             segments, info = self._model.transcribe(
                 self._audio_buffer,
-                beam_size=5,  # Higher quality for final
+                language=self.language,
+                beam_size=1,  # Fast and accurate for local commands
                 best_of=1,
                 temperature=0.0,
                 condition_on_previous_text=False,
                 initial_prompt=self.initial_prompt or None,
                 vad_filter=False,
-                without_timestamps=False,
+                without_timestamps=True,
             )
             seg_list = []
             texts = []
             for seg in segments:
-                texts.append(seg.text.strip())
+                t = seg.text.strip()
+                texts.append(t)
                 seg_list.append({
                     "start": seg.start,
                     "end": seg.end,
-                    "text": seg.text.strip(),
+                    "text": t,
                 })
             return " ".join(texts).strip(), info.language, seg_list
 

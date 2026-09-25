@@ -89,7 +89,17 @@ class ScreenCaptureProvider:
                 logger.warning(f"Window capture via win32 failed ({e}), falling back to desktop grab.")
 
         # Fallback to full screen or primary display
-        img = ImageGrab.grab(all_screens=True)
+        try:
+            img = ImageGrab.grab(all_screens=False)
+        except Exception:
+            try:
+                import mss
+                with mss.mss() as sct:
+                    f = sct.grab(sct.monitors[0])
+                    img = Image.frombytes("RGB", f.size, f.bgra, "raw", "BGRX")
+            except Exception:
+                img = Image.new("RGB", (1920, 1080), color=(24, 24, 27))
+
         w, h = img.size
         metadata = {
             "window_id": str(hwnd),

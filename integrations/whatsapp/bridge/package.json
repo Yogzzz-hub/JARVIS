@@ -1,0 +1,15 @@
+{
+  "name": "jarvis-whatsapp-bridge",
+  "version": "1.0.0",
+  "description": "Minimal Baileys transport bridge adapter for JARVIS EDGE v1.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0"
+  }
+}

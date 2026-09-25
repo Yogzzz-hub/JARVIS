@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from rapidfuzz import fuzz
 from jarvis.core.router.catalog import IntentCatalog, IntentDefinition
@@ -74,6 +75,26 @@ def match_fuzzy(
                 if token in ("chrome", "vscode", "notepad", "calculator", "terminal", "cmd", "explorer"):
                     slots["name"] = token
                     break
+
+        if defn.name == "get_app_location" and "name" not in slots:
+            m = re.search(r"\b(?:of|for|where is|where did|where was)\s+([a-zA-Z0-9_\-\.]+?)(?:\s+(?:get\s+)?installed|\s+located|\s+player|\s+app|\s+on\s+disk)?$", text_clean, re.I)
+            if m:
+                slots["name"] = m.group(1).strip()
+            else:
+                for token in text_clean.split():
+                    if token.lower() in ("vlc", "chrome", "notepad", "calc", "calculator", "vscode", "explorer", "spotify", "slack", "discord", "python", "git"):
+                        slots["name"] = token
+                        break
+
+        if defn.name == "desktop_ui_click" and "name" not in slots:
+            m = re.search(r"(?:click|press|tap|find|locate)(?: the| on the)?\s+([a-zA-Z0-9_\-\s]+?)\s+button", text_clean, re.I)
+            if m:
+                slots["name"] = m.group(1).strip()
+
+        missing_req = [r for r in defn.required_slots if r not in slots]
+        if missing_req:
+            # If required slots could not be extracted, do not return high confidence fuzzy decision without them
+            return None
 
         confidence = round(top1.score / 100.0, 3)
         return RouteDecision(

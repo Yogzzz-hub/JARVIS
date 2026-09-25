@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger("jarvis.response.ack_cache")
 
 ACK_PHRASES_MAP = {
+    "Yes?": "yes.wav",
+    "I'm listening.": "listening.wav",
     "Understood.": "understood.wav",
     "Got it.": "got_it.wav",
     "I'm on it.": "on_it.wav",
@@ -26,7 +28,19 @@ ACK_PHRASES_MAP = {
     "Cancelled.": "cancelled.wav",
     "Stopped.": "stopped.wav",
     "I didn't catch that.": "didnt_catch_that.wav",
+    "Done.": "done.wav",
+    "Yes, it is completed.": "completed.wav",
+    "Opening it.": "opening_it.wav",
+    "Opening Chrome.": "opening_chrome.wav",
+    "Opening Notepad.": "opening_notepad.wav",
+    "Checking your WhatsApp messages.": "checking_whatsapp.wav",
+    "Sending WhatsApp message.": "sending_whatsapp.wav",
 }
+
+WAKE_ACKS = [
+    "Yes?",
+    "I'm listening.",
+]
 
 DEFAULT_GENERAL_ACKS = [
     "Understood.",
@@ -45,6 +59,8 @@ class AckCache:
         self.asset_dir = Path(asset_dir or "assets/audio/acks")
         self._ram_cache: Dict[str, bytes] = {}
         self._durations: Dict[str, float] = {}
+        self._norm_cache: Dict[str, bytes] = {}
+        self._norm_durations: Dict[str, float] = {}
         self._recent_history: collections.deque = collections.deque(maxlen=2)
         self.sample_rate = 22050
         self.sample_width = 2
@@ -68,6 +84,9 @@ class AckCache:
                         duration_ms = (len(frames) / (self.channels * self.sample_width * self.sample_rate)) * 1000.0
                         self._ram_cache[phrase] = frames
                         self._durations[phrase] = duration_ms
+                        norm_key = phrase.strip().rstrip(".").lower()
+                        self._norm_cache[norm_key] = frames
+                        self._norm_durations[norm_key] = duration_ms
                         loaded_count += 1
                 except Exception as exc:
                     logger.warning("Failed loading ACK audio for %s (%s): %s", phrase, fpath, exc)
@@ -94,10 +113,34 @@ class AckCache:
         duration = self._durations.get(chosen, 350.0)
         return chosen, pcm, duration
 
+    def get_wake_ack(self) -> Tuple[str, bytes, float]:
+        """Ultra-fast lookup for instant wake ACK ('Yes?' or 'I'm listening.')."""
+        chosen = "Yes?" if "Yes?" in self._ram_cache else ("I'm listening." if "I'm listening." in self._ram_cache else "Okay.")
+        pcm = self._ram_cache.get(chosen, b"")
+        duration = self._durations.get(chosen, 300.0)
+        return chosen, pcm, duration
+
     def get_phrase_bytes(self, phrase: str) -> Optional[Tuple[bytes, float]]:
         """O(1) direct lookup for a specific phrase (e.g. 'Please confirm.', 'Cancelled.')."""
         if phrase in self._ram_cache:
             return self._ram_cache[phrase], self._durations.get(phrase, 350.0)
+
+        norm_key = phrase.strip().rstrip(".").lower()
+        if norm_key in self._norm_cache:
+            return self._norm_cache[norm_key], self._norm_durations.get(norm_key, 350.0)
+
+        # Fast prefix matching to existing cached clips (0ms delay)
+        if norm_key.startswith("opening"):
+            if "chrome" in norm_key and "opening chrome" in self._norm_cache:
+                return self._norm_cache["opening chrome"], self._norm_durations.get("opening chrome", 350.0)
+            if "notepad" in norm_key and "opening notepad" in self._norm_cache:
+                return self._norm_cache["opening notepad"], self._norm_durations.get("opening notepad", 350.0)
+            if "opening it" in self._norm_cache:
+                return self._norm_cache["opening it"], self._norm_durations.get("opening it", 350.0)
+        if norm_key.startswith("sending") and "sending whatsapp message" in self._norm_cache:
+            return self._norm_cache["sending whatsapp message"], self._norm_durations.get("sending whatsapp message", 350.0)
+        if (norm_key.startswith("checking") or norm_key.startswith("searching") or "whatsapp" in norm_key) and "checking your whatsapp messages" in self._norm_cache:
+            return self._norm_cache["checking your whatsapp messages"], self._norm_durations.get("checking your whatsapp messages", 350.0)
         return None
 
     def record_played(self, phrase: str) -> None:

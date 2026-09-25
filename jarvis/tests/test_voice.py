@@ -552,6 +552,11 @@ class TestVoicePipeline:
         assert VoicePipeline._strip_wake_phrase("hey jarvis open notepad") == "open notepad"
         assert VoicePipeline._strip_wake_phrase("Jarvis, find my notes") == "find my notes"
         assert VoicePipeline._strip_wake_phrase("open chrome") == "open chrome"
+        assert VoicePipeline._strip_wake_phrase("Yes, open Chrome") == "open Chrome"
+        assert VoicePipeline._strip_wake_phrase("Yes open Chrome") == "open Chrome"
+        assert VoicePipeline._strip_wake_phrase("ok jarvis launch calc") == "launch calc"
+        assert VoicePipeline._strip_wake_phrase("Hey Jarvis") == ""
+        assert VoicePipeline._strip_wake_phrase("Yes") == "Yes"
 
     def test_disabled_pipeline(self):
         pipeline = VoicePipeline(voice_enabled=False)
@@ -574,6 +579,100 @@ class TestVoicePipeline:
         pipeline = VoicePipeline(voice_enabled=False)
         await pipeline.stop()
         assert not pipeline.is_running
+
+    @pytest.mark.asyncio
+    async def test_speech_frames_fed_during_wake_ack(self):
+        from jarvis.core.audio.frame import AudioFrame
+        from jarvis.core.audio.hub import AudioConsumer
+        from jarvis.core.audio.vad import VADResult, VADState
+        from jarvis.core.stt.base import TranscriptFinal
+
+        class MockSTT:
+            is_loaded = True
+            model_name = "test-model"
+            def __init__(self):
+                self.fed_pcm = []
+            async def start_session(self, sid):
+                pass
+            async def feed_audio(self, pcm):
+                self.fed_pcm.append(pcm)
+            async def get_partial(self):
+                return None
+            async def finalize(self):
+                return TranscriptFinal(session_id="s1", text="Hey Jarvis, open Chrome")
+
+        class MockVAD:
+            silence_duration_ms = 900.0
+            speech_duration_ms = 600.0
+            def __init__(self):
+                self.feed_count = 0
+            def feed(self, frame):
+                self.feed_count += 1
+                if self.feed_count <= 2:
+                    return VADResult(is_speech=True, probability=0.9, inference_ms=0.5, state=VADState.SPEECH)
+                return VADResult(is_speech=False, probability=0.1, inference_ms=0.5, state=VADState.TRAILING_SILENCE)
+            def reset(self):
+                pass
+
+        class MockBargeIn:
+            def __init__(self):
+                self.cancelled = False
+            def on_user_speech_started(self, ns):
+                self.cancelled = True
+
+        class MockResponseEngine:
+            class MockAudioOutput:
+                is_playing = True
+            audio_output = MockAudioOutput()
+            def play_wake_ack(self, sid):
+                return True
+
+        class MockEndpoint:
+            def should_finalize(self, **kwargs):
+                return (True, "silence")
+
+        stt = MockSTT()
+        vad = MockVAD()
+        barge = MockBargeIn()
+        resp = MockResponseEngine()
+        endpoint = MockEndpoint()
+
+        pipeline = VoicePipeline(
+            stt_engine=stt,
+            vad_engine=vad,
+            endpoint_detector=endpoint,
+            barge_in_controller=barge,
+            response_engine=resp,
+            preroll_ms=0,
+        )
+        pipeline._running = True
+        consumer = AudioConsumer("test_vad")
+        pipeline._vad_consumer = consumer
+
+        test_frame = AudioFrame(
+            sequence_id=1,
+            timestamp_ns=100,
+            sample_rate=16000,
+            channels=1,
+            sample_count=160,
+            pcm=b"\x00\x01" * 160,
+        )
+
+        async def feed_frames():
+            await asyncio.sleep(0.01)
+            for _ in range(4):
+                consumer.put(test_frame)
+                await asyncio.sleep(0.01)
+
+        feed_task = asyncio.create_task(feed_frames())
+        await pipeline._handle_speech_session(trigger_source="wake_word")
+        await feed_task
+
+        # Crucial assertions:
+        # 1. Microphone frames were fed to STT even though assistant wake ACK was playing!
+        assert len(stt.fed_pcm) >= 2, f"STT received {len(stt.fed_pcm)} frames; expected >= 2"
+        # 2. Barge-in was triggered to mute wake ACK
+        assert barge.cancelled is True
 
 
 # ── Vocabulary Bias Tests ──

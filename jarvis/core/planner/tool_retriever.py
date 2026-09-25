@@ -71,6 +71,18 @@ VERB_MAPPING: dict[str, tuple[str, ...]] = {
     "close": ("close_app",),
     "quit": ("close_app",),
     "kill": ("close_app",),
+    "install": ("powershell_command",),
+    "setup": ("powershell_command",),
+    "download": ("powershell_command", "browser_navigate"),
+    "powershell": ("powershell_command",),
+    "script": ("powershell_command",),
+    "admin": ("powershell_command",),
+    "cmd": ("powershell_command",),
+    "navigate": ("browser_navigate",),
+    "browse": ("browser_navigate", "browser_snapshot"),
+    "click": ("browser_click", "desktop_ui_click"),
+    "type": ("browser_type",),
+    "snapshot": ("browser_snapshot", "desktop_ui_snapshot", "take_screenshot"),
 }
 
 DOMAIN_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -83,12 +95,19 @@ DOMAIN_KEYWORDS: dict[str, tuple[str, ...]] = {
     "notes": ("find_file", "open_file", "copy_file"),
     "exam": ("find_file", "open_file", "copy_file", "create_folder"),
     "study": ("find_file", "open_file", "copy_file", "create_folder"),
-    "desktop": ("create_folder", "copy_file", "open_file", "list_directory"),
+    "desktop": ("create_folder", "copy_file", "open_file", "list_directory", "desktop_ui_snapshot"),
     "downloads": ("find_file", "copy_file", "list_directory"),
     "documents": ("find_file", "copy_file", "list_directory"),
-    "chrome": ("open_app", "close_app"),
+    "chrome": ("open_app", "close_app", "browser_navigate"),
     "notepad": ("open_app", "close_app"),
     "calculator": ("open_app", "close_app"),
+    "ollama": ("powershell_command",),
+    "software": ("powershell_command",),
+    "program": ("powershell_command", "open_app", "close_app"),
+    "browser": ("browser_navigate", "browser_click", "browser_type", "browser_snapshot"),
+    "web": ("browser_navigate", "browser_click", "browser_snapshot"),
+    "dom": ("browser_snapshot", "desktop_ui_snapshot"),
+    "uia": ("desktop_ui_snapshot", "desktop_ui_click"),
 }
 
 

@@ -17,7 +17,7 @@ from jarvis.core.tts.base import TTSChunk, TTSEngine
 
 logger = logging.getLogger("jarvis.tts.piper")
 
-DEFAULT_PIPER_MODEL = "models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+DEFAULT_PIPER_MODEL = "models/piper/en/en_US/ryan/medium/en_US-ryan-medium.onnx"
 
 PRONUNCIATION_OVERRIDES = {
     r"\bFastAPI\b": "Fast A P I",
@@ -44,6 +44,14 @@ def normalize_tts_text(text: str) -> str:
         return ""
 
     norm = text.strip()
+
+    # Strip any redaction tags or bracketed placeholders so TTS never spells them out letter-by-letter
+    norm = re.sub(r"\[(?:REDACTED(?:_[A-Z]+)?|Card Hidden|REDACTED_KEY|REDACTED_CARD|REDACTED_SECRET)\]", "hidden item", norm, flags=re.IGNORECASE)
+    norm = norm.replace("[", "").replace("]", "").replace("{", "").replace("}", "").replace("`", "")
+    norm = norm.replace("_", " ")
+
+    # Replace long numbers of 5 or more digits with friendly ending so TTS doesn't speak 15 digits digit-by-digit
+    norm = re.sub(r"\b\d{5,}\b", lambda m: f"ending in {m.group(0)[-4:]}", norm)
 
     # Apply pronunciation overrides
     for pattern, replacement in PRONUNCIATION_OVERRIDES.items():
@@ -97,12 +105,48 @@ class PiperEngine:
             raise FileNotFoundError(f"Piper model not found at {self.model_path}")
 
         t0 = perf_counter_ns()
-        from piper import PiperVoice
+        import json
+        import os
+        from piper import PiperVoice, PiperConfig
+        from piper.voice import ESPEAK_DATA_DIR
+        import onnxruntime as ort
 
-        cfg = str(self.config_path) if self.config_path and self.config_path.exists() else None
-        self._voice = PiperVoice.load(str(self.model_path), config_path=cfg, use_cuda=self.use_cuda)
+        cfg_path = self.config_path if self.config_path and self.config_path.exists() else self.model_path.with_suffix(".onnx.json")
+        if not cfg_path.exists():
+            cfg_path = Path(str(self.model_path) + ".json")
+
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                config_dict = json.load(f)
+            config = PiperConfig.from_dict(config_dict)
+
+            sess_options = ort.SessionOptions()
+            sess_options.intra_op_num_threads = min(8, max(4, os.cpu_count() or 4))
+            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+            providers = ["CPUExecutionProvider"]
+            if self.use_cuda:
+                providers = [("CUDAExecutionProvider", {"cudnn_conv_algo_search": "HEURISTIC"})]
+
+            session = ort.InferenceSession(str(self.model_path), sess_options=sess_options, providers=providers)
+            self._voice = PiperVoice(
+                config=config,
+                session=session,
+                espeak_data_dir=Path(ESPEAK_DATA_DIR),
+                download_dir=self.model_path.parent,
+            )
+        else:
+            cfg = str(cfg_path) if cfg_path.exists() else None
+            self._voice = PiperVoice.load(str(self.model_path), config_path=cfg, use_cuda=self.use_cuda)
+
+        # Pre-warm runtime graph once
+        try:
+            list(self._voice.synthesize("Warmup"))
+        except Exception:
+            pass
+
         self.last_load_ms = (perf_counter_ns() - t0) / 1e6
-        logger.info("Piper voice model loaded in %.1f ms from %s", self.last_load_ms, self.model_path)
+        logger.info("Piper voice model loaded & warmed in %.1f ms from %s", self.last_load_ms, self.model_path)
 
     async def ensure_loaded(self) -> None:
         """Ensure model is loaded asynchronously in executor if needed."""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 import time
@@ -51,11 +52,16 @@ class AuditLogger:
         self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
         self._init_db()
 
+    def _get_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=15000")
+        return conn
+
     def _init_db(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
+        with self._get_conn() as conn:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS audit_log (
@@ -115,20 +121,29 @@ class AuditLogger:
             duration_ms=duration_ms,
         )
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO audit_log
-                (audit_id, request_id, graph_id, node_id, tool, method, risk, decision, confirmation_ticket_id, action_fingerprint, result_status, verification_summary, duration_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    entry.audit_id, entry.request_id, entry.graph_id, entry.node_id,
-                    entry.tool, entry.method, entry.risk.value, entry.decision,
-                    entry.confirmation_ticket_id, entry.action_fingerprint,
-                    entry.result_status, entry.verification_summary, entry.duration_ms
-                ),
-            )
-            conn.commit()
+        for attempt in range(5):
+            try:
+                with self._get_conn() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO audit_log
+                        (audit_id, request_id, graph_id, node_id, tool, method, risk, decision, confirmation_ticket_id, action_fingerprint, result_status, verification_summary, duration_ms)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            entry.audit_id, entry.request_id, entry.graph_id, entry.node_id,
+                            entry.tool, entry.method, entry.risk.value, entry.decision,
+                            entry.confirmation_ticket_id, entry.action_fingerprint,
+                            entry.result_status, entry.verification_summary, entry.duration_ms
+                        ),
+                    )
+                    conn.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < 4:
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                logging.getLogger("jarvis.audit").warning("Failed to record audit log: %s", e)
+                break
 
         return entry

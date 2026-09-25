@@ -31,6 +31,8 @@ def compute_action_fingerprint(
     path_keys = {"path", "source", "destination", "dest", "target", "file_path", "folder_path", "old_path", "new_path"}
 
     for k, v in sorted(args.items()):
+        if k.lower() in ("confirmation_ticket", "ticket_id"):
+            continue
         if k.lower() in path_keys and isinstance(v, str):
             canonical_args[k] = str(canonicalize_path(v)).lower()
         else:

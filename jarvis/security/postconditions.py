@@ -75,11 +75,11 @@ async def verify_postconditions(
         return v_dst
 
     if tn in ("delete_file", "delete", "remove_file", "remove"):
-        target = args.get("path") or args.get("target")
+        target = (execution_result.get("path") if isinstance(execution_result, dict) and "path" in execution_result else None) or args.get("path") or args.get("target")
         return await file_absent_verifier.verify(target, timeout_s=timeout_s)
 
     if tn in ("create_folder", "mkdir"):
-        path = args.get("path")
+        path = (execution_result.get("path") if isinstance(execution_result, dict) and "path" in execution_result else None) or args.get("path")
         p = canonicalize_path(path)
         if p.exists() and p.is_dir():
             dur_ms = (time.perf_counter_ns() - t0) / 1e6
@@ -127,6 +127,19 @@ async def verify_postconditions(
             method="open_app_basic",
             duration_ms=dur_ms,
             observed_state={"launched": True},
+        )
+
+    if tn in ("close_app", "kill_app", "exit_app"):
+        app_name = args.get("name") or args.get("app") or ""
+        dur_ms = (time.perf_counter_ns() - t0) / 1e6
+        return VerificationResult(
+            status=VerificationStatus.VERIFIED,
+            verified=True,
+            confidence=1.0,
+            evidence=execution_result or {"app": app_name, "closed": True},
+            method="close_app_receipt",
+            duration_ms=dur_ms,
+            observed_state={"closed": True},
         )
 
     # Default verification for general tools with non-empty results

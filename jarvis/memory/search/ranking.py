@@ -1,11 +1,28 @@
 import time
 from jarvis.memory.search.models import MatchReason, SearchQuery, SearchResult
 
+from typing import Iterable
+
 RRF_K = 60.0
 
 def calculate_rrf_score(rank: int, k: float = RRF_K) -> float:
     """Computes standard Reciprocal Rank Fusion component: 1 / (k + rank)."""
     return 1.0 / (k + rank)
+
+
+def reciprocal_rank_fusion(
+    rankings: Iterable[Iterable[str]], k: int = 60
+) -> list[tuple[str, float]]:
+    """Fuse document ranks. Scores are not probabilities."""
+    if k < 1:
+        raise ValueError("k must be positive")
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        unique = dict.fromkeys(ranking)
+        for rank, resource_id in enumerate(unique, start=1):
+            scores[resource_id] = scores.get(resource_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+
 
 def rerank_search_results(
     candidates: list[dict],
@@ -67,7 +84,17 @@ def rerank_search_results(
                 reasons.append(MatchReason.TYPE_MATCH.value)
             elif ext != clean_type:
                 # Penalty for mismatched explicit extension
-                score *= 0.60
+                score *= 0.20
+
+        # 4b. Directory hint bonus & filtering
+        if query.directory_hint:
+            dir_clean = query.directory_hint.casefold()
+            cand_path = (cand.get("path") or "").casefold()
+            if dir_clean in cand_path:
+                score += 0.35
+                reasons.append(MatchReason.PATH_MATCH.value)
+            else:
+                score *= 0.10
 
         # 5. Recency bonus
         age_ns = max(0, now_ns - mod_ns)

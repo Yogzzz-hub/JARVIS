@@ -50,9 +50,11 @@ def generate_human_summary(tool_name: str, args: dict[str, Any], risk: RiskLevel
         subj = args.get("subject", "")
         return f"Send email to '{to}' with subject '{subj}'"
 
-    if tn in ("send_message", "message"):
+    if tn in ("send_message", "message", "send_whatsapp_message"):
         recipient = args.get("recipient", args.get("to", "contact"))
-        return f"Send message to '{recipient}'"
+        text = args.get("text", args.get("message", ""))
+        preview = f": '{text}'" if text else ""
+        return f"Send WhatsApp message to '{recipient}'{preview}"
 
     # Default structured fallback
     target_info = args.get("path") or args.get("target") or args.get("name") or ""
@@ -86,6 +88,14 @@ class ConfirmationManager:
         self.default_timeout_s = default_timeout_s
         self._tickets: dict[str, ConfirmationTicket] = {}
 
+    def get_latest_pending_ticket(self) -> ConfirmationTicket | None:
+        """Returns the most recently issued pending ticket that has not expired."""
+        now = time.time()
+        for ticket in reversed(list(self._tickets.values())):
+            if ticket.status == TicketStatus.PENDING and now <= ticket.expires_at:
+                return ticket
+        return None
+
     def issue_ticket(
         self,
         request_id: str,
@@ -117,7 +127,13 @@ class ConfirmationManager:
         self._tickets[ticket_id] = ticket
         return ticket
 
-    def approve_ticket(self, ticket_id: str) -> bool:
+    def approve_ticket(self, ticket_id: str = "") -> bool:
+        if not ticket_id:
+            latest = self.get_latest_pending_ticket()
+            if latest:
+                ticket_id = latest.ticket_id
+            else:
+                return False
         ticket = self._tickets.get(ticket_id)
         if not ticket or ticket.status != TicketStatus.PENDING:
             return False
@@ -127,7 +143,13 @@ class ConfirmationManager:
         ticket.status = TicketStatus.APPROVED
         return True
 
-    def deny_ticket(self, ticket_id: str) -> bool:
+    def deny_ticket(self, ticket_id: str = "") -> bool:
+        if not ticket_id:
+            latest = self.get_latest_pending_ticket()
+            if latest:
+                ticket_id = latest.ticket_id
+            else:
+                return False
         ticket = self._tickets.get(ticket_id)
         if not ticket:
             return False

@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 class ResponseType(str, Enum):
     """Types of responses emitted by the response engine."""
+    EARCON = "earcon"
     ACK = "ack"
     FINAL = "final"
     CONFIRMATION = "confirmation"
@@ -67,6 +68,9 @@ class SpokenResponse:
     sample_rate: int = 22050
     duration_ms: float = 0.0
     delivery_status: DeliveryStatus = DeliveryStatus.PENDING
+    is_chunk: bool = False
+    chunk_index: int = 0
+    is_last_chunk: bool = True
 
     # Latency instrumentation
     tts_start_ns: int = 0

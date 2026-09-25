@@ -5,6 +5,8 @@
 JARVIS EDGE is designed as an ultra-low-latency, zero-bloat edge AI assistant for local Windows workstations. 
 Phase 1 established the deterministic core engine and native OS tool subsystem. 
 Phase 2 implements the Ultra-Fast Intelligent Router, ensuring that natural language queries are executed via the cheapest, fastest, and safest lane possible without unnecessarily invoking an LLM.
+JARVIS EDGE v1.0 Desktop UI introduces a native PySide6 + QML/Qt Quick presentation layer communicating with the authoritative backend via persistent WebSocket (`ws://127.0.0.1:8765/ws`) and REST endpoints.
+
 
 ```mermaid
 flowchart TD

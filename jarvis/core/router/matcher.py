@@ -23,6 +23,36 @@ def match_patterns(
             match = pattern.match(text_clean)
             if match:
                 raw_dict = match.groupdict()
+
+                # Guard: Do not let open_app swallow multi-action compound sentences, action verbs, or pronouns
+                if defn.name == "open_app" and "name" in raw_dict:
+                    val = str(raw_dict["name"]).lower().strip()
+                    if val in ("it", "that", "this", "them", "window", "this window", "active window"):
+                        continue
+                    if any(sep in val for sep in (",", ";", " and ", " and then ", " then ", " play ", " message ", " send ", " check ", " search ", " find ")):
+                        continue
+
+                # Guard: Do not let find_file swallow news, web, youtube, duplicate checking, app location, or UI element queries
+                if defn.name == "find_file" and "query" in raw_dict:
+                    val = str(raw_dict["query"]).lower().strip()
+                    if any(kw in val for kw in ("news", "on youtube", "in youtube", "google", "web", "located", "installed", "where is", "is installed", "duplicate", "duplicates", "button", "on screen", "on the screen")):
+                        continue
+
+                # Guard: Do not let search_web swallow system, hardware, rss, or device queries
+                if defn.name == "search_web" and "query" in raw_dict:
+                    val = str(raw_dict["query"]).lower().strip()
+                    if any(kw in val for kw in ("rss", "feed", "phone", "installed", "status", "mic", "microphone", "diagnostics", "active window")):
+                        continue
+
+                # Guard: Do not let list_directory swallow UI, status, info, or date commands
+                if defn.name == "list_directory" and "path" in raw_dict:
+                    val = str(raw_dict["path"]).lower().strip()
+                    if (
+                        val in ("desktop", "the desktop", "dashboard", "the dashboard", "phone", "my phone")
+                        or any(w in val for w in ("info", "status", "diagnostics", "weather", "news", "specs", "system", "date", "time"))
+                    ):
+                        continue
+
                 parsed_slots: dict[str, Any] = {}
                 missing_slots: list[str] = []
 
@@ -45,6 +75,16 @@ def match_patterns(
                         parsed_slots["seconds"] = int(mins) * 60
                         if "seconds" in missing_slots:
                             missing_slots.remove("seconds")
+
+                if defn.name == "read_whatsapp_messages" and "filter" not in parsed_slots:
+                    if "unread" in text_clean:
+                        parsed_slots["filter"] = "unread"
+                    elif "urgent" in text_clean:
+                        parsed_slots["filter"] = "urgent"
+                    elif "all" in text_clean:
+                        parsed_slots["filter"] = "all"
+                    else:
+                        parsed_slots["filter"] = "needs_reply"
 
                 if missing_slots:
                     return RouteDecision(

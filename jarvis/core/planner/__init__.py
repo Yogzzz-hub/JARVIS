@@ -23,6 +23,8 @@ from jarvis.core.planner.schema import (
 from jarvis.core.planner.tool_retriever import CompactToolSchema, ToolRetriever
 from jarvis.core.planner.validator import GraphValidationError, GraphValidator, ValidationResult
 
+from jarvis.core.planner.topology import Step, validate_topology
+
 __all__ = [
     "AdaptivePlanner",
     "PlanningResult",
@@ -49,4 +51,7 @@ __all__ = [
     "GraphResult",
     "CapabilityGap",
     "BlockingQuestion",
+    "Step",
+    "validate_topology",
 ]
+

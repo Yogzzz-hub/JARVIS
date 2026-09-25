@@ -1,16 +1,78 @@
 intents:
+  - name: show_dashboard
+    tool: show_dashboard
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:open|show|bring up|display|launch|view)(?: me)? (?:the |my )?dashboard$"
+      - "^(?:open|show|bring up|display|launch) (?:jarvis |the jarvis )?dashboard$"
+      - "^dashboard(?: open| show)?$"
+      - "^wake(?: up)?$"
+      - "^(?:hey )?jarvis wake(?: up)?$"
+      - "^wake(?: up)?(?: jarvis)?$"
+    keywords: ["dashboard", "show dashboard", "open dashboard", "jarvis dashboard", "wake", "wake up", "wake jarvis"]
+    examples:
+      - "open dashboard"
+      - "show dashboard"
+      - "dashboard"
+      - "bring up the dashboard"
+      - "open jarvis dashboard"
+    negative_examples:
+      - "what is a dashboard"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: wake_greeting
+    tool: wake_greeting
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:good morning|good afternoon|good evening)(?: jarvis)?$"
+      - "^(?:hello|hi|hey)(?: jarvis)?$"
+      - "^(?:hey )?jarvis$"
+      - "^(?:are you there|you there|wake up)$"
+    keywords: ["hello", "hi", "hey jarvis", "jarvis", "are you there", "wake up"]
+    examples:
+      - "hello"
+      - "hi"
+      - "hey jarvis"
+      - "jarvis"
+      - "are you there"
+      - "wake up"
+    negative_examples:
+      - "say hello to my friend"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
   - name: open_app
     tool: open_app
     risk: REVERSIBLE
     required_slots: ["name"]
     optional_slots: []
     patterns:
-      - "^open (?P<name>.+)$"
+      - "^(?:i want|i need|give me|open up|bring up|pull up)(?: my| the)? (?P<name>[a-zA-Z0-9_\\s\\-]+?)(?: on(?: the| my)? screen)?(?: please)?$"
+      - "^(?:put|get|show)(?: my| the)? (?P<name>[a-zA-Z0-9_\\s\\-]+?)(?: on(?: the| my)? screen| running)?(?: please)?$"
+      - "^(?:can you )?bring (?P<name>[a-zA-Z0-9_\\s\\-]+?) up(?: for me)?(?: please)?$"
+      - "^open (?!antigravity\\b|settings\\b|sound settings\\b|display settings\\b|network settings\\b|wifi settings\\b|task manager\\b|system information\\b|device manager\\b|downloads\\b|documents\\b|desktop folder\\b|pictures\\b|file explorer\\b)(?P<name>.+)$"
       - "^start (?P<name>.+)$"
       - "^launch (?P<name>.+)$"
       - "^bring up (?P<name>.+)$"
+      - "^pull up (?P<name>.+)$"
       - "^run (?P<name>.+)$"
-    keywords: ["open", "start", "launch", "bring up", "run"]
+      - "^(?P<name>browser|chrome|google chrome|notepad|calculator|calc|vscode|vs code|terminal|cmd|powershell|edge|msedge|explorer|file explorer|default apps|default app|settings|downloads|documents|youtube|whatsapp|spotify|netflix|github|chatgpt)$"
+    keywords: ["open", "start", "launch", "bring up", "run", "chrome", "notepad", "calculator", "calc", "vscode", "terminal", "youtube", "whatsapp", "spotify", "browser", "default apps", "settings", "downloads", "app"]
     examples:
       - "open chrome"
       - "start vscode"
@@ -26,8 +88,8 @@ intents:
       - "what is chrome"
       - "how do i open chrome"
     aliases:
-      chrome: ["google chrome", "browser"]
-      vscode: ["vs code", "visual studio code", "code"]
+      chrome: ["google chrome"]
+      vscode: ["vs code", "visual studio code"]
       notepad: ["text editor"]
       calculator: ["calc"]
       cmd: ["command prompt"]
@@ -45,10 +107,10 @@ intents:
     required_slots: ["name"]
     optional_slots: []
     patterns:
-      - "^close (?P<name>.+)$"
-      - "^quit (?P<name>.+)$"
-      - "^kill (?P<name>.+)$"
-      - "^exit (?P<name>.+)$"
+      - "^close (?!window\\b|this\\b|active window\\b|current window\\b)(?P<name>.+)$"
+      - "^quit (?!window\\b|this\\b)(?P<name>.+)$"
+      - "^kill (?!window\\b|this\\b)(?P<name>.+)$"
+      - "^exit (?!window\\b|this\\b)(?P<name>.+)$"
     keywords: ["close", "quit", "kill", "exit"]
     examples:
       - "close chrome"
@@ -71,10 +133,12 @@ intents:
     required_slots: ["percent"]
     optional_slots: []
     patterns:
-      - "^volume (?:set to |to )?(?P<percent>\\d+)(?:%| percent)?$"
-      - "^set volume (?:to )?(?P<percent>\\d+)(?:%| percent)?$"
-      - "^sound (?:set to |to )?(?P<percent>\\d+)(?:%| percent)?$"
-    keywords: ["volume", "sound", "set volume", "audio"]
+      - "^(?:set )?(?:the )?(?:output )?volume (?:level )?(?:set to |to |at )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^set volume (?:to |at )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^turn (?:down |up )?(?:the )?(?:volume|sound) (?:down to |up to |down |up |to )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^sound (?:level )?(?:set to |to |at )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^adjust (?:the )?(?:output )?(?:volume|sound) (?:down to |up to |down |up |to )?(?P<percent>\\d+)(?:%| percent)?$"
+    keywords: ["volume", "sound", "set volume", "audio", "volume down to", "volume up to", "turn down to", "turn up to", "down to", "up to"]
     examples:
       - "volume 30"
       - "set volume to 50"
@@ -85,6 +149,124 @@ intents:
       - "what is the volume"
       - "volume down"
       - "volume up"
+      - "turn brightness down"
+      - "brightness 30"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 85.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.88
+    lane1_threshold: 0.75
+
+  - name: brightness_set
+    tool: brightness_set
+    risk: REVERSIBLE
+    required_slots: ["percent"]
+    optional_slots: []
+    patterns:
+      - "^(?:set )?(?:the )?(?:screen |display )?brightness (?:level )?(?:set to |to |at )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^set (?:the )?(?:screen |display )?brightness (?:to |at )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^turn (?:the )?(?:screen |display )?brightness (?:down to |up to |to )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^brightness (?:level )?(?:set to |to |at )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^adjust (?:the )?(?:screen |display )?brightness (?:down to |up to |to )?(?P<percent>\\d+)(?:%| percent)?$"
+      - "^dim (?:the )?(?:screen |display )?(?:brightness )?(?:to |down to )?(?P<percent>\\d+)(?:%| percent)?$"
+    keywords: ["brightness", "screen brightness", "display brightness", "dim", "brighten"]
+    examples:
+      - "brightness 30"
+      - "set brightness to 50"
+      - "turn the brightness down to 30 percent"
+      - "dim the screen to 20%"
+    negative_examples:
+      - "what is the brightness"
+      - "volume 30"
+      - "turn volume down"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.88
+    lane1_threshold: 0.75
+
+  - name: brightness_get
+    tool: brightness_get
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^brightness$"
+      - "^what is the (?:screen |display )?brightness$"
+      - "^what's the (?:screen |display )?brightness$"
+      - "^get brightness$"
+      - "^check (?:the )?(?:screen |display )?brightness$"
+      - "^current brightness$"
+    keywords: ["brightness", "what is the brightness", "check brightness", "current brightness"]
+    examples:
+      - "brightness"
+      - "what is the brightness"
+      - "check brightness"
+    negative_examples:
+      - "brightness 50"
+      - "set brightness to 30"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 85.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.75
+
+  - name: top_memory_processes
+    tool: top_memory_processes
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^which (?:programs|apps|applications|processes) are using the most (?:memory|ram)$"
+      - "^what (?:programs|apps|applications|processes) are using the most (?:memory|ram)$"
+      - "^what is using the most (?:memory|ram)$"
+      - "^top (?:memory|ram) (?:processes|programs|apps|applications)$"
+      - "^show (?:the )?top (?:memory|ram) (?:processes|programs|apps|applications)$"
+      - "^which (?:apps?|programs?|processes?) (?:use|take|consume) the most (?:memory|ram)$"
+      - "^memory hogs$"
+    keywords: ["top memory", "most memory", "programs using memory", "highest memory", "most ram"]
+    examples:
+      - "which programs are using the most memory"
+      - "what is using the most ram"
+      - "top memory processes"
+    negative_examples:
+      - "system specs"
+      - "close chrome"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.88
+    lane1_threshold: 0.75
+
+  - name: volume_get
+    tool: volume_get
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^volume$"
+      - "^what is the volume$"
+      - "^what's the volume$"
+      - "^get volume$"
+      - "^check volume$"
+      - "^current volume$"
+    keywords: ["volume", "what is the volume", "get volume", "check volume", "current volume"]
+    examples:
+      - "volume"
+      - "what is the volume"
+      - "check volume"
+    negative_examples:
+      - "volume up"
+      - "volume down"
+      - "set volume to 50"
     aliases: {}
     fuzzy_allowed: true
     fuzzy_threshold: 85.0
@@ -210,7 +392,7 @@ intents:
     optional_slots: ["limit"]
     patterns:
       - "^list (?:directory |folder |files in )?(?P<path>.+)$"
-      - "^show (?:directory |folder |files in )?(?P<path>.+)$"
+      - "^show (?:directory |folder |files in |contents of )(?P<path>.+)$"
       - "^dir (?P<path>.+)$"
       - "^ls (?P<path>.+)$"
     keywords: ["list", "show files", "dir", "ls", "show directory", "folder files"]
@@ -280,13 +462,133 @@ intents:
       - "open report.xlsx"
     negative_examples:
       - "can chrome open pdf"
+  - name: create_folder
+    tool: create_folder
+    risk: REVERSIBLE
+    required_slots: ["path"]
+    optional_slots: []
+    patterns:
+      - "^create (?:a )?(?:new )?folder (?:called |named )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^make (?:a )?(?:new )?folder (?:called |named )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^new folder (?:called |named )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^mkdir (?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^create directory (?:called |named )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+    keywords: ["create folder", "make folder", "new folder", "mkdir", "create directory", "make directory", "new directory", "folder"]
+    examples:
+      - "create a folder called JarvisTest"
+      - "create folder notes"
+      - "make a new folder called project"
+    negative_examples:
+      - "how do i create a folder"
     aliases: {}
-    fuzzy_allowed: false
-    fuzzy_threshold: 90.0
-    ambiguity_margin: 15.0
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
     lane0_enabled: true
-    lane0_threshold: 0.90
-    lane1_threshold: 0.80
+    lane0_threshold: 0.85
+    lane1_threshold: 0.75
+
+  - name: rename_file
+    tool: rename_file
+    risk: REVERSIBLE
+    required_slots: ["source", "new_name"]
+    optional_slots: []
+    patterns:
+      - "^rename (?:folder |file )?(?P<source>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+?) to (?P<new_name>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^rename (?:folder |file )?(?P<source>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+?) as (?P<new_name>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+    keywords: ["rename", "rename file", "rename folder"]
+    examples:
+      - "rename JarvisTest to JarvisTest2"
+      - "rename file notes.txt to notes_old.txt"
+    negative_examples:
+      - "why rename"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.75
+
+  - name: delete_file
+    tool: delete_file
+    risk: REVERSIBLE
+    required_slots: ["path"]
+    optional_slots: []
+    patterns:
+      - "^delete (?:the )?(?:folder |file )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^remove (?:the )?(?:folder |file )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+      - "^trash (?:the )?(?:folder |file )?(?P<path>[a-zA-Z0-9_\\-\\.\\/\\\\ ]+)$"
+    keywords: ["delete", "remove", "trash", "delete file", "delete folder", "remove file", "remove folder"]
+    examples:
+      - "delete JarvisTest2"
+      - "delete folder JarvisTest2"
+      - "remove file notes.txt"
+    negative_examples:
+      - "don't delete"
+      - "how to delete"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.75
+
+
+  - name: describe_screen
+    tool: desktop_ui_snapshot
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:describe |tell me )?(?:what(?: is|'s)? )?(?:currently )?(?:on )?(?:my )?screen(?:\\?)?$"
+      - "^(?:describe|summarize)(?: the| my)? screen(?:\\?)?$"
+      - "^what(?: is|'s)? on (?:the|my) screen(?:\\?)?$"
+      - "^what (?:app|application|window) is (?:currently )?(?:visible|open|active)(?:\\?)?$"
+      - "^(?:show|get|check)(?: the)? active window(?:\\?)?$"
+      - "^(?:show|get|check)(?: the)? visible (?:app|application)(?:\\?)?$"
+    keywords: ["screen", "on screen", "on my screen", "describe screen", "active window", "visible app", "currently visible", "what is on my screen"]
+    examples:
+      - "describe what's on my screen"
+      - "what is on my screen"
+      - "what application is currently visible"
+      - "what app is visible"
+      - "describe my screen"
+    negative_examples:
+      - "turn off screen"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: desktop_ui_click
+    tool: desktop_ui_click
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["name", "automation_id", "control_type"]
+    patterns:
+      - "^(?:click|press|tap|find|locate)(?: the| on the)? (?P<name>[a-zA-Z0-9_\\-\\s]+?) button(?: on(?: the)? screen)?$"
+      - "^(?:click|press|tap|find|locate)(?: the| on the)? button (?P<name>[a-zA-Z0-9_\\-\\s]+?)(?: on(?: the)? screen)?$"
+      - "^(?:click|press|tap|find|locate)(?: on)? (?P<name>[a-zA-Z0-9_\\-\\s]+?) on(?: the)? screen$"
+      - "^(?:click|press|tap|find|locate)(?: the| on the)? button on(?: the)? screen$"
+    keywords: ["click", "press", "button", "find button", "locate button", "click button", "button on screen", "click on the screen", "find"]
+    examples:
+      - "click send button on the screen"
+      - "click save button"
+      - "click submit button on screen"
+    negative_examples:
+      - "don't click"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
 
   - name: take_screenshot
     tool: take_screenshot
@@ -327,9 +629,21 @@ intents:
       - "^current time$"
       - "^what time is it$"
       - "^what is the time$"
+      - "^what is the current time$"
+      - "^what's the time$"
+      - "^what's the current time$"
       - "^tell me the time$"
       - "^clock$"
-    keywords: ["time", "current time", "what time", "clock"]
+      - "^(?:what is |what's )?(?:today'?s? )?date$"
+      - "^what is the date(?: today)?$"
+      - "^what date is it(?: today)?$"
+      - "^what is today'?s? date$"
+      - "^what day is it(?: today)?$"
+      - "^today'?s? date$"
+      - "^date$"
+      - "^tell me the date$"
+      - "^date and time$"
+    keywords: ["time", "current time", "what time", "clock", "date", "today's date", "current date", "what date"]
     examples:
       - "time"
       - "what time is it"
@@ -358,14 +672,157 @@ intents:
       - "^specs$"
       - "^hardware info$"
       - "^show system info$"
-    keywords: ["system info", "sysinfo", "specs", "hardware info", "pc specs"]
+      - "^show system information$"
+      - "^show pc (?:specs|info|information)$"
+      - "^show specs$"
+      - "^(?:get |display |view )?(?:system |pc |hardware )?(?:info|information|specs)$"
+    keywords: ["system info", "sysinfo", "specs", "hardware info", "pc specs", "system information", "show system information"]
     examples:
       - "system info"
       - "show system info"
+      - "show system information"
+      - "system information"
       - "hardware info"
       - "specs"
     negative_examples:
       - "what is an operating system"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: microphone_status
+    tool: microphone_status
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:show |check |get )?(?:microphone|mic) status$"
+      - "^(?:is |check )?(?:the )?mic(?:rophone)? working$"
+      - "^(?:test |check )?(?:the )?mic(?:rophone)?$"
+      - "^microphone status$"
+      - "^mic status$"
+    keywords: ["microphone status", "mic status", "microphone", "mic working", "check microphone", "show microphone status"]
+    examples:
+      - "show microphone status"
+      - "microphone status"
+      - "mic status"
+      - "check microphone"
+      - "is microphone working"
+    negative_examples:
+      - "turn off microphone"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: speech_recognition_status
+    tool: speech_recognition_status
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:show |check |get )?(?:speech recognition|speech to text|stt|whisper) status$"
+      - "^(?:is |check )?(?:the )?speech recognition (?:working|active|ready)$"
+      - "^speech recognition status$"
+      - "^speech to text status$"
+    keywords: ["speech recognition status", "speech recognition", "speech to text status", "stt status", "whisper status", "show speech recognition status"]
+    examples:
+      - "show speech recognition status"
+      - "speech recognition status"
+      - "speech to text status"
+      - "check speech recognition"
+    negative_examples:
+      - "what is speech recognition"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: wake_word_status
+    tool: wake_word_status
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:show |check |get )?(?:wake word|wakeword|openwakeword) status$"
+      - "^(?:is |check )?(?:the )?wake word (?:active|working|listening|ready)$"
+      - "^wake word status$"
+      - "^wakeword status$"
+    keywords: ["wake word status", "wakeword status", "wake word", "openwakeword status", "show wake word status"]
+    examples:
+      - "show wake word status"
+      - "wake word status"
+      - "wakeword status"
+      - "is wake word active"
+    negative_examples:
+      - "change wake word"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: connected_devices
+    tool: connected_devices
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:show |check |get |list )?(?:connected |audio |hardware )?devices$"
+      - "^(?:show |list )?(?:connected )?hardware$"
+      - "^connected devices$"
+      - "^audio devices$"
+      - "^list devices$"
+    keywords: ["connected devices", "devices", "audio devices", "hardware devices", "show connected devices", "list devices"]
+    examples:
+      - "show connected devices"
+      - "connected devices"
+      - "list devices"
+      - "show audio devices"
+    negative_examples:
+      - "what devices are supported"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.80
+    lane1_threshold: 0.70
+
+  - name: system_diagnostics
+    tool: system_diagnostics
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["scope"]
+    patterns:
+      - "^(?:show |check |get |view )?(?:jarvis |system |backend )?status$"
+      - "^(?:show |run |perform )?diagnostics$"
+      - "^system diagnostics$"
+      - "^jarvis status$"
+      - "^system status$"
+      - "^backend status$"
+      - "^health(?: check)?$"
+    keywords: ["jarvis status", "diagnostics", "system diagnostics", "health", "system status", "backend status", "show jarvis status"]
+    examples:
+      - "show jarvis status"
+      - "jarvis status"
+      - "system status"
+      - "diagnostics"
+      - "health"
+    negative_examples:
+      - "what is status"
     aliases: {}
     fuzzy_allowed: true
     fuzzy_threshold: 80.0
@@ -490,3 +947,941 @@ intents:
     lane0_enabled: true
     lane0_threshold: 0.90
     lane1_threshold: 0.80
+
+  - name: set_voice
+    tool: set_voice
+    risk: REVERSIBLE
+    required_slots: ["gender"]
+    optional_slots: []
+    patterns:
+      - "^(?:change|switch|set) (?:your |the )?voice to (?P<gender>female|male|woman|man)(?: voice)?$"
+      - "^(?:change|switch|set) (?:your )?voice (?P<gender>female|male|woman|man)$"
+      - "^(?:change|switch|set) to (?P<gender>female|male|woman|man) voice$"
+      - "^(?:use|speak with|talk in|speak in) (?:a )?(?P<gender>female|male|woman|man) voice$"
+      - "^voice (?:to )?(?P<gender>female|male|woman|man)$"
+      - "^(?P<gender>female|male|woman|man) voice$"
+    keywords: ["voice", "change voice", "switch voice", "set voice", "female", "male"]
+    examples:
+      - "change your voice to female"
+      - "switch your voice to male"
+      - "change voice to male"
+      - "set voice to female"
+      - "switch to female voice"
+      - "voice to male"
+    negative_examples:
+      - "what is your voice"
+      - "don't change your voice"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: dictate_text
+    tool: dictate_text
+    risk: REVERSIBLE
+    required_slots: ["text"]
+    optional_slots: ["target_app"]
+    patterns:
+      - "^dictate (?P<text>.+)$"
+      - "^type (?P<text>.+)$"
+      - "^write (?P<text>.+)$"
+      - "^insert text (?P<text>.+)$"
+    keywords: ["dictate", "type", "write", "insert text", "speech to text"]
+    examples:
+      - "dictate hello world"
+      - "type meeting notes"
+      - "write an email draft"
+    negative_examples:
+      - "what type of file is this"
+    aliases: {}
+    fuzzy_allowed: false
+    fuzzy_threshold: 90.0
+    ambiguity_margin: 15.0
+    lane0_enabled: true
+    lane0_threshold: 0.90
+    lane1_threshold: 0.80
+
+  - name: read_whatsapp_messages
+    tool: read_whatsapp_messages
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["filter", "limit"]
+    patterns:
+      - "^(?:read|check|get|show)(?: my)? whatsapp(?: messages)?$"
+      - "^(?:read|check|get|show)(?: my)? unread whatsapp(?: messages)?$"
+      - "^(?:read|check|get|show) whatsapp(?: messages)?$"
+      - "^whatsapp messages$"
+      - "^any(?: new)? whatsapp messages(?: to respond to)?$"
+      - "^(?:what are the |what are my |what are |any )?(?:unread |recent )?(?:whatsapp messages?|messages? in whatsapp|messages? on whatsapp|messages? to whatsapp|whatsapp)$"
+      - "^what are the (?:unread |recent )?messages?(?: (?:in|on|to) whatsapp)?$"
+      - "^(?:read|check|get|show)(?: the)? (?:messages?|unread messages?)(?: (?:in|on|to|from) whatsapp)?$"
+      - "^(?:what are the )?messages (?:i need to respond to|needing reply)$"
+      - "^check messages$"
+    keywords: ["whatsapp", "messages", "read whatsapp", "check whatsapp", "messages to respond to", "whatsapp messages", "unread whatsapp", "unread message in whatsapp"]
+    examples:
+      - "read my whatsapp messages"
+      - "check whatsapp"
+      - "whatsapp messages"
+      - "what are the messages i need to respond to"
+    negative_examples:
+      - "what is whatsapp"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: summarize_whatsapp_messages
+    tool: summarize_whatsapp_messages
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["include_all"]
+    patterns:
+      - "^summarize(?: my)? whatsapp(?: messages)?$"
+      - "^summarize(?: my)? messages(?: to respond to)?$"
+      - "^(?:check|any) urgent whatsapp(?: messages)?$"
+      - "^who messaged me on whatsapp$"
+      - "^whatsapp summary$"
+      - "^urgent messages$"
+      - "^any urgent messages$"
+    keywords: ["summarize whatsapp", "whatsapp summary", "urgent messages", "urgent whatsapp"]
+    examples:
+      - "summarize my whatsapp messages"
+      - "whatsapp summary"
+      - "any urgent messages"
+      - "who messaged me on whatsapp"
+    negative_examples:
+      - "how to summarize"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: send_whatsapp_message
+    tool: send_whatsapp_message
+    risk: EXTERNAL_EFFECT
+    required_slots: ["recipient", "message"]
+    optional_slots: ["confirmation_ticket"]
+    patterns:
+      - "^(?:say|tell|send)\\s+(?P<message>(?!whatsapp|message|this|the|a\\s+message).+?)\\s+to\\s+(?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?$"
+      - "^(?:tell|text|message)\\s+(?P<recipient>[a-zA-Z0-9_\\-]+)(?:\\s+(?:in|on)\\s+whatsapp)?\\s+(?:saying\\s+|that\\s+|:\\s*)?(?P<message>.+?)(?:\\s+(?:in|on)\\s+whatsapp)?$"
+      - "^(?:send(?: a)? )?whatsapp (?:message )?to (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
+      - "^(?:send(?: a)? )?message (?:to )?(?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
+      - "^message (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
+      - "^whatsapp (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)\\s+(?P<message>.+)$"
+      - "^tell (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?\\s+(?P<message>.+)$"
+    keywords: ["whatsapp", "send whatsapp", "message", "send message", "tell on whatsapp", "say hi", "say hello", "say", "tell", "text", "hi"]
+    examples:
+      - "send whatsapp message to Mom: I will be home soon"
+      - "whatsapp Rahul meeting at 5"
+      - "message Boss on whatsapp saying report is ready"
+      - "send message to Sarah: please check the document"
+      - "say hi to yoga in whatsapp"
+      - "say hi to yoga"
+      - "tell yoga hi"
+    negative_examples:
+      - "can i send messages"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: search_web
+    tool: search_web
+    risk: READ_ONLY
+    required_slots: ["query"]
+    optional_slots: ["max_results"]
+    patterns:
+      - "^(?:search(?: the)? web for|google|search for|look up|check)(?: if)?\\s+(?P<query>.+)$"
+      - "^(?:what happened in|latest news on|news about|updates on)\\s+(?P<query>.+)$"
+      - "^check if anything (?:big )?happened in (?P<query>.+)$"
+    keywords: ["search", "web", "google", "news", "look up", "check"]
+    examples:
+      - "search web for latest AI models"
+      - "check if anything big happened in AI today"
+      - "search for weather in London"
+    negative_examples:
+      - "close the browser"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: android_open_control
+    tool: android_open_control
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:show|mirror|open) (?:my )?phone$"
+      - "^show phone on (?:the )?pc$"
+      - "^open scrcpy$"
+    keywords: ["show phone", "mirror phone", "phone screen", "open scrcpy"]
+    examples:
+      - "show my phone"
+      - "mirror phone"
+      - "open phone"
+    negative_examples:
+      - "call my phone"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: android_close_control
+    tool: android_close_control
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^(?:close|hide) (?:my )?phone(?: mirror)?$"
+      - "^close scrcpy$"
+    keywords: ["close phone", "hide phone", "close scrcpy"]
+    examples:
+      - "close my phone"
+      - "close phone mirror"
+    negative_examples:
+      - "open phone"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: android_status
+    tool: android_status
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - '^(?:is )?(?:my )?(?:android )?phone (?:connected|linked|reachable|ready)(?:\?)?$'
+      - '^(?:check |show |get )?(?:my )?(?:android |phone )?(?:connection )?status$'
+      - '^(?:check |see )?(?:if )?(?:my )?(?:android )?phone is (?:connected|linked|reachable|ready)(?:\?)?$'
+      - '^(?:show me |get )?(?:my )?phone battery(?: level)?$'
+    keywords: ["phone status", "android status", "phone connected", "phone battery", "is phone connected"]
+    examples:
+      - "is phone connected"
+      - "phone status"
+      - "is android phone linked and reachable"
+      - "show me my phone battery level"
+    negative_examples:
+      - "open phone"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: localsend_file
+    tool: localsend_file
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["path", "target_alias"]
+    patterns:
+      - "^(?:send (?:this )?(?:file )?to (?:my )?phone|send (?:the )?latest pdf to (?:my )?phone)$"
+      - "^send this to my phone$"
+      - "^send file to phone$"
+      - "^send screenshot to (?:my )?phone$"
+    keywords: ["send to phone", "send file to phone", "send to my phone", "localsend"]
+    examples:
+      - "send this file to my phone"
+      - "send the latest PDF to my phone"
+      - "send this to my phone"
+    negative_examples:
+      - "call my phone"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: rss_latest
+    tool: rss_latest
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["query", "limit"]
+    patterns:
+      - "^what(?:'s| is) new in (?P<query>ai|tech|science|software)$"
+      - "^give me the (?:important )?(?P<query>tech|ai)?\\s*news$"
+      - "^summarize (?:my )?unread feeds$"
+      - "^check (?:latest )?rss(?: news)?(?: feeds)?$"
+      - "^latest (?:ai |tech )?news$"
+    keywords: ["rss", "news", "what's new in ai", "tech news", "unread feeds"]
+    examples:
+      - "what's new in AI?"
+      - "give me the important tech news"
+      - "summarize my unread feeds"
+    negative_examples:
+      - "search web"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: memos_create
+    tool: memos_create
+    risk: REVERSIBLE
+    required_slots: ["content"]
+    optional_slots: ["tags"]
+    patterns:
+      - "^(?:make|take|create) a note(?: that|:)?\\s+(?P<content>.+)$"
+      - "^save to memos(?: that|:)?\\s+(?P<content>.+)$"
+      - "^note(?: down)?:?\\s+(?P<content>.+)$"
+    keywords: ["make a note", "take a note", "save to memos", "note down"]
+    examples:
+      - "make a note: test streaming STT tomorrow"
+      - "take a note buy groceries"
+      - "save to memos check server logs"
+    negative_examples:
+      - "read my notes"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: memos_recent
+    tool: memos_recent
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["query", "limit"]
+    patterns:
+      - "^(?:read|show|list|get) (?:my )?notes$"
+      - "^recent notes$"
+      - "^check (?:my )?notes$"
+    keywords: ["read notes", "show notes", "recent notes", "check notes"]
+    examples:
+      - "read my notes"
+      - "show recent notes"
+    negative_examples:
+      - "make a note"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 82.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: morning_briefing
+    tool: morning_briefing
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - "^good morning(?: jarvis)?$"
+      - "^morning briefing$"
+      - "^what(?:'s| is) happening today$"
+      - "^give me my morning briefing$"
+    keywords: ["good morning", "morning briefing", "what's happening today"]
+    examples:
+      - "good morning jarvis"
+      - "morning briefing"
+      - "what's happening today?"
+    negative_examples:
+      - "good night"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+    lane0_threshold: 0.85
+    lane1_threshold: 0.70
+
+  - name: play_youtube
+    tool: play_youtube
+    risk: REVERSIBLE
+    required_slots: ["query"]
+    optional_slots: []
+    patterns:
+      - '^play\s+(?P<query>.+?)\s+(?:on|in)\s+youtube$'
+      - '^search\s+(?P<query>.+?)\s+(?:on|in)\s+youtube$'
+      - '^(?:open youtube and play|play on youtube|play in youtube)\s+(?P<query>.+)$'
+      - '^play\s+(?P<query>.+)$'
+    keywords: ["play", "youtube", "play on youtube", "song", "video", "music"]
+    examples:
+      - "open youtube and play believer"
+      - "play kanima song on youtube"
+      - "play lofi hip hop on youtube"
+    negative_examples:
+      - "what is youtube"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+
+  - name: search_news
+    tool: search_news
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["query"]
+    patterns:
+      - '^(?:search\s+)?news\s+(?:in|about|for)\s+(?P<query>.+)$'
+      - '^(?:search\s+)?latest\s+news\s+(?:in|about|for)\s+(?P<query>.+)$'
+      - '^(?:what\x27s|what is|what are)\s+(?:the\s+)?(?:latest\s+)?news(?:\s+headlines|\s+stories)?(?:\s+(?:in|about|for)\s+(?P<query>.+))?$'
+      - '^(?:what are\s+)?(?:top|latest)\s+news\s+stories(?:\s+(?:in|about|for)\s+(?P<query>.+))?$'
+      - '^open\s+google\s+and\s+search\s+news(?:\s+(?:in|about|for)\s+(?P<query>.+))?$'
+      - '^(?:search\s+)?news$'
+      - '^(?:today|todays)\s+(?:india\s+)?news$'
+      - '^(?:search\s+)?latest\s+news$'
+      - '^(?:what\x27s|what is)\s+(?:the\s+)?news$'
+    keywords: ["news", "india news", "latest news", "today news", "headlines", "search news"]
+    examples:
+      - "search news in india"
+      - "latest news in india"
+      - "today news"
+      - "what is the news in india"
+    negative_examples:
+      - "what is the newspaper"
+    aliases: {}
+    fuzzy_allowed: true
+    fuzzy_threshold: 80.0
+    ambiguity_margin: 10.0
+    lane0_enabled: true
+
+  - name: close_window
+    tool: close_window
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - '^close$'
+      - '^close window$'
+      - '^close this$'
+      - '^close it$'
+      - '^close this window$'
+      - '^close active window$'
+      - '^(?:close|dismiss) active window(?: immediately)?$'
+      - '^dismiss (?:active )?window$'
+    keywords: ["close", "close window", "close this", "close it"]
+    examples:
+      - "close"
+      - "close window"
+    negative_examples:
+      - "close to"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: maximize_window
+    tool: maximize_window
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - '^max$'
+      - '^maximize$'
+      - '^maximize window$'
+      - '^maximize (?:active |current |this )?window$'
+      - '^fullscreen window$'
+      - '^fullscreen$'
+      - '^full screen$'
+      - '^fulll screen$'
+      - '^full screen window$'
+      - '^(?:make (?:it |this )?)?full ?screen$'
+      - '^(?:go |enter )?full ?screen$'
+      - '^(?:toggle )?full ?screen$'
+    keywords: ["maximize", "max", "maximize window", "fullscreen", "full screen", "fulll screen"]
+    examples:
+      - "max"
+      - "maximize"
+      - "maximize window"
+      - "fullscreen"
+      - "full screen"
+      - "fulll screen"
+      - "make it full screen"
+    negative_examples:
+      - "maximum"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: minimize_window
+    tool: minimize_window
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - '^min$'
+      - '^minimize$'
+      - '^minimize window$'
+    keywords: ["minimize", "min", "minimize window"]
+    examples:
+      - "min"
+      - "minimize"
+      - "minimize window"
+    negative_examples:
+      - "minimum"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: show_desktop
+    tool: show_desktop
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: []
+    patterns:
+      - '^desktop$'
+      - '^show desktop$'
+      - '^minimize all$'
+    keywords: ["desktop", "show desktop", "minimize all"]
+    examples:
+      - "desktop"
+      - "show desktop"
+      - "minimize all"
+    negative_examples:
+      - "desktop computer"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: media_control
+    tool: media_control
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: []
+    patterns:
+      - '^(?P<action>play|pause|play pause|next track|next song|next|previous track|previous song|previous|prev track|prev|stop media|stop|mute|unmute|volup|voldown)$'
+    keywords: ["play", "pause", "next", "previous", "mute", "unmute", "track", "song", "volup", "voldown"]
+    examples:
+      - "play"
+      - "pause"
+      - "next track"
+      - "previous song"
+      - "mute"
+      - "volup"
+      - "voldown"
+    negative_examples:
+      - "play football"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: refresh_applications
+    tool: refresh_applications
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["force"]
+    patterns:
+      - '^(?:please )?(?:refresh|rescan|reload|update) (?:my )?(?:installed )?(?:applications|apps|software)$'
+      - '^(?:refresh|rescan|reload) (?:apps|applications)$'
+    keywords: ["refresh applications", "refresh apps", "rescan apps", "reload applications", "update applications"]
+    examples:
+      - "refresh applications"
+      - "refresh apps"
+      - "rescan applications"
+    negative_examples:
+      - "refresh webpage"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: list_installed_applications
+    tool: list_installed_applications
+    risk: READ_ONLY
+    required_slots: []
+    optional_slots: ["filter", "limit"]
+    patterns:
+      - '^(?:please )?(?:show|list|display|get) (?:all |my )?(?:installed )?(?:applications|apps|programs|software)$'
+      - '^(?:please )?(?:show|list|display|get) (?:all |my )?(?:programs|apps|applications|software)(?: registered)?(?: in (?:the )?app catalog)?$'
+      - '^what (?:applications|apps|software|programs) (?:are|do i have) installed$'
+      - '^(?:show |list )?(?:installed )?(?:applications|apps)$'
+    keywords: ["installed applications", "show installed applications", "list applications", "what apps are installed", "list apps", "programs", "catalog", "app catalog", "registered programs", "all programs"]
+    examples:
+      - "show installed applications"
+      - "list installed applications"
+      - "list applications"
+      - "what applications are installed"
+    negative_examples:
+      - "install application"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: check_app_installed
+    tool: check_app_installed
+    risk: READ_ONLY
+    required_slots: ["name"]
+    optional_slots: []
+    patterns:
+      - '^is (?P<name>.+?) (?:installed|present)(?: on (?:my|this|the) (?:pc|computer|machine|laptop|system|device))?$'
+      - '^do i have (?P<name>.+?) installed(?: on (?:my|this|the) (?:pc|computer|machine|laptop|system|device))?$'
+      - '^check if (?P<name>.+?) is (?:installed|present)(?: on (?:my|this|the) (?:pc|computer|machine|laptop|system|device))?$'
+    keywords: ["is installed", "do i have installed", "check if installed", "is present", "present on the computer"]
+    examples:
+      - "is vlc installed"
+      - "is chrome installed"
+      - "do i have vscode installed"
+    negative_examples:
+      - "install vlc"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: get_app_location
+    tool: get_app_location
+    risk: READ_ONLY
+    required_slots: ["name"]
+    optional_slots: []
+    patterns:
+      - '^where (?:is|did|was) (?P<name>.+?) (?:get )?installed(?: at)?$'
+      - '^where is (?P<name>.+?) installed(?: at)?$'
+      - '^where is (?P<name>.+?) located(?: on disk)?$'
+      - '^where on disk (?:can i find|is) (?P<name>.+?)$'
+      - '^(?:what is the |show me the |get )?(?:path|location|directory) (?:for|of) (?P<name>.+?)$'
+      - '^where is the (?P<name>.+?) executable(?: located)?$'
+      - '^give me the (?:file system )?location of (?P<name>.+?)$'
+    keywords: ["where is installed", "where did get installed", "path of", "location of", "where is executable"]
+    examples:
+      - "where is vlc installed"
+      - "where did vlc get installed"
+      - "where is chrome installed"
+      - "path of vscode"
+    negative_examples:
+      - "where is my file"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: install_software
+    tool: install_software
+    risk: REVERSIBLE
+    required_slots: ["name"]
+    optional_slots: ["package_id"]
+    patterns:
+      - '^(?:please )?(?:install|setup|download and install) (?P<name>[a-zA-Z0-9_\-\.\s]+?)(?: using winget| via winget)?$'
+    keywords: ["install", "setup", "download and install", "winget install"]
+    examples:
+      - "install vlc"
+      - "install vscode"
+      - "setup git"
+    negative_examples:
+      - "is vlc installed"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: snap_window
+    tool: snap_window
+    risk: REVERSIBLE
+    required_slots: ["direction"]
+    optional_slots: ["window_title"]
+    patterns:
+      - '^(?:please )?snap (?:window |this )?(?P<direction>left|right|top|bottom|up|down)$'
+      - '^(?:please )?snap (?:the )?(?:active )?window to (?:the )?(?P<direction>left|right|top|bottom)$'
+      - '^(?:please )?dock (?:window )?(?P<direction>left|right)$'
+    keywords: ["snap", "snap left", "snap right", "snap window", "dock window"]
+    examples:
+      - "snap window left"
+      - "snap window right"
+      - "snap left"
+      - "snap right"
+    negative_examples:
+      - "take snapshot"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: arrange_windows
+    tool: arrange_windows
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["layout", "app1", "app2"]
+    patterns:
+      - '^(?:please )?arrange (?:windows |applications |apps )?side by side$'
+      - '^(?:please )?split screen(?: side by side)?$'
+      - '^(?:please )?arrange (?:all )?(?:windows|apps|applications)(?: in a grid)?$'
+      - '^(?:please )?tile (?:all )?windows$'
+    keywords: ["arrange windows", "side by side", "tile windows", "split screen", "arrange two applications"]
+    examples:
+      - "arrange windows side by side"
+      - "arrange applications side-by-side"
+      - "tile windows"
+      - "split screen"
+    negative_examples:
+      - "open app"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: move_resize_window
+    tool: move_resize_window
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: ["x", "y", "width", "height"]
+    patterns:
+      - '^(?:please )?restore (?:the )?(?:window|active window)$'
+      - '^(?:please )?(?P<action>move|resize|restore) window$'
+    keywords: ["restore window", "resize window", "move window"]
+    examples:
+      - "restore window"
+      - "move window"
+      - "resize window"
+    negative_examples:
+      - "minimize window"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: switch_window
+    tool: switch_window
+    risk: REVERSIBLE
+    required_slots: []
+    optional_slots: ["target"]
+    patterns:
+      - '^(?:please )?switch to (?:the )?previous window$'
+      - '^(?:please )?switch window$'
+      - '^(?:please )?alt tab$'
+      - '^(?:please )?switch to (?:the )?(?:window )?(?P<target>[a-zA-Z0-9_\-\.\s]+?)$'
+    keywords: ["switch window", "previous window", "switch to previous window", "alt tab"]
+    examples:
+      - "switch to previous window"
+      - "switch window"
+      - "alt tab"
+      - "switch to chrome"
+    negative_examples:
+      - "close window"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: open_system_settings
+    tool: open_system_settings
+    risk: READ_ONLY
+    required_slots: ["page"]
+    optional_slots: []
+    patterns:
+      - '^(?:please )?open (?:the )?(?P<page>sound|display|network|wifi|bluetooth|apps) settings$'
+      - '^(?:please )?open (?:windows )?(?P<page>settings)$'
+      - '^(?:please )?open (?P<page>task manager)$'
+      - '^(?:please )?open (?P<page>system information)$'
+      - '^(?:please )?open (?P<page>device manager)$'
+    keywords: ["settings", "sound settings", "display settings", "network settings", "wifi settings", "task manager", "system information", "windows settings"]
+    examples:
+      - "open sound settings"
+      - "open display settings"
+      - "open network settings"
+      - "open task manager"
+      - "open system information"
+      - "open windows settings"
+    negative_examples:
+      - "set volume to 50"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: open_known_folder
+    tool: open_known_folder
+    risk: READ_ONLY
+    required_slots: ["folder"]
+    optional_slots: []
+    patterns:
+      - '^(?:please )?open (?:the |my )?(?P<folder>downloads|documents|desktop|pictures|music|videos) folder$'
+      - '^(?:please )?open (?:the |my )?(?P<folder>downloads|documents|desktop|pictures|music|videos)$'
+      - '^(?:please )?open file explorer$'
+    keywords: ["open downloads", "open documents", "open desktop folder", "open pictures", "open file explorer", "downloads folder", "documents folder"]
+    examples:
+      - "open downloads folder"
+      - "open documents folder"
+      - "open desktop folder"
+      - "open pictures"
+      - "open file explorer"
+    negative_examples:
+      - "list files in downloads"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: system_power_control
+    tool: system_power_control
+    risk: DESTRUCTIVE
+    required_slots: ["action"]
+    optional_slots: ["confirmation_ticket"]
+    patterns:
+      - '^(?:please )?(?P<action>lock|sleep|restart|shut down|shutdown)(?: the)? (?:pc|computer)$'
+      - '^(?:please )?lock pc$'
+      - '^(?:please )?sleep pc$'
+      - '^(?:please )?restart (?:the )?(?:pc|computer)$'
+      - '^(?:please )?shut down (?:the )?(?:pc|computer)$'
+    keywords: ["lock pc", "sleep pc", "restart pc", "shut down pc", "lock computer", "turn off pc"]
+    examples:
+      - "lock the pc"
+      - "sleep pc"
+      - "restart pc"
+      - "shut down the computer"
+    negative_examples:
+      - "close app"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: dialog_interaction
+    tool: dialog_interaction
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: ["window_title"]
+    patterns:
+      - '^(?:please )?(?:detect|check)(?: for)? (?:modal )?dialogs?$'
+      - '^(?:please )?check if (?:the )?app is (?:not )?responding$'
+      - '^(?:please )?(?P<action>confirm|dismiss) dialog$'
+    keywords: ["dialog", "modal dialog", "check if app is responding", "confirm dialog", "dismiss dialog"]
+    examples:
+      - "check if app is responding"
+      - "confirm dialog"
+      - "dismiss dialog"
+      - "detect dialog"
+    negative_examples:
+      - "close window"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: keyboard_shortcut
+    tool: keyboard_shortcut
+    risk: REVERSIBLE
+    required_slots: ["key"]
+    optional_slots: []
+    patterns:
+      - '^(?:please )?press (?P<key>enter|escape|tab|shift tab|space|backspace|home|end|page up|page down|ctrl a|ctrl c|ctrl v|ctrl x|ctrl z|ctrl y|ctrl f|ctrl s)$'
+      - '^(?:please )?(?P<key>ctrl a|ctrl c|ctrl v|ctrl x|ctrl z|ctrl y|ctrl f|ctrl s)$'
+    keywords: ["press enter", "press escape", "press tab", "ctrl c", "ctrl v", "ctrl z", "press ctrl s"]
+    examples:
+      - "press enter"
+      - "press escape"
+      - "press tab"
+      - "ctrl c"
+      - "ctrl v"
+      - "press ctrl z"
+    negative_examples:
+      - "type hello"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: clipboard_intelligence
+    tool: clipboard_intelligence
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: ["text", "operation"]
+    patterns:
+      - '^(?:please )?read (?:the )?clipboard(?: text)?$'
+      - '^(?:please )?(?P<operation>explain|summarize|rewrite) (?:the )?selected text$'
+      - '^(?:please )?paste (?:from )?clipboard$'
+    keywords: ["clipboard", "read clipboard", "explain selected text", "summarize selected text", "paste clipboard"]
+    examples:
+      - "read clipboard text"
+      - "explain selected text"
+      - "summarize selected text"
+      - "paste from clipboard"
+    negative_examples:
+      - "copy file"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: voice_edit
+    tool: voice_edit
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: ["target_text", "replacement_text"]
+    patterns:
+      - '^(?:voice )?delete (?:the )?last (?P<action>word|sentence)$'
+      - '^(?:voice )?(?P<action>backspace|undo|redo)$'
+      - '^(?:voice )?select (?:the )?last sentence$'
+      - '^(?:voice )?capitalize that$'
+      - '^(?:voice )?make that lowercase$'
+      - '^(?:voice )?replace (?P<target_text>.+?) with (?P<replacement_text>.+?)$'
+      - '^(?:voice )?(?P<action>copy that|cut that|paste)$'
+    keywords: ["voice backspace", "delete last word", "delete last sentence", "undo", "redo", "capitalize that", "make that lowercase", "replace with"]
+    examples:
+      - "delete last word"
+      - "voice backspace"
+      - "delete last sentence"
+      - "undo"
+      - "redo"
+      - "replace cat with dog"
+      - "capitalize that"
+      - "make that lowercase"
+    negative_examples:
+      - "delete file"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: dictation_mode_control
+    tool: dictation_mode_control
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: ["target_app"]
+    patterns:
+      - '^(?:please )?(?P<action>start|stop) (?:typing )?dictation(?: mode)?$'
+      - '^(?:please )?(?P<action>start|stop) typing(?: mode)?$'
+      - '^(?:please )?(?P<action>exit) dictation$'
+    keywords: ["start typing", "start dictation mode", "start typing dictation", "stop typing", "stop dictation mode", "exit dictation"]
+    examples:
+      - "start typing dictation mode"
+      - "start typing"
+      - "stop typing mode"
+      - "stop dictation"
+      - "exit dictation"
+    negative_examples:
+      - "type what i say"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true
+
+  - name: antigravity_ide_control
+    tool: antigravity_ide_control
+    risk: REVERSIBLE
+    required_slots: ["action"]
+    optional_slots: ["text", "path"]
+    patterns:
+      - '^(?:please )?(?P<action>open|launch) (?:antigravity|ide)$'
+      - '^(?:please )?(?P<action>focus) (?:coding |ai )?prompt(?: input)?$'
+      - '^(?:please )?(?P<action>open terminal)(?: panel)?(?: in ide)?$'
+      - '^(?:please )?(?P<action>open problems)(?: panel)?(?: in ide)?$'
+      - '^(?:please )?(?P<action>explain error|explain currently selected error|explain visible error)$'
+      - '^(?:please )?(?P<action>save file|save current file)(?: in ide)?$'
+      - '^(?:please )?(?P<action>ide screenshot|take ide screenshot)$'
+      - '^(?:please )?(?P<action>submit prompt)(?: in antigravity)?$'
+    keywords: ["open antigravity", "focus coding prompt", "open terminal panel", "open problems panel", "explain visible error", "save current file in ide", "ide screenshot"]
+    examples:
+      - "open antigravity"
+      - "focus coding prompt"
+      - "open problems panel"
+      - "explain visible error"
+      - "save current file in ide"
+      - "take ide screenshot"
+    negative_examples:
+      - "open chrome"
+    aliases: {}
+    fuzzy_allowed: true
+    lane0_enabled: true

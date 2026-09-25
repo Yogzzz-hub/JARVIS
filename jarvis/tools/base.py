@@ -53,7 +53,7 @@ class ToolDefinition(Contract):
     read_only: bool
     requires_confirmation: bool = False
     risk: RiskLevel
-    timeout_s: float = Field(default=5.0, gt=0, le=60)
+    timeout_s: float = Field(default=5.0, gt=0, le=600)
     version: str = "1.0.0"
     tags: tuple[str, ...] = ()
     execution_method: ExecutionMethod = ExecutionMethod.NATIVE

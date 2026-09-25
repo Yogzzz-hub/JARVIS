@@ -9,8 +9,8 @@ long_task_progress_seconds = 15
 
 [tts]
 backend = "piper"
-voice = "en_US-lessac-medium"
-model_path = "models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+voice = "en_US-ryan-medium"
+model_path = "models/piper/en/en_US/ryan/medium/en_US-ryan-medium.onnx"
 keep_warm = true
 fallback = "sapi"
 sample_rate = 22050

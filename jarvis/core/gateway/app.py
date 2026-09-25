@@ -48,6 +48,14 @@ def create_app(runtime=None):
     app = FastAPI(title="JARVIS EDGE", lifespan=lifespan)
     app.add_middleware(BoundaryClock)
 
+    @app.middleware("http")
+    async def reject_browser_commands(request: Request, call_next):
+        # Match the WebSocket boundary: browser pages cannot authorize actions.
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("origin"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=403, content={"detail": "Browser-origin commands are not supported"})
+        return await call_next(request)
+
     @app.get("/health", response_model=Health)
     async def health():
         return Health(status="ready" if runtime.ready else "stopping", tool_count=len(runtime.registry.list()),
@@ -58,6 +66,10 @@ def create_app(runtime=None):
     @app.get("/tools", response_model=list[dict[str, Any]])
     async def tools():
         return runtime.registry.export_schema()
+
+    @app.get("/voice/status")
+    async def voice_status():
+        return runtime.voice_status()
 
     @app.post("/command", response_model=CommandResult)
     async def command(body: CommandRequest, request: Request):
@@ -84,8 +96,28 @@ def create_app(runtime=None):
             await socket.close(code=1008)
             return
         await socket.accept()
-        outgoing = asyncio.Queue(16)
+        outgoing = asyncio.Queue(128)
         commands = asyncio.Queue(2)
+
+        async def forward_event(event):
+            if event.name == "response.ready":
+                if event.data.get("source") != "websocket":
+                    await outgoing.put({"version": 1, "type": "task_result", **event.data["result"]})
+            elif event.name.startswith(("voice.", "audio.", "tts.", "whatsapp.", "integration.", "confirmation.")):
+                message = {"version": 1, "type": "event", "event": event.name,
+                           "request_id": event.request_id, "payload": event.data}
+                if event.name == "audio.level" and outgoing.full():
+                    return
+                await outgoing.put(message)
+
+        subscription = runtime.bus.subscribe(forward_event)
+        if runtime.config.features.voice and not (runtime.voice and runtime.voice.is_running):
+            await outgoing.put({"version": 1, "type": "event", "event": "voice.error",
+                                "payload": {"error": runtime.voice_error or "Microphone unavailable"}})
+        if hasattr(runtime, "whatsapp_service") and runtime.whatsapp_service:
+            ws_state = getattr(runtime.whatsapp_service.transport.status, "state", "DISCONNECTED")
+            await outgoing.put({"version": 1, "type": "event", "event": "whatsapp.status",
+                                "payload": {"state": ws_state}})
 
         async def send():
             while True:
@@ -120,16 +152,26 @@ def create_app(runtime=None):
                     request_id = message.request_id
                     if message.type == "ping":
                         await outgoing.put({"version": 1, "type": "pong", "request_id": request_id})
+                    elif message.type == "stop_speaking":
+                        runtime.service.response.stop_speaking()
+                    elif message.type in ("ptt_start", "ptt_stop"):
+                        if not runtime.voice or not runtime.voice.is_running:
+                            raise ValueError(runtime.voice_error or "Voice input is unavailable")
+                        if message.type == "ptt_start":
+                            runtime.voice.request_ptt()
+                        else:
+                            runtime.voice.release_ptt()
                     elif not message.text:
                         raise ValueError("command requires text")
                     else:
                         commands.put_nowait((message, Clock(received_ns=stamp, parsed_ns=now_ns())))
-                except (ValidationError, ValueError, asyncio.QueueFull) as exc:
+                except (ValidationError, ValueError, RuntimeError, asyncio.QueueFull) as exc:
                     await outgoing.put({"version": 1, "type": "error", "request_id": request_id,
                                         "error": "Command queue full" if isinstance(exc, asyncio.QueueFull) else str(exc)})
         except WebSocketDisconnect:
             return
         finally:
+            await runtime.bus.unsubscribe(subscription)
             sender.cancel()
             executor.cancel()
             await asyncio.gather(sender, executor, return_exceptions=True)

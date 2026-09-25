@@ -78,7 +78,19 @@ class ExecutionEngine:
     ) -> ToolResult:
         t0 = time.perf_counter_ns()
         definition: ToolDefinition = tool.definition
+        if isinstance(arguments, dict) and hasattr(definition, "input_model"):
+            try:
+                arguments = definition.input_model.model_validate(arguments)
+            except Exception:
+                pass
         arg_dict = arguments.model_dump() if hasattr(arguments, "model_dump") else (arguments if isinstance(arguments, dict) else {})
+        if ticket_id:
+            arg_dict["confirmation_ticket"] = ticket_id
+            if hasattr(arguments, "confirmation_ticket"):
+                try:
+                    arguments.confirmation_ticket = ticket_id
+                except Exception:
+                    pass
         request_id = getattr(task, "request_id", f"req_{uuid.uuid4().hex[:8]}") if task else f"req_{uuid.uuid4().hex[:8]}"
 
         # 0. Check Kill Switch / Cancellation
@@ -151,10 +163,25 @@ class ExecutionEngine:
         # 3. Confirmation Ticket Validation
         if policy_decision.requires_confirmation:
             if not ticket_id:
+                # Auto-issue a pending confirmation ticket bound to action fingerprint
+                ticket = self.confirmation_manager.issue_ticket(
+                    request_id=request_id,
+                    graph_id=graph_id,
+                    node_id=node_id,
+                    tool_name=definition.name,
+                    args=arg_dict,
+                    risk=definition.risk,
+                )
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
                 return ToolResult(
                     success=False,
-                    error=f"CONFIRMATION_REQUIRED: {policy_decision.reason_code.value} requires user approval",
+                    data={
+                        "confirmation_required": True,
+                        "ticket_id": ticket.ticket_id,
+                        "human_summary": ticket.human_summary,
+                        "ticket": ticket.model_dump(mode="json"),
+                    },
+                    error=f"CONFIRMATION_REQUIRED: {ticket.human_summary}",
                     duration_ms=dur_ms,
                     tool_name=definition.name,
                     method_used=definition.execution_method,
@@ -198,29 +225,33 @@ class ExecutionEngine:
             )
 
         # 5. Duplicate Guard
-        is_dup, prior_entry = self.ledger.check_duplicate(fp, request_id=request_id, risk=definition.risk)
-        if is_dup and prior_entry:
-            if prior_entry.status in (LedgerState.VERIFIED, LedgerState.COMMITTED):
-                dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                cached_data = json.loads(prior_entry.output_json) if prior_entry.output_json else {"duplicate_suppressed": True, "action_id": prior_entry.action_id}
-                return ToolResult(
-                    success=True,
-                    data=cached_data,
-                    evidence={"cached_verified": True, "action_id": prior_entry.action_id},
-                    duration_ms=dur_ms,
-                    tool_name=definition.name,
-                    method_used=definition.execution_method,
-                )
-            if prior_entry.status in (LedgerState.STARTED, LedgerState.UNCERTAIN):
-                if definition.idempotency == IdempotencyClass.NON_IDEMPOTENT:
-                    dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                    return ToolResult(
-                        success=False,
-                        error="Duplicate non-idempotent action in UNCERTAIN state; automatic retry forbidden",
-                        duration_ms=dur_ms,
-                        tool_name=definition.name,
-                        method_used=definition.execution_method,
-                    )
+        # If an explicit confirmation ticket was provided and approved, the user has directly
+        # authorized this execution; do not suppress it.
+        if not ticket_id:
+            is_dup, prior_entry = self.ledger.check_duplicate(fp, request_id=request_id, risk=definition.risk)
+            if is_dup and prior_entry:
+                if prior_entry.status in (LedgerState.VERIFIED, LedgerState.COMMITTED):
+                    if definition.idempotency != IdempotencyClass.NON_IDEMPOTENT or (prior_entry.request_id and prior_entry.request_id == request_id):
+                        dur_ms = (time.perf_counter_ns() - t0) / 1e6
+                        cached_data = json.loads(prior_entry.output_json) if prior_entry.output_json else {"duplicate_suppressed": True, "action_id": prior_entry.action_id}
+                        return ToolResult(
+                            success=True,
+                            data=cached_data,
+                            evidence={"cached_verified": True, "action_id": prior_entry.action_id},
+                            duration_ms=dur_ms,
+                            tool_name=definition.name,
+                            method_used=definition.execution_method,
+                        )
+                if prior_entry.status in (LedgerState.STARTED, LedgerState.UNCERTAIN):
+                    if definition.idempotency == IdempotencyClass.NON_IDEMPOTENT:
+                        dur_ms = (time.perf_counter_ns() - t0) / 1e6
+                        return ToolResult(
+                            success=False,
+                            error="Duplicate non-idempotent action in UNCERTAIN state; automatic retry forbidden",
+                            duration_ms=dur_ms,
+                            tool_name=definition.name,
+                            method_used=definition.execution_method,
+                        )
 
         # 6. Method Selection
         selected_variant = self.method_selector.select_variant(definition)

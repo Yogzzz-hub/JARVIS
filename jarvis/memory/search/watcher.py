@@ -32,10 +32,10 @@ class FileWatcher:
         self._flush_thread = None
 
     def _get_connection(self) -> sqlite3.Connection:
-        con = sqlite3.connect(self.db_path)
+        con = sqlite3.connect(self.db_path, timeout=20.0)
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA synchronous=NORMAL")
-        con.execute("PRAGMA busy_timeout=5000")
+        con.execute("PRAGMA busy_timeout=20000")
         return con
 
     def start(self):
@@ -99,67 +99,110 @@ class FileWatcher:
 
     def _apply_events(self, events: list[tuple[str, str]]):
         now_ns = time.time_ns()
-        with self._get_connection() as con:
-            cur = con.cursor()
-            for path_str, event_type in events:
-                p = Path(path_str)
-                path_norm = path_str.lower()
-                if event_type == "deleted" or not p.exists():
-                    cur.execute("SELECT id FROM files WHERE path = ?", (path_str,))
-                    row = cur.fetchone()
-                    if row:
-                        fid = row[0]
-                        cur.execute("UPDATE files SET is_available = 0 WHERE id = ?", (fid,))
-                        cur.execute("DELETE FROM files_fts WHERE file_id = ?", (fid,))
-                elif event_type in ("created", "modified"):
-                    try:
-                        stat = p.stat()
-                        is_dir = p.is_dir()
-                        name = p.name
-                        name_norm = name.lower()
-                        stem = p.stem.lower()
-                        ext = p.suffix.lower() if not is_dir else "[directory]"
-                        parent_str = str(p.parent)
+        for attempt in range(5):
+            try:
+                with self._get_connection() as con:
+                    con.execute("PRAGMA busy_timeout=30000")
+                    cur = con.cursor()
+                    for path_str, event_type in events:
+                        p = Path(path_str)
+                        path_norm = path_str.lower()
+                        if event_type == "deleted" or not p.exists():
+                            cur.execute("SELECT id FROM files WHERE path = ?", (path_str,))
+                            row = cur.fetchone()
+                            if row:
+                                fid = row[0]
+                                cur.execute("UPDATE files SET is_available = 0 WHERE id = ?", (fid,))
+                                cur.execute("DELETE FROM files_fts WHERE file_id = ?", (fid,))
+                        elif event_type in ("created", "modified"):
+                            try:
+                                stat = p.stat()
+                                is_dir = p.is_dir()
+                                name = p.name
+                                name_norm = name.lower()
+                                stem = p.stem.lower()
+                                ext = p.suffix.lower() if not is_dir else "[directory]"
+                                parent_str = str(p.parent)
 
-                        cur.execute(
-                            """
-                            INSERT INTO files (
-                                path, path_norm, parent_path, name, name_norm, stem, extension,
-                                size_bytes, created_ns, modified_ns, indexed_ns, last_seen_ns,
-                                is_directory, is_hidden, is_available, content_status
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'PENDING')
-                            ON CONFLICT(path) DO UPDATE SET
-                                name = excluded.name,
-                                name_norm = excluded.name_norm,
-                                stem = excluded.stem,
-                                extension = excluded.extension,
-                                size_bytes = excluded.size_bytes,
-                                modified_ns = excluded.modified_ns,
-                                last_seen_ns = excluded.last_seen_ns,
-                                is_available = 1,
-                                content_status = 'PENDING'
-                            """,
-                            (
-                                path_str, path_norm, parent_str, name, name_norm, stem, ext,
-                                stat.st_size if not is_dir else 0,
-                                int(stat.st_ctime * 1e9), int(stat.st_mtime * 1e9),
-                                now_ns, now_ns, 1 if is_dir else 0, 1 if name.startswith(".") else 0,
-                            ),
-                        )
+                                text = ""
+                                excerpt = ""
+                                status = "SKIPPED" if is_dir else "PENDING"
+                                if not is_dir and p.is_file():
+                                    try:
+                                        from jarvis.memory.search.extractor import extract_file_content
+                                        text, excerpt, status, _ = extract_file_content(
+                                            path_str,
+                                            max_file_size_mb=self.config.max_file_size_mb,
+                                            max_text_chars=self.config.max_text_chars,
+                                            max_pdf_pages=self.config.max_pdf_pages,
+                                        )
+                                    except Exception:
+                                        try:
+                                            text = p.read_text(encoding="utf-8", errors="replace")[: self.config.max_text_chars]
+                                            excerpt = " ".join(text[:250].split())
+                                            status = "SUCCESS"
+                                        except Exception:
+                                            pass
 
-                        cur.execute("SELECT id FROM files WHERE path = ?", (path_str,))
-                        row = cur.fetchone()
-                        if row:
-                            fid = row[0]
-                            ptokens = path_tokens_string(path_str)
-                            cur.execute("DELETE FROM files_fts WHERE file_id = ?", (fid,))
-                            cur.execute(
-                                "INSERT INTO files_fts(file_id, name, stem, path_tokens, content) VALUES (?, ?, ?, ?, '')",
-                                (fid, name, stem, ptokens),
-                            )
-                    except (PermissionError, OSError):
-                        continue
-            con.commit()
+                                cur.execute(
+                                    """
+                                    INSERT INTO files (
+                                        path, path_norm, parent_path, name, name_norm, stem, extension,
+                                        size_bytes, created_ns, modified_ns, indexed_ns, last_seen_ns,
+                                        is_directory, is_hidden, is_available, content_status
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                                    ON CONFLICT(path) DO UPDATE SET
+                                        name = excluded.name,
+                                        name_norm = excluded.name_norm,
+                                        stem = excluded.stem,
+                                        extension = excluded.extension,
+                                        size_bytes = excluded.size_bytes,
+                                        modified_ns = excluded.modified_ns,
+                                        last_seen_ns = excluded.last_seen_ns,
+                                        is_available = 1,
+                                        content_status = excluded.content_status
+                                    """,
+                                    (
+                                        path_str, path_norm, parent_str, name, name_norm, stem, ext,
+                                        stat.st_size if not is_dir else 0,
+                                        int(stat.st_ctime * 1e9), int(stat.st_mtime * 1e9),
+                                        now_ns, now_ns, 1 if is_dir else 0, 1 if name.startswith(".") else 0,
+                                        status,
+                                    ),
+                                )
+
+                                cur.execute("SELECT id FROM files WHERE path = ?", (path_str,))
+                                row = cur.fetchone()
+                                if row:
+                                    fid = row[0]
+                                    ptokens = path_tokens_string(path_str)
+                                    cur.execute("DELETE FROM files_fts WHERE file_id = ?", (fid,))
+                                    cur.execute(
+                                        "INSERT INTO files_fts(file_id, name, stem, path_tokens, content) VALUES (?, ?, ?, ?, ?)",
+                                        (fid, name, stem, ptokens, text[:10000]),
+                                    )
+                                    if text or excerpt:
+                                        cur.execute(
+                                            """
+                                            INSERT INTO file_content (file_id, content_excerpt, content_text, extract_status, extracted_ns)
+                                            VALUES (?, ?, ?, ?, ?)
+                                            ON CONFLICT(file_id) DO UPDATE SET
+                                                content_excerpt = excluded.content_excerpt,
+                                                content_text = excluded.content_text,
+                                                extract_status = excluded.extract_status,
+                                                extracted_ns = excluded.extracted_ns
+                                            """,
+                                            (fid, excerpt, text, status, now_ns),
+                                        )
+                            except (PermissionError, OSError):
+                                continue
+                    con.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < 4:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                break
 
     def stop(self):
         self.is_running = False
