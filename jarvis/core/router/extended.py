@@ -246,6 +246,47 @@ def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
 _CORRECTION = re.compile(r"(?:,|\u2014|-)?\s*(?:no wait|no no|no|wait|actually|sorry|i mean|make (?:that|it)|rather)\b[, ]*(?:make (?:that|it)\s+)?(?:to\s+)?(?P<n>\d{1,3})\s*(?:%|percent)?$")
 
 
+_NUMBERS = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "ten": 10}
+_KINDS = [
+    (r"screen ?shots?", "screenshot"), (r"videos?|clips?", "video"), (r"(?:voice |call )?recordings?", "recording"),
+    (r"whats ?app (?:photos|images|pics|media|files)", "whatsapp_media"), (r"documents?|docs|pdfs?", "document"),
+    (r"downloads?|downloaded files?", "download"), (r"photos?|pictures?|pics?|images?|selfies?", "photo"),
+]
+_PULL_VERB = r"(?:copy|get|pull|bring|transfer|move|send|fetch|grab|import)"
+_TO_PC = r"(?:\s+(?:to|on|onto|into)\s+(?:my\s+|the\s+|this\s+)?(?:pc|laptop|computer|desktop|system))?"
+
+
+def match_phone_transfer(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    """Copy files between phone and PC over USB/ADB."""
+    kinds = "|".join(k for k, _ in _KINDS)
+    m = re.match(rf"^{_PULL_VERB}\s+(?:me\s+)?(?:the\s+|my\s+|all\s+)?(?:(?:latest|last|newest|recent|new)\s+)?"
+                 rf"(?:(?P<n>\d{{1,2}}|a|one|two|three|four|five|six|ten)\s+)?(?:(?:latest|last|newest|recent|new)\s+)?"
+                 rf"(?P<kind>{kinds})\s+(?:from|off|on)\s+(?:my\s+|the\s+)?{PHONE_WORDS}{_TO_PC}$", t)
+    if m:
+        kind = next(v for k, v in _KINDS if re.fullmatch(k, m.group("kind")))
+        n = m.group("n")
+        count = int(n) if n and n.isdigit() else _NUMBERS.get(n or "", 1)
+        if not n and re.search(r"s$", m.group("kind")) and not re.search(r"\b(?:latest|last|newest)\b", t):
+            count = 5
+        return _decision(request_id, t, "android_pull_file", {"kind": kind, "count": max(1, min(20, count))})
+    m = re.match(rf"^{_PULL_VERB}\s+(?:the\s+|my\s+)?(?:file\s+)?(?:called\s+|named\s+)?(?P<name>[\w.()+-][\w .()+-]{{1,60}}?)\s+(?:file\s+)?from\s+(?:my\s+|the\s+)?{PHONE_WORDS}{_TO_PC}$", t)
+    if m and not re.fullmatch(r"(?:it|this|that|everything|all|something)", m.group("name")):
+        return _decision(request_id, t, "android_pull_file", {"name": raw_body(raw, m.group("name")), "kind": "download"})
+    m = re.match(rf"^(?:copy|push|transfer|put|move)\s+(?:the\s+|my\s+)?(?:file\s+)?(?P<path>.+?)\s+(?:to|onto|into)\s+(?:my\s+|the\s+)?{PHONE_WORDS}"
+                 r"(?:\s+(?:via|using|over|with|through)\s+(?:usb|cable|adb))?$", t)
+    if m and not re.fullmatch(r"(?:it|this|that|this file|that file|these|them)", m.group("path")):
+        return _decision(request_id, t, "android_push_file", {"path": raw_body(raw, m.group("path"))})
+    return None
+
+
+def _web_task_pending() -> bool:
+    try:
+        from jarvis.tools.system.web_agent import WebTaskTool
+        return bool(WebTaskTool._pending_goal)
+    except Exception:
+        return False
+
+
 def match_everyday(t: str, request_id: str) -> Optional[RouteDecision]:
     """Implicit everyday phrasings and spoken self-corrections ("volume 30, no wait, 20")."""
     m = _CORRECTION.search(t)
@@ -260,7 +301,7 @@ def match_everyday(t: str, request_id: str) -> Optional[RouteDecision]:
         return _decision(request_id, t, "volume_up", {})
     if re.match(r"^(?:total |complete )?silence(?: please)?$|^(?:mute|silence) everything$|^shut (?:it|the sound) off$", t):
         return _decision(request_id, t, "volume_mute", {})
-    if re.match(r"^(?:open|launch|show|start)\s+(?:the\s+|my\s+)?(?:windows\s+)?(?:file explorer|file manager|explorer|my computer|this pc)$", t):
+    if re.match(r"^(?:open|launch|show|start)\s+(?:the\s+|my\s+)?(?:windows\s+)?(?:file explorer|file manager|my computer|this pc)$", t):
         return _decision(request_id, t, "open_app", {"name": "file explorer"})
     return None
 
@@ -279,6 +320,13 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     software = match_software(re.sub(r"^(?:please|kindly|jarvis|hey jarvis|can you|could you|would you|just)\s+", "", t), request_id)
     if software:
         return software
+    if re.match(r"^(?:continue|carry on|go on|resume|keep going)(?:\s+(?:the|with the|in the))?\s+(?:browser|web)(?:\s+task)?$"
+                r"|^(?:i(?:'ve| have)?|ok(?:ay)?,? i(?:'ve| have)?)\s+(?:logged|signed)\s+in(?:\s+now)?(?:,? continue)?$"
+                r"|^done logging in$", t) or (re.match(r"^(?:continue|carry on|go on|keep going|resume)$", t) and _web_task_pending()):
+        return _decision(request_id, t, "web_task", {"resume": True})
+    transfer = match_phone_transfer(t, raw, request_id)
+    if transfer:
+        return transfer
     everyday = match_everyday(t, request_id)
     if everyday:
         return everyday
@@ -287,6 +335,25 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     if m:
         return _decision(request_id, t, "notification_send",
                          {"title": "JARVIS", "message": raw_body(raw, m.group("body")) if m.group("body") else "Message from JARVIS"})
+    # ---------------------------------------------------------------- operate the PC by what's on screen
+    if not PHONE_REF.search(t):
+        m = re.match(r"^(?:use|control)\s+(?:my|the)\s+(?:computer|pc|laptop|mouse|screen)\s+(?:to|and)\s+(?P<goal>.+)$", t)
+        if m:
+            return _decision(request_id, t, "computer_task", {"goal": raw_body(raw, m.group("goal"))})
+        m = re.match(r"^(?:in|on|inside)\s+(?:the\s+)?(?P<app>[a-z][\w.+-]*(?:\s+[a-z][\w.+-]*){0,2}?)(?:\s+app)?,?\s+"
+                     r"(?P<rest>(?:click|type|turn|enable|disable|change|set|select|make|go to|switch|toggle|press|choose|scroll)\b.+)$", t)
+        if m and not re.match(r"^(?:\d|a minute|an hour|the morning|the evening|whatsapp|my phone|the phone|google|youtube|amazon|flipkart)", m.group("app")):
+            return _decision(request_id, t, "computer_task", {"goal": raw})
+        m = re.match(r"^(?P<how>double[- ]click|right[- ]click|click|press|hit|select|tap)\s+(?:on\s+)?(?P<target>.+?)$", t)
+        consequential = re.search(r"\b(?:continue|submit|confirm|download|send|pay|delete|buy|accept|agree|yes|proceed|install|"
+                                  r"uninstall|remove|sign out|log ?out|purchase|checkout|order)\b", m.group("target")) if m else None
+        if m and not consequential and not re.fullmatch(r"(?:the\s+)?(?:enter|escape|esc|tab|space|spacebar|backspace|delete|home|end|f\d{1,2}|up|down|left|right|"
+                                  r"play|pause|next|previous|windows key|win)(?:\s+key)?|.*\+.*", m.group("target")):
+            how = m.group("how").replace(" ", "-")
+            return _decision(request_id, t, "screen_click", {"target": raw_body(raw, m.group("target")),
+                                                            "button": "right" if how == "right-click" else "left",
+                                                            "double": how == "double-click"})
+
     # ---------------------------------------------------------------- screen understanding (vision)
     if re.match(r"^(?:what(?:'s| is| does)|read|look at|describe|explain|check|can you see|tell me what)\b.*\b(?:my |the |this |on )?(?:screen|monitor|display|error on (?:my|the) screen)\b", t) \
             and not re.search(r"\b(?:screenshot|brightness|resolution|record|share|lock|off|on my phone|phone)\b", t):

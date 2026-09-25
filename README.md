@@ -46,6 +46,9 @@ the reactor. Answers start being spoken after the first sentence instead of afte
 | **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `remind dad to take his medicine on whatsapp`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting, free in an hour` (personal chats only - groups are skipped), `what did rahul say about the trip` |
 | **Software** | `install vlc`, `install android studio for me`, `uninstall zoom`, `update all my apps` |
 | **Screen** | `what is this error on my screen`, `look at my phone screen and tell me what it says` (local vision model) |
+| **Any app** | `click the Save button`, `right click the desktop`, `use my computer to turn on dark mode in Settings`, `in Excel make the first row bold` |
+| **Phone ⇄ PC files** | `get the latest photo from my phone`, `copy my last 3 screenshots from my phone`, `copy resume.pdf from my phone`, `copy report.pdf to my phone` |
+| **Browser tasks** | `use the browser to book...` fills forms (dropdowns, checkboxes); at a login page it pauses - sign in once in the JARVIS browser, then say `continue` |
 | **Knowledge (RAG)** | `learn my documents folder`, `what do my documents say about the refund policy`, `search my notes for the wifi password` |
 | **Web** | `search amazon for headphones`, `go to wikipedia.org`, `use the browser to find the price of a Pixel 9 on Flipkart` |
 | **Reminders** | `remind me to drink water in 20 minutes`, `remind me to call mom at 6 pm`, `show my reminders` |

@@ -207,7 +207,22 @@ renderer is active. Turn it off in *Settings > 3D Reactor*, or for one session w
 * When Ollama is unreachable JARVIS starts it in the background and says so; a slow or confused classifier no longer
   produces "AI model unavailable" - the request goes to the assistant / agent instead.
 
-## 14. Tests
+## 14. Deeper automation
+
+* **Any desktop app** - `screen_click` clicks an element by description: Windows UI Automation first (exact, instant),
+  then the vision model locates it in a screenshot (coordinates scaled to the real, DPI-aware screen). `computer_task`
+  runs a see -> act loop (click / type / keys / scroll) for goals like "in Settings turn on dark mode", with a progress
+  log, stuck detection and hard stops before send / pay / delete / uninstall clicks the goal didn't ask for, and it
+  never types into password or OTP fields. Slam the mouse into a screen corner to abort (pyautogui fail-safe).
+  Needs `pip install -e .[windows]` (pyautogui) and a vision model (`ollama pull qwen2.5vl:3b`).
+* **Browser agent** - forms (type, select dropdown option, tick checkboxes, press keys, back, read long pages), a
+  compact progress log so tasks can run 14-25 steps, stuck detection. Login walls pause the task: sign in once in the
+  JARVIS browser window (the profile keeps the session) and say "continue". Purchases and payments always stop.
+* **Phone <-> PC files over USB** - `android_pull_file` (newest photos, screenshots, videos, downloads, documents,
+  recordings, WhatsApp media, or a file by name -> `Downloads/From Phone`), `android_push_file` (PC file -> phone
+  `Download`, visible in the gallery right away).
+
+## 15. Tests
 
 * `jarvis/tests/fake_ollama.py`: in-process fake Ollama server (no network) used by all AI tests.
 * `jarvis/tests/ai_harness.py`: full stack (router, planner, agent, RAG, WhatsApp AI) for end-to-end tests.

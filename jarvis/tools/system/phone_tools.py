@@ -280,6 +280,94 @@ class PhoneToggleTool(Tool):
         return {"success": True, "message": res.get("message", "Done on the phone."), "data": {}}
 
 
+PhoneMediaKind = Literal["photo", "screenshot", "video", "download", "document", "recording", "whatsapp_media"]
+
+
+class PhonePullInput(Contract):
+    kind: PhoneMediaKind = Field(default="photo", description="What to copy from the phone: photo, screenshot, video, download, document, recording, whatsapp_media")
+    count: int = Field(default=1, ge=1, le=20, description="How many of the newest items")
+    name: str = Field(default="", max_length=80, description="Part of a file name to search for instead (e.g. 'resume')")
+
+
+class PhonePullTool(Tool):
+    definition = ToolDefinition(
+        name="android_pull_file",
+        description="Copies files from the phone to the PC (newest photos, screenshots, videos, downloads, documents, recordings, "
+                    "WhatsApp media, or a file by name) into Downloads/From Phone.",
+        input_model=PhonePullInput,
+        output_model=PhoneResult,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=300.0,
+        tags=("android", "phone", "transfer", "copy", "photo", "file", "pull"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = PhonePullInput(**arguments)
+        res = _android().execute("pull", kind=arguments.kind, count=arguments.count, name=arguments.name)
+        if not res.get("success"):
+            return {"success": False, "message": res.get("message", "Nothing copied."), "data": {}}
+        files = res.get("files", [])
+        if files:
+            try:
+                import os
+                import sys
+                if sys.platform == "win32":
+                    os.startfile(res.get("folder"))  # show the copied files
+            except Exception:
+                pass
+        return {"success": True, "message": res.get("message", "Copied."), "data": {"files": files, "folder": res.get("folder", "")}}
+
+
+class PhonePushInput(Contract):
+    path: str = Field(min_length=1, max_length=1024, description="File on the PC to copy to the phone's Download folder")
+
+
+class PhonePushTool(Tool):
+    definition = ToolDefinition(
+        name="android_push_file",
+        description="Copies a file from the PC to the phone's Download folder over USB/ADB (no internet needed).",
+        input_model=PhonePushInput,
+        output_model=PhoneResult,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=320.0,
+        tags=("android", "phone", "transfer", "copy", "send", "file", "push"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = PhonePushInput(**arguments)
+        path = _resolve_pc_file(arguments.path)
+        res = _android().execute("push", path=str(path))
+        return {"success": True, "message": res.get("message", "Copied to the phone."), "data": {"remote": res.get("remote", "")}}
+
+
+def _resolve_pc_file(raw: str):
+    """Full path, or a name found in the usual folders (Desktop, Documents, Downloads, Pictures)."""
+    from pathlib import Path
+
+    p = Path(raw.strip().strip('"')).expanduser()
+    if p.is_file():
+        return p
+    home = Path.home()
+    for folder in ("Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music", "OneDrive/Desktop", "OneDrive/Documents"):
+        base = home / folder
+        if not base.is_dir():
+            continue
+        direct = base / p.name
+        if direct.is_file():
+            return direct
+        hits = sorted(base.rglob(f"*{p.name}*"), key=lambda x: x.stat().st_mtime if x.is_file() else 0, reverse=True)
+        hits = [h for h in hits[:50] if h.is_file()]
+        if hits:
+            return hits[0]
+    raise ValueError(f"I couldn't find {raw} on the PC.")
+
+
 def create_phone_tools() -> list[Tool]:
     return [PhoneKeyTool(), PhoneInputTool(), PhoneOpenUrlTool(), PhoneDialTool(), PhoneScreenshotTool(),
-            PhoneNotificationsTool(), PhoneTapTextTool(), PhoneToggleTool()]
+            PhoneNotificationsTool(), PhoneTapTextTool(), PhoneToggleTool(), PhonePullTool(), PhonePushTool()]

@@ -104,3 +104,69 @@ async def test_phone_and_screen_requests_route(text, intent, slots):
     assert dec.intent == intent, (text, dec)
     for k, v in slots.items():
         assert dec.slots.get(k) == v
+
+
+class FakeAdbConnector:
+    """The real connector's pull/push logic with a scripted `adb`."""
+
+    def __init__(self, tmp_path, listing):
+        from jarvis.connectors.android.scrcpy import AndroidScrcpyConnector as ScrcpyConnector
+
+        self.conn = ScrcpyConnector.__new__(ScrcpyConnector)
+        self.conn.adb_bin = "adb"
+        self.conn.device_id = None
+        self.calls = []
+        self.listing = listing
+
+        def run_adb(args, timeout=5.0):
+            self.calls.append(args)
+            if args[:2] == ["shell", "ls"]:
+                return 0, "\n".join(self.listing.get(args[-1], [])), ""
+            if args[:2] == ["shell", "find"]:
+                return 0, "/sdcard/Download/My Resume.pdf\n/sdcard/Android/data/x/resume.pdf", ""
+            if args[0] == "pull":
+                from pathlib import Path
+                Path(args[2]).write_bytes(b"x")
+                return 0, "1 file pulled", ""
+            return 0, "", ""
+
+        self.conn._run_adb = run_adb
+
+
+def test_pull_newest_screenshots_and_named_files(tmp_path):
+    fake = FakeAdbConnector(tmp_path, {"/sdcard/Pictures/Screenshots": ["Screenshot_3.png", "Screenshot_2.png", "notes.txt", "Screenshot_1.png"]})
+    res = fake.conn.execute_authorized_action("a", "pull", {"kind": "screenshot", "count": 2, "destination": str(tmp_path)})
+    assert res["success"] and [p.split("/")[-1].split("\\")[-1] for p in res["files"]] == ["Screenshot_3.png", "Screenshot_2.png"]
+
+    res = fake.conn.execute_authorized_action("a", "pull", {"name": "resume", "destination": str(tmp_path)})
+    assert res["files"] and res["files"][0].endswith("My Resume.pdf"), "app-private folders are skipped"
+
+    with pytest.raises(ValueError):
+        fake.conn.execute_authorized_action("a", "pull", {"name": "x; rm -rf /", "destination": str(tmp_path)})
+
+
+def test_push_copies_to_phone_downloads(tmp_path):
+    fake = FakeAdbConnector(tmp_path, {})
+    f = tmp_path / "report.pdf"
+    f.write_bytes(b"pdf")
+    res = fake.conn.execute_authorized_action("a", "push", {"path": str(f)})
+    assert res["success"] and ["push", str(f), "/sdcard/Download/report.pdf"] in fake.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,intent,slots", [
+    ("get the latest photo from my phone", "android_pull_file", {"kind": "photo", "count": 1}),
+    ("copy my last 3 screenshots from my phone to my laptop", "android_pull_file", {"kind": "screenshot", "count": 3}),
+    ("copy resume.pdf from my phone", "android_pull_file", {"name": "resume.pdf"}),
+    ("copy report.pdf to my phone", "android_push_file", {"path": "report.pdf"}),
+    ("send this file to my phone", "localsend_file", {}),
+])
+async def test_phone_transfer_routing(text, intent, slots):
+    from jarvis.core.router.ollama import DisabledProvider
+    from jarvis.core.router.router import SmartRouter
+    from jarvis.memory.working_memory import WorkingMemory
+
+    dec = await SmartRouter(llm_provider=DisabledProvider(), working_memory=WorkingMemory()).route(text)
+    assert dec.intent == intent, (text, dec)
+    for k, v in slots.items():
+        assert dec.slots.get(k) == v

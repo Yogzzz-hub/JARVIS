@@ -454,6 +454,58 @@ class AndroidScrcpyConnector(BaseConnector):
                 last_err = err
             raise RuntimeError(f"The phone refused to change {setting.replace('_', ' ')}: {last_err or 'needs permission'}")
 
+        if action == "pull":
+            dest_dir = Path(arguments.get("destination") or (Path.home() / "Downloads" / "From Phone"))
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            count = max(1, min(20, int(arguments.get("count", 1))))
+            name = str(arguments.get("name", "")).strip()
+            if name:
+                if not re.fullmatch(r"[\w .()+-]{1,80}", name):
+                    raise ValueError("That file name has characters I can't search for safely.")
+                code_run, out, err = self._run_adb(["shell", "find", "/sdcard", "-type", "f", "-iname", f"*{name}*"], timeout=20.0)
+                remote = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("/sdcard/") and "/Android/" not in ln][:count]
+            else:
+                kind = str(arguments.get("kind", "photo")).lower()
+                folders, exts = PHONE_MEDIA.get(kind, PHONE_MEDIA["photo"])
+                remote = []
+                for folder in folders:
+                    code_run, out, _err = self._run_adb(["shell", "ls", "-t", folder], timeout=10.0)
+                    if code_run != 0:
+                        continue
+                    for entry in out.splitlines():
+                        entry = entry.strip()
+                        if entry and (not exts or entry.lower().endswith(exts)):
+                            remote.append(f"{folder.rstrip('/')}/{entry}")
+                        if len(remote) >= count:
+                            break
+                    if len(remote) >= count:
+                        break
+            if not remote:
+                return {"status": "NOT_FOUND", "success": False, "message": "I couldn't find that on the phone."}
+            saved = []
+            for path in remote:
+                local = dest_dir / Path(path).name
+                code_run, _out, err = self._run_adb(["pull", path, str(local)], timeout=120.0)
+                if code_run == 0:
+                    saved.append(str(local))
+            if not saved:
+                raise RuntimeError(f"Copying from the phone failed: {err}")
+            return {"status": "SUCCESS", "success": True, "files": saved, "folder": str(dest_dir),
+                    "message": f"Copied {len(saved)} file{'s' if len(saved) != 1 else ''} from your phone to {dest_dir}."}
+
+        if action == "push":
+            local = Path(str(arguments.get("path", ""))).expanduser()
+            if not local.is_file():
+                raise ValueError(f"I can't find the file {local}")
+            remote = "/sdcard/Download/" + local.name
+            code_run, _out, err = self._run_adb(["push", str(local), remote], timeout=300.0)
+            if code_run != 0:
+                raise RuntimeError(f"Copying to the phone failed: {err}")
+            # make it show up in the phone's gallery / files app right away
+            self._run_adb(["shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", f"file://{remote}"])
+            return {"status": "SUCCESS", "success": True, "remote": remote,
+                    "message": f"Copied {local.name} to your phone's Download folder."}
+
         raise NotImplementedError(f"Action '{action_name}' not implemented")
 
     def _resolve_package(self, app_name: str) -> str:
@@ -557,3 +609,16 @@ def find_ui_node(xml: str, label: str) -> tuple[int, int, str] | None:
                 x1, y1, x2, y2 = map(int, bounds.groups())
                 best = (score, (x1 + x2) // 2, (y1 + y2) // 2, shown)
     return (best[1], best[2], best[3]) if best else None
+
+
+# kind -> (phone folders, newest first; accepted extensions)
+PHONE_MEDIA: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "photo": (("/sdcard/DCIM/Camera", "/sdcard/Pictures"), (".jpg", ".jpeg", ".png", ".heic", ".webp")),
+    "screenshot": (("/sdcard/Pictures/Screenshots", "/sdcard/DCIM/Screenshots"), (".png", ".jpg", ".jpeg")),
+    "video": (("/sdcard/DCIM/Camera", "/sdcard/Movies"), (".mp4", ".mkv", ".3gp", ".webm", ".mov")),
+    "download": (("/sdcard/Download",), ()),
+    "document": (("/sdcard/Download", "/sdcard/Documents"), (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt")),
+    "recording": (("/sdcard/Recordings", "/sdcard/Music/Recordings", "/sdcard/Recordings/Call"), (".m4a", ".mp3", ".aac", ".wav", ".amr", ".ogg")),
+    "whatsapp_media": (("/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images",
+                        "/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents"), ()),
+}

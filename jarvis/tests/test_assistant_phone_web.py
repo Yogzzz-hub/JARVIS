@@ -272,3 +272,76 @@ async def test_agent_rejects_unknown_tools_and_stops_on_repeats():
 
     offline = AgentRunner(registry, ExecutionEngine(), client=FakeOllama(reachable=False).client())
     assert (await offline.run("anything")).status == "unavailable"
+
+
+class FormPage(FakePage):
+    """A booking form: dropdown + checkbox + text, then a login wall, then results."""
+
+    def __init__(self):
+        super().__init__()
+        self.login_wall = False
+
+    async def evaluate(self, script, arg):
+        if isinstance(arg, int) and arg > 100:  # READ_JS(start)
+            return "Train 12634 departs 06:10 and arrives 13:25."
+        if self.login_wall:
+            return {"url": self.url, "title": "Sign in", "text": "Sign in", "sensitive": True, "elements": []}
+        return {"url": self.url, "title": "Book", "text": "Book tickets", "more_text": True, "sensitive": False,
+                "elements": [{"i": 1, "tag": "select", "type": "", "label": "Class", "href": "", "options": ["Sleeper", "AC 3 Tier"]},
+                             {"i": 2, "tag": "input", "type": "checkbox", "label": "Senior citizen", "href": "", "checked": False},
+                             {"i": 3, "tag": "input", "type": "text", "label": "From", "href": ""}]}
+
+    async def select_option(self, selector, label=None, value=None, timeout=0):
+        self.actions.append(("select", selector, label or value))
+
+    async def fill(self, selector, text, timeout=0):
+        self.actions.append(("fill", selector, text))
+
+    async def press(self, selector, key):
+        self.actions.append(("press", key))
+
+
+def _d(action, index=0, text="", submit=False, answer=""):
+    return {"thought": "", "action": action, "index": index, "text": text, "submit": submit, "url": "", "answer": answer}
+
+
+@pytest.mark.asyncio
+async def test_web_agent_fills_forms_reads_more_and_resumes_after_login():
+    from jarvis.core.computer.browser.loop import BrowserLoop
+    from jarvis.tests.fake_ollama import FakeOllama
+    from jarvis.tools.system.web_agent import WebTaskTool
+
+    page = FormPage()
+    decisions = [_d("select", 1, "AC 3 Tier"), _d("check", 2), _d("type", 3, "Chennai", True), _d("read")]
+    prompts = []
+
+    def responder(payload):
+        prompts.append(payload["messages"][-1]["content"])
+        if not decisions:
+            page.login_wall = True
+            return _d("scroll")
+        return decisions.pop(0)
+
+    fake = FakeOllama(responder=responder)
+    loop = BrowserLoop()
+    tool = WebTaskTool(client=fake.client(), browser_loop=loop, manager_factory=lambda: FakeManager(page))
+    try:
+        out = await tool.run({"goal": "check AC 3 tier trains from Chennai for a senior citizen", "start_url": "irctc.example.com"})
+        assert out["status"] == "NEEDS_LOGIN" and "continue" in out["message"]
+        assert ("select", '[data-jarvis-idx="1"]', "AC 3 Tier") in page.actions
+        assert ("click", '[data-jarvis-idx="2"]') in page.actions
+        assert ("fill", '[data-jarvis-idx="3"]', "Chennai") in page.actions and ("press", "Enter") in page.actions
+        assert "options: Sleeper | AC 3 Tier" in prompts[0] and "[unchecked]" in prompts[0]
+        assert "Train 12634 departs 06:10" in prompts[-1], "read shows the rest of a long page"
+        assert "DONE SO FAR" in prompts[-1] and "chose 'AC 3 Tier'" in prompts[-1]
+
+        # user logs in manually, then says "continue": no new navigation, same goal
+        page.login_wall = False
+        visits = len([a for a in page.actions if a[0] == "goto"])
+        decisions.append(_d("done", answer="Train 12634 has AC 3 tier seats."))
+        out = await tool.run({"resume": True})
+        assert out["success"] and "12634" in out["message"]
+        assert len([a for a in page.actions if a[0] == "goto"]) == visits
+        assert "check AC 3 tier trains" in prompts[-1]
+    finally:
+        loop.stop()
