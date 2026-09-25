@@ -376,7 +376,35 @@ class OllamaProvider:
             rescued = self._semantic_rescue(request_id, text, total_ms, breakdown)
             if rescued:
                 return rescued
-            reason = "not running" if isinstance(exc, LLMUnavailable) else type(exc).__name__
+            if isinstance(exc, LLMUnavailable):
+                # Ollama really is down (or has no model): say so plainly, and what happens next.
+                no_model = "No installed Ollama model" in str(exc)
+                message = (
+                    "No AI model is installed yet, so I can only run direct commands. Run "
+                    "\"python scripts\\setup_models.py\" (or \"ollama pull llama3.2\") and ask me again."
+                    if no_model else
+                    "I can't reach my local AI (Ollama) right now, so I couldn't understand that one. I'm starting it - "
+                    "ask me again in a few seconds. Direct commands like \"open chrome\" still work."
+                )
+                return RouteDecision(
+                    request_id=request_id,
+                    lane=RouteLane.CLARIFY,
+                    intent=None,
+                    slots={},
+                    confidence=0.0,
+                    source=RouteSource.TINY_MODEL,
+                    complexity=ComplexityLevel.SIMPLE,
+                    clarification=message,
+                    normalized_text=text,
+                    model_used=model_used,
+                    routing_ms=total_ms,
+                    reason_code=ReasonCode.UNKNOWN_INTENT,
+                    breakdown_ms=breakdown,
+                    context_trace={"llm_unavailable": True},
+                )
+            # Any other hiccup (slow first load, malformed JSON, model error): the classifier is only a
+            # shortcut, so hand the request to the assistant / tool agent instead of refusing it.
+            breakdown["classifier_error"] = 1.0
             return RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.CLARIFY,
@@ -385,12 +413,13 @@ class OllamaProvider:
                 confidence=0.0,
                 source=RouteSource.TINY_MODEL,
                 complexity=ComplexityLevel.SIMPLE,
-                clarification=f"AI model unavailable ({reason}). Please use standard deterministic commands.",
+                clarification=f"classifier_error: {type(exc).__name__}",
                 normalized_text=text,
                 model_used=model_used,
                 routing_ms=total_ms,
                 reason_code=ReasonCode.UNKNOWN_INTENT,
                 breakdown_ms=breakdown,
+                context_trace={"classifier_error": type(exc).__name__},
             )
 
     async def close(self):

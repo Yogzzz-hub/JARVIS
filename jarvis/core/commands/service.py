@@ -968,7 +968,12 @@ class CommandService:
             self._remember_pending_confirmation(ticket_id or "", tool.definition.name, res.data.get("human_summary") or "", args_dict)
             self.bus.emit("confirmation.required", task.request_id, ticket_id=ticket_id, summary=res.data.get("human_summary"))
             self.tasks.transition(task, State.WAITING_CONFIRMATION)
-            message = f"Here's a reply for {who}: \"{preview}\". Shall I send it?" if preview else f"Please confirm: {res.data.get('human_summary')}. Shall I proceed?"
+            if first_result.data.get("confirm_prompt"):
+                message = first_result.data["confirm_prompt"]
+            elif preview:
+                message = f"Here's a reply for {who}: \"{preview}\". Shall I send it?"
+            else:
+                message = f"Please confirm: {res.data.get('human_summary')}. Shall I proceed?"
             return self._finalize(task, State.WAITING_CONFIRMATION, message, res, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
         self.tasks.transition(task, State.VERIFYING)
         if not res.success:

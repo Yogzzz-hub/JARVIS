@@ -56,6 +56,12 @@ def generate_human_summary(tool_name: str, args: dict[str, Any], risk: RiskLevel
         preview = f": '{text}'" if text else ""
         return f"Send WhatsApp message to '{recipient}'{preview}"
 
+    if tn == "send_whatsapp_bulk":
+        items = args.get("messages") or []
+        names = [str((m or {}).get("name") or (m or {}).get("recipient", "")) for m in items if isinstance(m, dict)]
+        shown = ", ".join(names[:4]) + (f" and {len(names) - 4} more" if len(names) > 4 else "")
+        return f"Send WhatsApp messages to {len(names)} {'person' if len(names) == 1 else 'people'} ({shown})"
+
     # Default structured fallback
     target_info = args.get("path") or args.get("target") or args.get("name") or ""
     if target_info:

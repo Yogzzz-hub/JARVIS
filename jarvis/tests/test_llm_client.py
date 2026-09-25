@@ -185,4 +185,15 @@ async def test_classifier_unavailable_reports_model_down(registry):
     provider = OllamaProvider(client=fake.client(), tool_registry=registry)
     dec = await provider.classify("zzqx unusual request", [], "r5")
     assert dec.lane == RouteLane.CLARIFY
-    assert "AI model unavailable" in dec.clarification
+    assert dec.context_trace["llm_unavailable"]
+    assert "can't reach my local AI" in dec.clarification and "deterministic" not in dec.clarification
+
+
+@pytest.mark.asyncio
+async def test_classifier_hiccup_is_not_reported_as_model_down(registry):
+    import httpx
+    fake = FakeOllama(responder=lambda p: httpx.Response(500, json={"error": "model is loading"}))
+    provider = OllamaProvider(client=fake.client(), tool_registry=registry)
+    dec = await provider.classify("zzqx unusual request", [], "r6")
+    assert dec.lane == RouteLane.CLARIFY and not (dec.context_trace or {}).get("llm_unavailable")
+    assert "unavailable" not in dec.clarification.lower()

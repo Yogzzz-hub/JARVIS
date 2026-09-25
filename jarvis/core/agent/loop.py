@@ -199,7 +199,7 @@ class AgentRunner:
                 model_used = decision.pop("_model", model_used)
                 state["model"] = model_used
             except LLMUnavailable:
-                return AgentOutcome("unavailable", "My local AI model isn't running, so I can't work that out right now.", steps, state=state)
+                return AgentOutcome("unavailable", "I can't reach my local AI (Ollama) right now. I'm starting it - ask me again in a few seconds.", steps, state=state)
             except LLMError as exc:
                 logger.warning("Agent decision failed: %s", exc)
                 if steps:

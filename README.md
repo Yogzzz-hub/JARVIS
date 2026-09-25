@@ -42,8 +42,10 @@ the reactor. Answers start being spoken after the first sentence instead of afte
 | --- | --- |
 | **PC** | `open chrome`, `volume 40`, `brightness 70`, `take a screenshot`, `snap window left`, `lock the pc` |
 | **Files** | `find my resume`, `organize my downloads`, `find duplicate files in downloads`, `move my downloads folder to desktop` |
-| **Phone** | `lock my phone`, `turn up the volume on my phone`, `open spotify on my phone`, `take a screenshot of my phone`, `call 98765 43210 on my phone`, `mirror my phone` |
-| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `remind dad to take his medicine on whatsapp`, `reply to rahul saying yes at 10`, `summarize my whatsapp` |
+| **Phone** | `lock my phone`, `turn up the volume on my phone`, `open spotify on my phone`, `take a screenshot of my phone`, `call 98765 43210 on my phone`, `mirror my phone`, `read my phone notifications`, `tap Allow on my phone`, `turn off bluetooth on my phone` |
+| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `remind dad to take his medicine on whatsapp`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting, free in an hour` (personal chats only - groups are skipped), `what did rahul say about the trip` |
+| **Software** | `install vlc`, `install android studio for me`, `uninstall zoom`, `update all my apps` |
+| **Screen** | `what is this error on my screen`, `look at my phone screen and tell me what it says` (local vision model) |
 | **Knowledge (RAG)** | `learn my documents folder`, `what do my documents say about the refund policy`, `search my notes for the wifi password` |
 | **Web** | `search amazon for headphones`, `go to wikipedia.org`, `use the browser to find the price of a Pixel 9 on Flipkart` |
 | **Reminders** | `remind me to drink water in 20 minutes`, `remind me to call mom at 6 pm`, `show my reminders` |
@@ -52,6 +54,10 @@ the reactor. Answers start being spoken after the first sentence instead of afte
 
 Anything that sends data outside the PC (messages, uploads), deletes or installs things, or was planned by
 the AI is read back to you first. Say **"yes"** / **"no"** (or reply YES / NO on WhatsApp).
+
+**Control the laptop from your phone:** message your own WhatsApp number (the owner number in
+`config/whatsapp.toml`) with any command - "take a screenshot and send it to me", "what's on my screen", "install vlc" -
+and JARVIS runs it on the PC and replies there.
 
 ## How it fits together
 
@@ -75,7 +81,8 @@ troubleshooting (wake word, Ollama, WhatsApp, browser, phone).
 
 ## Configuration
 
-* `jarvis/config/jarvis.toml` – features, Ollama model roles (`[models]`), voice (`[voice]`: wake threshold, mic, Whisper model)
+* `jarvis/config/jarvis.toml` – features, Ollama model roles (`[models]`), voice (`[voice]`: wake threshold, mic, Whisper model,
+  `endpoint_silence_ms` = how long a pause ends your turn, `wake_ack` = `chime` / `voice` / `none`)
 * `config/whatsapp.toml` – owner numbers, contacts, AI reply mode, default country code
 * `config/response.toml` – TTS voice, barge-in
 * `config/connectors.toml` – Android (ADB/scrcpy), LocalSend, browser, notifications

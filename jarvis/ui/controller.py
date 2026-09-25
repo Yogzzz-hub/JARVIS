@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from jarvis.ui.bridge import JarvisUIBridge
 from jarvis.ui.events import AssistantState, ConnectionState, UIEvent, UIEventType
@@ -51,7 +51,45 @@ class JarvisUIController(QObject):
         # Wire Metrics
         self.metrics.metricsSampled.connect(self._on_metrics_sampled)
         self.state.set_ui3d(self.settings.get("ui_3d", True) is not False)
+
+        # Watchdog: a missed backend event must never leave the UI stuck on "Listening" / "Speaking".
+        self._last_activity = time.monotonic()
+        self.state.assistantStateChanged.connect(self._touch)
+        self._watchdog = QTimer(self)
+        self._watchdog.setInterval(1000)
+        self._watchdog.timeout.connect(self._check_stuck)
+        self._watchdog.start()
         self.state.set_low_resource_mode(bool(self.settings.get("low_resource_mode", False)))
+
+    # Seconds a state may last without any backend event before the UI recovers on its own.
+    STUCK_LIMITS_S = {
+        AssistantState.LISTENING.value: 20.0,
+        AssistantState.TRANSCRIBING.value: 15.0,
+        AssistantState.SPEAKING.value: 90.0,
+        AssistantState.EXECUTING.value: 180.0,
+        AssistantState.ROUTING.value: 60.0,
+        AssistantState.PLANNING.value: 120.0,
+        AssistantState.VERIFYING.value: 60.0,
+        AssistantState.SUCCESS.value: 6.0,
+    }
+
+    def _touch(self, *_args) -> None:
+        self._last_activity = time.monotonic()
+
+    def _check_stuck(self, now: float | None = None) -> bool:
+        st = self.state.assistantState
+        limit = self.STUCK_LIMITS_S.get(st)
+        now = time.monotonic() if now is None else now
+        if limit is None or now - self._last_activity < limit:
+            return False
+        logger.info("UI state %s had no backend activity for %.0fs; returning to idle", st, now - self._last_activity)
+        if st == AssistantState.LISTENING.value:
+            self.bridge.send_control("ptt_stop")
+        self.state.set_assistant_state(AssistantState.IDLE.value)
+        self.state.set_status_message("Ready")
+        self.hideVoiceOverlayRequested.emit()
+        self._touch()
+        return True
 
     # --- UI Actions callable from QML ---
 
@@ -173,6 +211,8 @@ class JarvisUIController(QObject):
 
     def _on_event_received(self, event: UIEvent) -> None:
         ev_type = event.event_type
+        if ev_type != UIEventType.AUDIO_LEVEL:
+            self._touch()
         if ev_type == UIEventType.JARVIS_READY:
             self.state.set_assistant_state(AssistantState.IDLE.value)
         elif ev_type == UIEventType.WAKE_DETECTED:
@@ -267,6 +307,7 @@ class JarvisUIController(QObject):
         self.bridge.send_command("re-pair whatsapp")
 
     def _on_response_received(self, data: dict[str, Any]) -> None:
+        self._touch()
         state_str = data.get("state", "SUCCESS")
         msg = data.get("message", "")
         req_id = data.get("request_id", "")

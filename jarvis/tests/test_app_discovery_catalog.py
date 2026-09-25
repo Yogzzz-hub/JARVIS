@@ -238,6 +238,7 @@ def test_software_installation_lifecycle_and_auto_refresh(mock_fs_env, monkeypat
     mock_run.return_value.stdout = "Successfully installed VideoLAN.VLC"
     mock_run.return_value.stderr = ""
     monkeypatch.setattr("subprocess.run", mock_run)
+    monkeypatch.setattr("jarvis.tools.system.winget.executable", lambda: "winget.exe")
 
     # Mock targeted discovery simulating newly installed VLC files appearing
     def mock_targeted_check(app_name):
@@ -262,7 +263,8 @@ def test_software_installation_lifecycle_and_auto_refresh(mock_fs_env, monkeypat
 
     assert res["status"] == "SUCCESS"
     assert res["app_name"] == "VLC Media Player"
-    assert "installed successfully and registered in application catalog" in res["message"]
+    assert "is installed" in res["message"] and "Open VLC Media Player" in res["message"]
+    assert "--silent" in mock_run.call_args[0][0] and "VideoLAN.VLC" in mock_run.call_args[0][0]
 
     # Invariant: Next command 'Open VLC' MUST WORK without restart!
     target = catalog.resolve("Open VLC")

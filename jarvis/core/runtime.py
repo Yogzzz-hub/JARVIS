@@ -174,7 +174,7 @@ class Runtime:
                     )
                     await self.whatsapp_service.start()
                     if self.service and hasattr(self.service, "registry"):
-                        for tn in ("send_whatsapp_message", "read_whatsapp_messages", "summarize_whatsapp_messages"):
+                        for tn in ("send_whatsapp_message", "send_whatsapp_bulk", "read_whatsapp_messages", "summarize_whatsapp_messages"):
                             if self.service.registry.contains(tn):
                                 t = self.service.registry.get(tn)
                                 t.transport = self.whatsapp_service.transport
@@ -219,7 +219,7 @@ class Runtime:
                 tool.assistant = self.assistant
             if hasattr(tool, "knowledge_service") and getattr(tool, "knowledge_service") is None:
                 tool.knowledge_service = self.knowledge_service
-            if tool.definition.name == "reply_whatsapp_message" and getattr(tool, "ai", None) is None:
+            if tool.definition.name in ("reply_whatsapp_message", "reply_whatsapp_all") and getattr(tool, "ai", None) is None:
                 tool.ai = self.whatsapp_ai
 
     @staticmethod
@@ -326,6 +326,7 @@ class Runtime:
         response.ack_cache = AckCache(project / "assets/audio/acks")
         response.ack_enabled = output_config["response"]["ack_enabled"] and self.config.features.tts
         response.enabled = self.config.features.tts
+        response.wake_ack_mode = self.config.voice.wake_ack
         if response.enabled:
             await asyncio.to_thread(response.warm_up)
 
@@ -347,6 +348,7 @@ class Runtime:
         from jarvis.core.audio.pipeline import VoicePipeline
         from jarvis.core.audio.wake import OpenWakeWordEngine
         from jarvis.core.audio.output.barge_in import BargeInController
+        from jarvis.core.audio.vad import EndpointDetector
         from jarvis.core.stt.faster_whisper_engine import FasterWhisperEngine
         from jarvis.core.commands.contracts import CommandRequest
         cfg = self.config.voice
@@ -357,7 +359,10 @@ class Runtime:
             hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level),
             wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold),
             stt_engine=FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model, device=cfg.stt_device,
-                                          compute_type=cfg.compute_type, initial_prompt=self._stt_vocabulary()),
+                                          compute_type=cfg.compute_type, initial_prompt=self._stt_vocabulary(),
+                                          beam_size=cfg.stt_beam_size),
+            endpoint_detector=EndpointDetector(default_silence_ms=cfg.endpoint_silence_ms),
+            max_utterance_s=cfg.max_utterance_s,
             command_service=self.service, event_bus=self.bus, response_engine=response,
             barge_in_controller=BargeInController(response.audio_output, cancel_task, enabled=output["barge_in"]),
             wake_enabled=cfg.wake_enabled, ptt_enabled=cfg.ptt_enabled, preroll_ms=cfg.preroll_ms)

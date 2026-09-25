@@ -12,6 +12,7 @@ voice_reply_enabled = false
 owner_name = "Boss"              # how JARVIS refers to you when replying to others
 default_country_code = "91"      # prepended to 10-digit numbers without a country code
 ai_replies = true                # draft (or, for allowlisted contacts, send) AI replies to other people's messages
+remember_chats = true            # keep chats searchable so you can ask "what did rahul say about ..." (PC assistant only)
 announce_new_messages = true     # speak a short notice on the PC when a message arrives
 max_reconnect_attempts = 10
 reconnect_backoff_ms = 2000

@@ -354,6 +354,8 @@ class OllamaClient:
         self._last_error = f"{type(exc).__name__}: {exc}"
         self.total_failures += 1
         logger.info("Ollama unreachable at %s (%s); retry after %.0fs", self.base_url, exc, self.settings.breaker_cooldown_s)
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            self._autostart_async()
 
     def _reset_breaker(self) -> None:
         self._down_until = 0.0
@@ -379,10 +381,18 @@ class OllamaClient:
         if self._breaker_open():
             raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}")
         try:
-            resp = await self._async_client().get("/api/tags", timeout=httpx.Timeout(4.0, connect=self.settings.connect_timeout_s))
+            resp = await self._async_client().get("/api/tags", timeout=httpx.Timeout(8.0, connect=self.settings.connect_timeout_s))
             resp.raise_for_status()
             return list(self._store_models(resp.json()))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            self._trip(exc)
+            self._autostart_async()
+            raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}: {exc}") from exc
         except (httpx.TransportError, httpx.HTTPStatusError, ValueError) as exc:
+            # The server answered (or is busy loading a model): keep using the last known model list.
+            if self._models:
+                logger.info("Ollama model list refresh failed (%s); using the cached list", exc)
+                return list(self._models)
             self._trip(exc)
             raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}: {exc}") from exc
 
@@ -392,10 +402,16 @@ class OllamaClient:
         if self._breaker_open():
             raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}")
         try:
-            resp = self._client_sync().get("/api/tags", timeout=httpx.Timeout(4.0, connect=self.settings.connect_timeout_s))
+            resp = self._client_sync().get("/api/tags", timeout=httpx.Timeout(8.0, connect=self.settings.connect_timeout_s))
             resp.raise_for_status()
             return list(self._store_models(resp.json()))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            self._trip(exc)
+            raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}: {exc}") from exc
         except (httpx.TransportError, httpx.HTTPStatusError, ValueError) as exc:
+            if self._models:
+                logger.info("Ollama model list refresh failed (%s); using the cached list", exc)
+                return list(self._models)
             self._trip(exc)
             raise LLMUnavailable(f"Ollama is not reachable at {self.base_url}: {exc}") from exc
 
@@ -730,6 +746,29 @@ class OllamaClient:
             if await self.available(refresh=True):
                 return True
         return False
+
+    def _autostart_async(self) -> None:
+        """Ollama went away: try to (re)start it in the background, at most once a minute."""
+        if not self.settings.auto_start:
+            return
+        now = time.monotonic()
+        if now - getattr(self, "_last_autostart", 0.0) < 60.0:
+            return
+        self._last_autostart = now
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def _bring_up():
+            try:
+                if await self.ensure_server(wait_s=25.0):
+                    logger.info("Ollama is reachable again at %s", self.base_url)
+            except Exception as exc:
+                logger.debug("Ollama auto-start failed: %s", exc)
+
+        task = loop.create_task(_bring_up())
+        self._autostart_task = task
 
     def seems_up(self) -> bool:
         """Cheap, non-blocking guess: models were listed at some point and the breaker is closed."""

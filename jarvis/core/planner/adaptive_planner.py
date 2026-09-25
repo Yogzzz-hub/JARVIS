@@ -339,7 +339,7 @@ class AdaptivePlanner:
         """Report a gap only when the *registry* truly lacks the capability (not just the top-K)."""
         req_lower = text.lower()
         if "whatsapp" in req_lower and not self._has_any(
-            ("send_whatsapp_message", "read_whatsapp_messages", "summarize_whatsapp_messages", "reply_whatsapp_message"), available_tools
+            ("send_whatsapp_message", "read_whatsapp_messages", "summarize_whatsapp_messages", "reply_whatsapp_message", "reply_whatsapp_all"), available_tools
         ):
             return CapabilityGap(
                 capability="whatsapp_messaging",

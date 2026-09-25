@@ -676,6 +676,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     computer_tools = create_computer_tools()
     from jarvis.tools.system.whatsapp_tools import (
         DraftWhatsAppReplyTool,
+        ReplyWhatsAppAllTool,
+        SendWhatsAppBulkTool,
         SendWhatsAppMessageTool,
         ReadWhatsAppMessagesTool,
         SummarizeWhatsAppMessagesTool,
@@ -686,6 +688,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
         ReadWhatsAppMessagesTool(),
         SummarizeWhatsAppMessagesTool(),
         DraftWhatsAppReplyTool(),
+        ReplyWhatsAppAllTool(),
+        SendWhatsAppBulkTool(),
     ]
     web_tools = [WebSearchTool()]
     from jarvis.tools.system.connector_tools import create_connector_tools
@@ -700,6 +704,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     keyboard_tools = create_keyboard_tools()
     from jarvis.tools.system.assistant_tools import create_assistant_tools
     from jarvis.tools.system.phone_tools import create_phone_tools
-    extra_tools = create_assistant_tools() + create_phone_tools()
+    from jarvis.tools.system.vision_tools import create_vision_tools
+    extra_tools = create_assistant_tools() + create_phone_tools() + create_vision_tools()
     return base_tools + file_tools + prod_tools + computer_tools + whatsapp_tools + web_tools + conn_tools + app_discovery_tools + window_mgmt_tools + ide_tools + keyboard_tools + extra_tools
 

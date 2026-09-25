@@ -234,7 +234,13 @@ class SileroVADEngine:
 
 
 CONTINUATION_INDICATORS = frozenset({
-    "and", "then", "after that", "with", "for", "to", "or", "but", "also"
+    # joining words: the sentence obviously continues
+    "and", "then", "after that", "with", "for", "to", "or", "but", "also", "so", "because", "that", "which", "who",
+    "if", "when", "where", "while", "until", "about", "saying", "say", "tell", "ask", "send", "from", "of", "in",
+    "on", "at", "into", "the", "a", "an", "my", "your", "his", "her", "their", "our", "this", "these", "those",
+    "is", "are", "was", "were", "will", "would", "can", "could", "should", "i", "i'm", "we", "you", "please",
+    # thinking sounds
+    "um", "uh", "hmm", "like", "actually", "basically", "just",
 })
 
 
@@ -247,15 +253,17 @@ class EndpointDetector:
 
     def __init__(
         self,
-        default_silence_ms: int = 320,
-        short_command_silence_ms: int = 180,
-        long_utterance_silence_ms: int = 420,
-        incomplete_silence_ms: int = 500,
+        default_silence_ms: int = 800,
+        short_command_silence_ms: int | None = None,
+        long_utterance_silence_ms: int | None = None,
+        incomplete_silence_ms: int | None = None,
     ):
+        # People pause mid-sentence for 0.4-1 s while thinking; ending the turn on a 0.3 s gap cut
+        # requests in half. Everything scales from the configured default pause.
         self.default_silence_ms = default_silence_ms
-        self.short_command_silence_ms = short_command_silence_ms
-        self.long_utterance_silence_ms = long_utterance_silence_ms
-        self.incomplete_silence_ms = incomplete_silence_ms
+        self.short_command_silence_ms = short_command_silence_ms or max(300, int(default_silence_ms * 0.55))
+        self.long_utterance_silence_ms = long_utterance_silence_ms or int(default_silence_ms * 1.3)
+        self.incomplete_silence_ms = incomplete_silence_ms or int(default_silence_ms * 2.0)
 
     def should_finalize(
         self,
@@ -295,7 +303,7 @@ class EndpointDetector:
                 return True, "short_command_complete"
 
         # Long utterance — use longer silence
-        if utterance_ms > 8000:
+        if utterance_ms > 5000:
             if silence_ms >= self.long_utterance_silence_ms:
                 return True, "long_utterance_silence"
             return False, "waiting_long"

@@ -45,6 +45,9 @@ def resolve_whisper_model(model: str) -> str:
                            "Run `python scripts/setup_models.py` to install it locally.", path, size)
             return size
         return str(path)
+    if path.name in WHISPER_SIZES and (len(path.parts) > 1):
+        # models/whisper/small.en not downloaded yet: use the size name (downloaded once into the cache)
+        return path.name
     return ref
 
 
@@ -68,8 +71,10 @@ class FasterWhisperEngine:
         step_size_ms: int = 400,
         initial_prompt: str = "",
         language: str = "en",
+        beam_size: int = 5,
     ):
         self.model_name_str = resolve_whisper_model(model)
+        self.beam_size = max(1, int(beam_size))
         self.device_preference = device
         self.compute_type = compute_type
         self.context_window_s = context_window_s
@@ -111,13 +116,13 @@ class FasterWhisperEngine:
             device = self.device_preference
             compute = self.compute_type
 
-            # Try CUDA first
-            if device == "cuda":
+            # Try CUDA first ("auto" uses the GPU when CUDA libraries are present)
+            if device in ("cuda", "auto"):
                 try:
                     model = WhisperModel(
                         self.model_name_str,
                         device="cuda",
-                        compute_type=compute,
+                        compute_type="int8_float16" if compute == "int8" else compute,
                     )
                     # Verify CUDA DLLs are present by running a tiny test slice
                     dummy = np.zeros(1600, dtype=np.float32)
@@ -156,7 +161,7 @@ class FasterWhisperEngine:
         self._total_samples = 0
 
     # The final transcript must see the whole utterance; only partials use the sliding window.
-    MAX_UTTERANCE_S = 30.0
+    MAX_UTTERANCE_S = 60.0
 
     async def feed_audio(self, pcm: bytes, sample_rate: int = 16000) -> None:
         """Feed PCM16 audio into the transcription buffer."""
@@ -214,6 +219,10 @@ class FasterWhisperEngine:
             generated_ns=perf_counter_ns(),
         )
 
+    def _final_beam(self) -> int:
+        """Beam search for the final transcript: full width on a GPU, capped at 3 on the CPU (latency)."""
+        return self.beam_size if self._device_actual == "cuda" else min(self.beam_size, 3)
+
     async def finalize(self) -> TranscriptFinal:
         """Run final high-quality transcription on complete audio."""
         t0 = perf_counter_ns()
@@ -229,8 +238,11 @@ class FasterWhisperEngine:
 
         # Fast path: reuse the latest partial only when it already covered everything except the
         # trailing endpoint silence (~0.3 s). A staler partial would drop the command's last words.
+        # With a multi-beam final pass the partial (greedy) is not reused: accuracy first, and on a GPU the
+        # full pass costs ~100-200 ms. On CPU with beam_size 1 the fast path still applies.
         samples_since_partial = getattr(self, "_total_samples", len(self._audio_buffer)) - getattr(self, "_last_partial_sample_count", 0)
-        if self._last_partial_text and getattr(self, "_last_partial_full", True) and samples_since_partial < 16000 * 0.4:
+        if (self._final_beam() == 1 and self._last_partial_text and getattr(self, "_last_partial_full", True)
+                and samples_since_partial < 16000 * 0.4):
             duration_ms = len(self._audio_buffer) / 16.0
             return TranscriptFinal(
                 session_id=self._session_id,
@@ -248,7 +260,7 @@ class FasterWhisperEngine:
             segments, info = self._model.transcribe(
                 self._audio_buffer,
                 language=self.language,
-                beam_size=1,  # Fast and accurate for local commands
+                beam_size=self._final_beam(),
                 best_of=1,
                 temperature=0.0,
                 condition_on_previous_text=False,

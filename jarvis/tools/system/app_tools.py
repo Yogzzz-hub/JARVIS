@@ -315,7 +315,7 @@ class InstallSoftwareTool(Tool):
         output_model=InstallSoftwareOutput,
         read_only=False,
         risk=RiskLevel.REVERSIBLE,
-        timeout_s=300.0,
+        timeout_s=600.0,
         tags=("system", "install", "software", "winget"),
         execution_method=ExecutionMethod.CLI,
     )
@@ -373,27 +373,41 @@ class InstallSoftwareTool(Tool):
                 "message": f"{entry.display_name} is already installed at {entry.executable_path}.",
             }
 
-        # Construct and execute trusted installer command
-        cmd = self.package_catalog.build_install_command(pkg)
-        logger.info("Executing trusted software installation: %s", cmd)
+        # Install through winget (silent, agreements accepted, success-like exit codes understood)
+        from jarvis.tools.system import winget
 
-        try:
-            res = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", cmd],
-                capture_output=True,
-                text=True,
-                timeout=240.0,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            success = res.returncode == 0
-        except Exception as exc:
-            logger.error("Software installation execution failed: %s", exc)
+        if not winget.executable():
             return {
                 "status": "FAILED",
                 "app_name": pkg.display_name,
                 "package_id": pkg.package_id,
                 "executable_path": None,
-                "message": f"Installation failed with error: {exc}",
+                "message": ("I can't install software because winget (App Installer) isn't available. Install "
+                            "'App Installer' from the Microsoft Store, then ask me again."),
+            }
+        logger.info("Installing %s (%s) with winget", pkg.display_name, pkg.package_id)
+        result = winget.install(pkg.package_id)
+        success = result.ok
+        if result.status == "NOT_FOUND":
+            # A curated id may be outdated: search winget for the current one and try once more.
+            alt = self.package_catalog._search_winget(raw_name)
+            if alt and alt.package_id != pkg.package_id:
+                pkg = alt
+                result = winget.install(pkg.package_id)
+                success = result.ok
+        if not success:
+            reasons = {
+                "BLOCKED": "the installer was blocked (hash or policy check)",
+                "NOT_FOUND": "winget has no package with that name",
+                "FAILED": f"the installer reported an error (code {result.code})",
+            }
+            detail = f" Details: {result.tail}" if result.tail else ""
+            return {
+                "status": "FAILED",
+                "app_name": pkg.display_name,
+                "package_id": pkg.package_id,
+                "executable_path": None,
+                "message": f"I couldn't install {pkg.display_name}: {reasons.get(result.status, result.status.lower())}.{detail}",
             }
 
         # Automatic AppCatalog refresh immediately after installation!
@@ -405,7 +419,12 @@ class InstallSoftwareTool(Tool):
         exe_path = new_entry.executable_path if new_entry else None
 
         if success or installed:
-            msg = f"{pkg.display_name} installed successfully and registered in application catalog. You can now say 'Open {pkg.display_name}'."
+            if result.status == "ALREADY_INSTALLED":
+                msg = f"{pkg.display_name} is already installed and up to date."
+            elif result.status == "REBOOT_REQUIRED":
+                msg = f"{pkg.display_name} is installed. Windows needs a restart to finish setting it up."
+            else:
+                msg = f"{pkg.display_name} is installed. You can now say 'Open {pkg.display_name}'."
             return {
                 "status": "SUCCESS",
                 "app_name": pkg.display_name,
@@ -419,8 +438,102 @@ class InstallSoftwareTool(Tool):
                 "app_name": pkg.display_name,
                 "package_id": pkg.package_id,
                 "executable_path": None,
-                "message": f"Installation completed with return code {res.returncode}. Output: {res.stderr[:200] or res.stdout[:200]}",
+                "message": f"The installer finished but I can't find {pkg.display_name} yet. {result.tail}".strip(),
             }
+
+
+# =====================================================================
+# 6. Uninstall / Update Software (winget)
+# =====================================================================
+
+class UninstallSoftwareInput(Contract):
+    name: str = Field(min_length=1, max_length=128, description="Name of the installed application to remove")
+
+
+class SoftwareChangeOutput(Contract):
+    status: str
+    app_name: str = ""
+    package_id: str = ""
+    message: str
+
+
+class UninstallSoftwareTool(Tool):
+    definition = ToolDefinition(
+        name="uninstall_software",
+        description="Uninstalls an installed application (via winget). Always asks for confirmation first.",
+        input_model=UninstallSoftwareInput,
+        output_model=SoftwareChangeOutput,
+        read_only=False,
+        risk=RiskLevel.DESTRUCTIVE,
+        timeout_s=600.0,
+        tags=("system", "uninstall", "remove", "software", "winget"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> Dict[str, Any]:
+        from jarvis.tools.system import winget
+
+        if isinstance(arguments, dict):
+            arguments = UninstallSoftwareInput(**arguments)
+        name = arguments.name.strip()
+        if not winget.executable():
+            return {"status": "FAILED", "app_name": name, "message": "winget (App Installer) isn't available on this PC."}
+        pkg = winget.best_match(name, winget.list_installed(name))
+        if pkg is None:
+            return {"status": "NOT_FOUND", "app_name": name, "message": f"I couldn't find an installed app called {name}."}
+        res = winget.uninstall(pkg.package_id)
+        if res.ok:
+            return {"status": "SUCCESS", "app_name": pkg.name, "package_id": pkg.package_id, "message": f"{pkg.name} has been uninstalled."}
+        return {"status": "FAILED", "app_name": pkg.name, "package_id": pkg.package_id,
+                "message": f"I couldn't uninstall {pkg.name} (code {res.code}). {res.tail}".strip()}
+
+
+class UpdateSoftwareInput(Contract):
+    name: str = Field(default="", max_length=128, description="Application to update; empty = update everything that has updates")
+
+
+class UpdateSoftwareTool(Tool):
+    definition = ToolDefinition(
+        name="update_software",
+        description="Updates one application, or all applications with available updates, using winget.",
+        input_model=UpdateSoftwareInput,
+        output_model=SoftwareChangeOutput,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=600.0,
+        tags=("system", "update", "upgrade", "software", "winget"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> Dict[str, Any]:
+        from jarvis.tools.system import winget
+
+        if isinstance(arguments, dict):
+            arguments = UpdateSoftwareInput(**arguments)
+        name = arguments.name.strip()
+        if not winget.executable():
+            return {"status": "FAILED", "app_name": name, "message": "winget (App Installer) isn't available on this PC."}
+        package_id = ""
+        if name:
+            pkg = winget.best_match(name, winget.list_installed(name))
+            if pkg is None:
+                return {"status": "NOT_FOUND", "app_name": name, "message": f"I couldn't find an installed app called {name}."}
+            package_id, name = pkg.package_id, pkg.name
+        if not package_id:
+            # Updating everything can take a long time: run it in the background, never kill it half-way.
+            if winget.upgrade_all_background():
+                return {"status": "SUCCESS", "app_name": "", "package_id": "",
+                        "message": "Updating all your apps in the background. Installers may appear briefly; I'll keep working meanwhile."}
+            return {"status": "FAILED", "app_name": "", "message": "I couldn't start the app updates."}
+        res = winget.upgrade(package_id)
+        what = name or "your apps"
+        if res.status == "ALREADY_INSTALLED":
+            return {"status": "SUCCESS", "app_name": name, "package_id": package_id, "message": f"{what[:1].upper() + what[1:]} {'is' if name else 'are'} already up to date."}
+        if res.ok:
+            extra = " A restart is needed to finish." if res.status == "REBOOT_REQUIRED" else ""
+            return {"status": "SUCCESS", "app_name": name, "package_id": package_id, "message": f"Updated {what}.{extra}"}
+        return {"status": "FAILED", "app_name": name, "package_id": package_id,
+                "message": f"Updating {what} failed (code {res.code}). {res.tail}".strip()}
 
 
 def create_app_discovery_tools(catalog: Optional[AppCatalog] = None) -> List[Tool]:
@@ -432,4 +545,6 @@ def create_app_discovery_tools(catalog: Optional[AppCatalog] = None) -> List[Too
         CheckAppInstalledTool(catalog=cat),
         GetAppLocationTool(catalog=cat),
         InstallSoftwareTool(catalog=cat),
+        UninstallSoftwareTool(),
+        UpdateSoftwareTool(),
     ]

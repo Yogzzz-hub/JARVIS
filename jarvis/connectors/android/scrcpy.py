@@ -407,6 +407,53 @@ class AndroidScrcpyConnector(BaseConnector):
                 logger.warning("ADB exec-out screencap failed: %s", e)
             raise RuntimeError("Could not capture Android screen preview.")
 
+        if action == "notifications":
+            code_run, out, err = self._run_adb(["shell", "dumpsys", "notification", "--noredact"], timeout=8.0)
+            if code_run != 0:
+                raise RuntimeError(f"Could not read phone notifications: {err}")
+            items = parse_notifications(out)
+            return {"status": "SUCCESS", "success": True, "notifications": items[: int(arguments.get("limit", 15))]}
+
+        if action == "tap_text":
+            label = str(arguments.get("text", "")).strip()
+            if not label:
+                raise ValueError("Say what to tap, e.g. 'tap Settings on my phone'")
+            code_run, _, err = self._run_adb(["shell", "uiautomator", "dump", "/sdcard/jarvis_ui.xml"], timeout=10.0)
+            if code_run != 0:
+                raise RuntimeError(f"Could not read the phone screen: {err}")
+            code_run, xml, err = self._run_adb(["shell", "cat", "/sdcard/jarvis_ui.xml"], timeout=6.0)
+            node = find_ui_node(xml, label) if code_run == 0 else None
+            if node is None:
+                return {"status": "NOT_FOUND", "success": False, "message": f"I couldn't find '{label}' on the phone screen."}
+            x, y, shown = node
+            code_run, _, err = self._run_adb(["shell", "input", "tap", str(x), str(y)])
+            if code_run != 0:
+                raise RuntimeError(f"Tap failed: {err}")
+            return {"status": "SUCCESS", "success": True, "message": f"Tapped '{shown}' on the phone.", "x": x, "y": y}
+
+        if action == "toggle":
+            setting = str(arguments.get("setting", "")).lower().replace(" ", "_")
+            on = bool(arguments.get("on", True))
+            commands = {
+                "wifi": [["shell", "svc", "wifi", "enable" if on else "disable"]],
+                "mobile_data": [["shell", "svc", "data", "enable" if on else "disable"]],
+                "bluetooth": [["shell", "cmd", "bluetooth_manager", "enable" if on else "disable"],
+                              ["shell", "svc", "bluetooth", "enable" if on else "disable"]],
+                "airplane_mode": [["shell", "cmd", "connectivity", "airplane-mode", "enable" if on else "disable"]],
+                "do_not_disturb": [["shell", "cmd", "notification", "set_dnd", "priority" if on else "off"]],
+                "auto_rotate": [["shell", "settings", "put", "system", "accelerometer_rotation", "1" if on else "0"]],
+            }.get(setting)
+            if not commands:
+                raise ValueError(f"I can't switch '{setting}' on the phone")
+            last_err = ""
+            for args in commands:
+                code_run, _, err = self._run_adb(args, timeout=8.0)
+                if code_run == 0 and "Unknown command" not in err and "not found" not in err.lower():
+                    pretty = setting.replace("_", " ")
+                    return {"status": "SUCCESS", "success": True, "message": f"Turned {'on' if on else 'off'} {pretty} on the phone."}
+                last_err = err
+            raise RuntimeError(f"The phone refused to change {setting.replace('_', ' ')}: {last_err or 'needs permission'}")
+
         raise NotImplementedError(f"Action '{action_name}' not implemented")
 
     def _resolve_package(self, app_name: str) -> str:
@@ -450,3 +497,63 @@ class AndroidScrcpyConnector(BaseConnector):
             self._scrcpy_proc.terminate()
             self._scrcpy_proc = None
         self._status = ConnectorStatus.UNAVAILABLE
+
+
+def parse_notifications(dumpsys: str) -> list[dict[str, str]]:
+    """Title / text / app of active notifications from `dumpsys notification --noredact`."""
+    items: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for raw in dumpsys.splitlines():
+        line = raw.strip()
+        m = re.match(r"NotificationRecord\(0x[0-9a-f]+: pkg=([\w.]+)", line)
+        if m:
+            if current and (current.get("title") or current.get("text")):
+                items.append(current)
+            current = {"app": m.group(1), "title": "", "text": ""}
+            continue
+        if current is None:
+            continue
+        m = re.match(r"android\.(title|text|bigText)=\w+ \((.*)\)$", line)
+        if m and m.group(2) and m.group(2) != "null":
+            key = "text" if m.group(1) == "bigText" else m.group(1)
+            if key == "text" and current.get("text") and m.group(1) != "bigText":
+                continue
+            current[key] = m.group(2)[:300]
+    if current and (current.get("title") or current.get("text")):
+        items.append(current)
+    seen, unique = set(), []
+    for it in items:
+        key = (it["app"], it["title"], it["text"])
+        if key not in seen and it["app"] not in ("android", "com.android.systemui"):
+            seen.add(key)
+            unique.append(it)
+    return unique
+
+
+def find_ui_node(xml: str, label: str) -> tuple[int, int, str] | None:
+    """Centre of the on-screen element whose text / description best matches ``label``."""
+    import difflib
+
+    want = label.casefold().strip()
+    best: tuple[float, int, int, str] | None = None
+    for m in re.finditer(r"<node\b[^>]*>", xml or ""):
+        tag = m.group(0)
+        text = re.search(r'\btext="([^"]*)"', tag)
+        desc = re.search(r'\bcontent-desc="([^"]*)"', tag)
+        bounds = re.search(r'\bbounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+        if not bounds:
+            continue
+        for shown in ((text.group(1) if text else ""), (desc.group(1) if desc else "")):
+            have = shown.casefold().strip()
+            if not have:
+                continue
+            if have == want:
+                score = 1.0
+            elif want in have or have in want:
+                score = 0.85 - abs(len(have) - len(want)) / 200
+            else:
+                score = difflib.SequenceMatcher(None, have, want).ratio() * 0.8
+            if score >= 0.6 and (best is None or score > best[0]):
+                x1, y1, x2, y2 = map(int, bounds.groups())
+                best = (score, (x1 + x2) // 2, (y1 + y2) // 2, shown)
+    return (best[1], best[2], best[3]) if best else None

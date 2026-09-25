@@ -194,5 +194,92 @@ class PhoneScreenshotTool(Tool):
         return {"success": True, "message": "Saved a screenshot of your phone.", "data": {"path": res.get("path", str(dest)), "bytes": res.get("bytes", 0)}}
 
 
+class PhoneNotificationsInput(Contract):
+    limit: int = Field(default=10, ge=1, le=30, description="How many notifications to read")
+
+
+class PhoneNotificationsTool(Tool):
+    definition = ToolDefinition(
+        name="android_notifications",
+        description="Reads the notifications currently showing on the connected Android phone (app, title, text).",
+        input_model=PhoneNotificationsInput,
+        output_model=PhoneResult,
+        read_only=True,
+        risk=RiskLevel.READ_ONLY,
+        timeout_s=20.0,
+        tags=("android", "phone", "notifications", "read"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = PhoneNotificationsInput(**arguments)
+        res = _android().execute("notifications", limit=arguments.limit)
+        items = res.get("notifications", [])
+        if not items:
+            return {"success": True, "message": "There are no notifications on your phone.", "data": {"notifications": []}}
+        parts = []
+        for it in items[:6]:
+            app = it["app"].split(".")[-1].replace("android", "").strip() or it["app"]
+            body = f"{it['title']}: {it['text']}" if it.get("title") and it.get("text") else (it.get("title") or it.get("text"))
+            parts.append(f"{app.title()} - {body}")
+        more = f" and {len(items) - 6} more" if len(items) > 6 else ""
+        return {"success": True, "message": f"{len(items)} notification{'s' if len(items) != 1 else ''} on your phone: " + "; ".join(parts) + more + ".",
+                "data": {"notifications": items}}
+
+
+class PhoneTapTextInput(Contract):
+    text: str = Field(min_length=1, max_length=120, description="Label of the button / item to tap on the phone screen, e.g. 'Settings', 'Send', 'Allow'")
+
+
+class PhoneTapTextTool(Tool):
+    definition = ToolDefinition(
+        name="android_tap_text",
+        description="Taps the button or item with the given label on the phone's current screen (reads the screen, finds the label, taps it).",
+        input_model=PhoneTapTextInput,
+        output_model=PhoneResult,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=25.0,
+        tags=("android", "phone", "tap", "click", "press", "button"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = PhoneTapTextInput(**arguments)
+        res = _android().execute("tap_text", text=arguments.text)
+        return {"success": bool(res.get("success")), "message": res.get("message", ""), "data": {k: v for k, v in res.items() if k in ("x", "y")}}
+
+
+PhoneSetting = Literal["wifi", "bluetooth", "mobile_data", "airplane_mode", "do_not_disturb", "auto_rotate"]
+
+
+class PhoneToggleInput(Contract):
+    setting: PhoneSetting = Field(description="wifi, bluetooth, mobile_data, airplane_mode, do_not_disturb or auto_rotate")
+    on: bool = Field(default=True, description="true = turn on, false = turn off")
+
+
+class PhoneToggleTool(Tool):
+    definition = ToolDefinition(
+        name="android_toggle",
+        description="Turns a phone setting on or off: Wi-Fi, Bluetooth, mobile data, airplane mode, do not disturb, auto-rotate.",
+        input_model=PhoneToggleInput,
+        output_model=PhoneResult,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=20.0,
+        tags=("android", "phone", "wifi", "bluetooth", "settings", "toggle"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = PhoneToggleInput(**arguments)
+        res = _android().execute("toggle", setting=arguments.setting, on=arguments.on)
+        return {"success": True, "message": res.get("message", "Done on the phone."), "data": {}}
+
+
 def create_phone_tools() -> list[Tool]:
-    return [PhoneKeyTool(), PhoneInputTool(), PhoneOpenUrlTool(), PhoneDialTool(), PhoneScreenshotTool()]
+    return [PhoneKeyTool(), PhoneInputTool(), PhoneOpenUrlTool(), PhoneDialTool(), PhoneScreenshotTool(),
+            PhoneNotificationsTool(), PhoneTapTextTool(), PhoneToggleTool()]

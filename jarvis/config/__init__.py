@@ -87,10 +87,16 @@ class VoiceConfig(Frozen):
     ptt_enabled: bool = True
     model_path: str = "models/wake/hey_jarvis_v0.1.onnx"
     threshold: float = Field(default=0.5, ge=0, le=1)
-    stt_model: str = "base"
-    stt_device: Literal["cpu", "cuda"] = "cpu"
+    stt_model: str = "small.en"
+    stt_device: Literal["auto", "cpu", "cuda"] = "auto"
     compute_type: str = "int8"
+    stt_beam_size: int = Field(default=5, ge=1, le=10)
     preroll_ms: int = Field(default=500, ge=0, le=2000)
+    # How long a pause ends your turn (ms). Longer for unfinished sentences, shorter for finished commands.
+    endpoint_silence_ms: int = Field(default=800, ge=200, le=4000)
+    max_utterance_s: float = Field(default=45.0, ge=5, le=180)
+    # What JARVIS does when it hears "Hey Jarvis": a short chime, a spoken acknowledgement, or nothing.
+    wake_ack: Literal["chime", "voice", "none"] = "chime"
 
 class Config(Frozen):
     server: Server = Server()

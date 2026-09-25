@@ -88,6 +88,9 @@ class ResponseEngine:
         self.total_final_only = 0
         self.total_acks_cancelled_merge = 0
         self.enabled = False
+        # "chime" (default), "voice" (rotating short phrases) or "none" when the wake word is heard.
+        self.wake_ack_mode = "chime"
+        self._wake_chime: Optional[bytes] = None
         self._speech_tasks = set()
         self._speech_lock = asyncio.Lock()
         self._speech_generation = 0
@@ -237,6 +240,16 @@ class ResponseEngine:
         """Pre-warm TTS and ACK cache."""
         self.ack_cache.load_cache()
         self.tts.warm_up()
+        if getattr(self, "wake_ack_mode", "chime") == "voice":
+            from jarvis.core.response.ack_cache import WAKE_VOICE_ACKS
+            for phrase in WAKE_VOICE_ACKS:
+                if not self.ack_cache.is_cached(phrase):
+                    try:
+                        pcm, _backend = self.tts.synthesize(phrase)
+                        if pcm and getattr(self.tts, "sample_rate", self.ack_cache.sample_rate) == self.ack_cache.sample_rate:
+                            self.ack_cache.add_phrase(phrase, pcm)
+                    except Exception as exc:
+                        logger.debug("Wake phrase %r not synthesized: %s", phrase, exc)
         self.audio_output.start()
 
     def render(self, result, verification) -> str:
@@ -305,7 +318,16 @@ class ResponseEngine:
 
         Zero LLM, zero synthesis on hot path. Target p50 < 100ms.
         """
-        phrase, pcm, duration_ms = self.ack_cache.get_wake_ack()
+        mode = getattr(self, "wake_ack_mode", "chime")
+        if mode == "none":
+            return None
+        if mode == "chime":
+            if self._wake_chime is None:
+                from jarvis.core.pulse.earcons import wake_chime_pcm
+                self._wake_chime = wake_chime_pcm(self.ack_cache.sample_rate)
+            phrase, pcm, duration_ms = "(chime)", self._wake_chime, 240.0
+        else:
+            phrase, pcm, duration_ms = self.ack_cache.get_wake_ack()
         if not pcm:
             return None
         response = SpokenResponse(
