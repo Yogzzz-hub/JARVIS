@@ -53,6 +53,7 @@ class SendWhatsAppMessageInput(Contract):
     recipient: str = Field(min_length=1, max_length=256, description="Contact name, phone number, or WhatsApp JID")
     message: str = Field(min_length=1, max_length=4096, description="Message text to send")
     confirmation_ticket: Optional[str] = Field(default=None, description="Confirmation ticket ID if action required approval")
+    allow_group: bool = Field(default=False, description="Only True when the owner explicitly asked to write in a group")
 
 
 class SendWhatsAppMessageOutput(Contract):
@@ -96,6 +97,21 @@ class SendWhatsAppMessageTool(Tool):
 
         recipient_raw = arguments.recipient.strip()
         msg_text = arguments.message.strip()
+        allow_group = arguments.allow_group
+
+        # 0. A group only when the owner named it ("send hi to the CSE group") - never by accident.
+        named_group = group_scope_from_text(recipient_raw).get("group") if _GROUP_WORD.search(recipient_raw) else None
+        if named_group:
+            from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
+            group_id, label = _resolve_group(WhatsAppInbox.get_default(), named_group)
+            if group_id is None:
+                return {"status": "FAILED", "recipient": recipient_raw, "recipient_jid": "", "message": label,
+                        "message_id": None, "action_ledger_status": "CANCELLED", "evidence": {"unknown_group": named_group}}
+            recipient_raw, allow_group = group_id, True
+        if "@" in recipient_raw and not recipient_raw.endswith("@s.whatsapp.net") and not allow_group:
+            return {"status": "FAILED", "recipient": recipient_raw, "recipient_jid": recipient_raw,
+                    "message": "That is a group chat. I only write in a group when you name it, e.g. 'send it to the CSE group'.",
+                    "message_id": None, "action_ledger_status": "CANCELLED", "evidence": {"group_blocked": True}}
 
         # 1. Contact Resolution & Ambiguity Check
         contact, ambiguous, prompt = self.resolver.resolve(recipient_raw)
@@ -112,6 +128,8 @@ class SendWhatsAppMessageTool(Tool):
 
         target_jid = contact.jid if contact else phone_to_jid(recipient_raw)
         resolved_name = contact.display_name if contact else recipient_raw
+        if named_group:
+            target_jid, resolved_name = recipient_raw, f"the {_last_group.get('name', 'group')} group"
         if not target_jid:
             return {
                 "status": "FAILED",
@@ -260,6 +278,55 @@ class SendWhatsAppMessageTool(Tool):
 
 
 # =====================================================================
+# Group scope: group chats are only read / summarised / answered when the owner names them
+# =====================================================================
+
+_GROUP_WORD = re.compile(r"\b(?:groups?|grps?)\b", re.I)
+_GROUP_FILLER = set("""summarize summarise summary read check show list reply respond send tell text message say said
+did does do they he she them me i you what what's whats is are was any new unread latest recent last messages message msgs msg
+chats chat whatsapp all every each my the our a an in from of on to for at with that this those these there here please
+jarvis hey ok can could would will pending and""".split())
+
+
+def group_scope_from_text(text: str) -> dict[str, Any]:
+    """{} (personal chats only) / {"include_groups": True} ("my group messages") / {"group": "cse"} ("the CSE group")."""
+    t = " ".join((text or "").lower().split())
+    m = re.search(r"^(.*?)\b(?:groups?|grps?)\b", t)
+    if not m:
+        return {}
+    words = re.findall(r"[\w&'-]+", m.group(1))
+    # the group's name is the run of words right before "group", after the verbs / articles / prepositions
+    if words and words[-1] in ("that", "this", "same"):
+        return {"group": "that"}
+    while words and words[0] in _GROUP_FILLER:
+        words.pop(0)
+    cut = max((i for i, w in enumerate(words) if w in ("in", "from", "of", "on", "to", "for", "at")), default=-1)
+    words = [w for w in words[cut + 1:]]
+    while words and words[0] in _GROUP_FILLER:
+        words.pop(0)
+    name = " ".join(words).strip()
+    if not name or all(w in _GROUP_FILLER for w in words):
+        return {"include_groups": True}
+    return {"group": name}
+
+
+_last_group: dict[str, str] = {}  # the group the owner last named ("reply in that group")
+
+
+def _resolve_group(inbox: Any, name: str) -> tuple[Optional[str], str]:
+    """(chat_id, label) for a named group, or (None, explanation). "that group" = the group named last."""
+    if re.fullmatch(r"\s*(?:that|this|the same|same)\s*", name or "") and _last_group:
+        return _last_group["chat_id"], _last_group["name"]
+    hit = inbox.find_group(name) if hasattr(inbox, "find_group") else None
+    if hit:
+        _last_group.update(chat_id=hit[0], name=hit[1])
+        return hit[0], hit[1]
+    known = inbox.group_names() if hasattr(inbox, "group_names") else []
+    hint = f" Groups I know: {', '.join(known[:6])}." if known else ""
+    return None, f"I couldn't find exactly one group called '{name}'.{hint}"
+
+
+# =====================================================================
 # Read WhatsApp Messages Tool
 # =====================================================================
 
@@ -269,6 +336,8 @@ _COMMAND_ECHO = re.compile(r"^\s*(?:approve|reject|confirm|cancel|yes|no)\b.*\bt
 class ReadWhatsAppMessagesInput(Contract):
     filter: str = Field(default="needs_reply", description="Filter: 'needs_reply', 'urgent', 'unread', or 'all'")
     limit: int = Field(default=5, ge=1, le=50, description="Max messages to retrieve")
+    include_groups: bool = Field(default=False, description="Also read group chats (only when the owner asks about groups)")
+    group: str = Field(default="", max_length=80, description="Read only this named group (only when the owner names it)")
 
 
 class ReadWhatsAppMessagesOutput(Contract):
@@ -308,15 +377,21 @@ class ReadWhatsAppMessagesTool(Tool):
 
         filt = arguments.filter.lower().strip()
         lim = arguments.limit
+        group_id, label = None, ""
+        if arguments.group.strip():
+            group_id, label = _resolve_group(self.inbox, arguments.group)
+            if group_id is None:
+                return {"status": "NOT_FOUND", "count": 0, "filter": filt, "messages": [], "spoken_summary": label}
+        scope = {"include_groups": arguments.include_groups, "group": group_id}
 
         if filt == "urgent":
-            raw_msgs = [m for m in self.inbox.get_messages_needing_reply(limit=lim) if m.urgency == "URGENT"]
+            raw_msgs = [m for m in self.inbox.get_messages_needing_reply(limit=lim, **scope) if m.urgency == "URGENT"]
         elif filt == "unread":
-            raw_msgs = self.inbox.get_unread(limit=lim)
+            raw_msgs = self.inbox.get_unread(limit=lim, **scope)
         elif filt == "all":
-            raw_msgs = self.inbox.get_recent(limit=lim)
+            raw_msgs = self.inbox.get_recent(limit=lim, **scope)
         else:  # "needs_reply"
-            raw_msgs = self.inbox.get_messages_needing_reply(limit=lim)
+            raw_msgs = self.inbox.get_messages_needing_reply(limit=lim, **scope)
 
         # Hide JARVIS plumbing stored before owner messages were tagged (commands, approvals).
         msg_dicts = [m.to_dict() for m in raw_msgs
@@ -324,14 +399,16 @@ class ReadWhatsAppMessagesTool(Tool):
                      and (m.sender_display_name or "").strip().casefold() not in ("owner", "me", "jarvis")]
         count = len(msg_dicts)
 
+        where = f" in {label}" if group_id else ("" if arguments.include_groups else " in your personal chats")
         if count == 0:
-            spoken = f"You have no {filt.replace('_', ' ')} WhatsApp messages."
+            spoken = f"You have no {filt.replace('_', ' ')} WhatsApp messages{where}."
         else:
             items_spoken = []
             for m in msg_dicts[:3]:
-                urg_prefix = f"Urgent from {m['sender']}" if m["urgency"] == "URGENT" else f"From {m['sender']}"
+                who = m["sender"] + (f" in {m.get('chat_name') or 'a group'}" if m.get("is_group") and not group_id else "")
+                urg_prefix = f"Urgent from {who}" if m["urgency"] == "URGENT" else f"From {who}"
                 items_spoken.append(f"{urg_prefix}: '{m['summary']}'")
-            spoken = f"Found {count} message{'s' if count > 1 else ''}: " + ". ".join(items_spoken)
+            spoken = f"Found {count} message{'s' if count > 1 else ''}{where}: " + ". ".join(items_spoken)
 
         return {
             "status": "SUCCESS",
@@ -348,6 +425,8 @@ class ReadWhatsAppMessagesTool(Tool):
 
 class SummarizeWhatsAppMessagesInput(Contract):
     include_all: bool = Field(default=False, description="Whether to include already read messages")
+    include_groups: bool = Field(default=False, description="Also summarise group chats (only when the owner asks about groups)")
+    group: str = Field(default="", max_length=80, description="Summarise only this named group (only when the owner names it)")
 
 
 class SummarizeWhatsAppMessagesOutput(Contract):
@@ -384,15 +463,17 @@ class SummarizeWhatsAppMessagesTool(Tool):
         return self._inbox
 
     def run(self, arguments: Any) -> dict[str, Any]:
-        data = self.inbox.summarize_inbox()
+        if isinstance(arguments, dict):
+            arguments = SummarizeWhatsAppMessagesInput(**arguments)
+        group_id = None
+        if arguments.group.strip():
+            group_id, label = _resolve_group(self.inbox, arguments.group)
+            if group_id is None:
+                return {"status": "NOT_FOUND", "total_pending": 0, "urgent_count": 0, "normal_count": 0,
+                        "spoken_summary": label, "urgent_messages": [], "normal_messages": []}
+        # Deterministic and attributed per person: instant, and a model can never mix up who said what.
+        data = self.inbox.summarize_inbox(include_groups=arguments.include_groups, group=group_id)
         spoken = data["spoken_summary"]
-        pending = list(data.get("urgent_messages", [])) + list(data.get("normal_messages", []))
-        if pending:
-            try:
-                from jarvis.integrations.whatsapp.ai import get_whatsapp_ai
-                spoken = get_whatsapp_ai().summarize_sync(pending, fallback=spoken)
-            except Exception as exc:
-                logger.debug("AI inbox summary unavailable: %s", exc)
         return {
             "status": "SUCCESS",
             "total_pending": data["total_pending"],
@@ -447,6 +528,22 @@ class DraftWhatsAppReplyTool(Tool):
             arguments = DraftWhatsAppReplyInput(**arguments)
         from jarvis.integrations.whatsapp.ai import get_whatsapp_ai
         ai = self.ai or get_whatsapp_ai()
+        named_group = group_scope_from_text(arguments.recipient).get("group") if _GROUP_WORD.search(arguments.recipient) else None
+        if named_group:  # "reply in the CSE group saying ..." - only because the owner named the group
+            group_id, label = _resolve_group(ai.inbox, named_group)
+            if group_id is None:
+                return {"status": "NOT_FOUND", "recipient": arguments.recipient, "recipient_jid": "", "original_message": "",
+                        "draft": "", "message": label, "next_action": {}}
+            draft = await ai.draft_reply(group_id, arguments.instruction, in_group=True)
+            if draft is None:
+                return {"status": "NOT_FOUND", "recipient": label, "recipient_jid": group_id, "original_message": "",
+                        "draft": "", "message": f"There's nothing in the {label} group to reply to yet.", "next_action": {}}
+            return {"status": "DRAFTED", "recipient": f"the {label} group", "recipient_jid": group_id,
+                    "original_message": draft.original[:500], "draft": draft.text,
+                    "message": f"Reply in the {label} group: {draft.text}",
+                    "next_action": {"tool": "send_whatsapp_message",
+                                    "arguments": {"recipient": group_id, "message": draft.text, "allow_group": True},
+                                    "display_recipient": f"the {label} group"}}
         draft = await ai.draft_reply(arguments.recipient, arguments.instruction)
         if draft is None:
             who = f" from {arguments.recipient}" if arguments.recipient else ""

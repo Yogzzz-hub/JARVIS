@@ -580,6 +580,11 @@ class CommandService:
                 return self._finalize(task, State.SUCCESS, msg, tool_res, ver, clock, current, is_voice=is_voice)
 
             name, raw_arguments = self._translate_intent(name, raw_arguments)
+            if name in ("read_whatsapp_messages", "summarize_whatsapp_messages"):
+                # Group chats only when the owner names them ("my group messages", "the CSE group").
+                from jarvis.tools.system.whatsapp_tools import group_scope_from_text
+                raw_arguments = {**dict(raw_arguments or {}), "include_groups": False, "group": "",
+                                 **group_scope_from_text(request.text)}
             if not self.registry.contains(name):
                 target_tool = None
                 if hasattr(self.router, "catalog") and hasattr(self.router.catalog, "intents"):

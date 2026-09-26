@@ -570,7 +570,7 @@ def test_gateway_routes_direct_chats_to_the_agent_and_never_auto_replies_in_grou
         return direct, group, placeholder, own
     direct, group, placeholder, own = asyncio.run(run())
     assert direct["personal_reply"] and direct["status"] == "VERIFIED"
-    assert group["status"] == "DRAFT_CREATED"  # the allowlisted group gets a draft only - never an automatic send
+    assert group["status"] == "GROUP_STORED"  # groups: stored silently - no announcement, no draft, never a send
     assert placeholder["status"] == "PENDING_DECRYPTION" and own["status"] == "OWN_MESSAGE"
     assert [m["to"] for m in agent.transport.sent_messages] == [YOGA]
     gw.command_service.handle.assert_not_called()

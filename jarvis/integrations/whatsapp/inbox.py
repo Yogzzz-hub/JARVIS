@@ -53,6 +53,11 @@ class InboxMessage:
     urgency: str  # 'URGENT', 'NORMAL', 'LOW'
     summary: str
     replied: bool
+    chat_name: str = ""  # group subject ("" for one-to-one chats)
+
+    @property
+    def is_group(self) -> bool:
+        return not WhatsAppInbox.is_direct_chat(self.chat_id)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -69,6 +74,8 @@ class InboxMessage:
             "urgency": self.urgency,
             "summary": self.summary,
             "replied": self.replied,
+            "chat_name": self.chat_name,
+            "is_group": self.is_group,
         }
 
 
@@ -162,6 +169,9 @@ class WhatsAppInbox:
                     replied INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(whatsapp_messages)").fetchall()}
+            if "chat_name" not in cols:
+                conn.execute("ALTER TABLE whatsapp_messages ADD COLUMN chat_name TEXT NOT NULL DEFAULT ''")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_wa_chat ON whatsapp_messages(chat_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_wa_needs_reply ON whatsapp_messages(needs_reply, replied);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_wa_urgency ON whatsapp_messages(urgency);")
@@ -198,6 +208,7 @@ class WhatsAppInbox:
             urgency=urgency,
             summary=summary,
             replied=False,
+            chat_name=(getattr(message, "chat_name", "") or "").strip(),
         )
 
         with self._get_conn() as conn:
@@ -206,8 +217,8 @@ class WhatsAppInbox:
                 INSERT OR REPLACE INTO whatsapp_messages (
                     message_id, chat_id, sender_id, sender_display_name,
                     timestamp, type, text, is_from_me, is_read,
-                    needs_reply, urgency, summary, replied
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    needs_reply, urgency, summary, replied, chat_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.message_id,
@@ -223,6 +234,7 @@ class WhatsAppInbox:
                     item.urgency,
                     item.summary,
                     1 if item.replied else 0,
+                    item.chat_name,
                 ),
             )
             conn.commit()
@@ -233,8 +245,47 @@ class WhatsAppInbox:
         )
         return item
 
-    def get_messages_needing_reply(self, limit: int = 10) -> List[InboxMessage]:
-        """Returns pending messages requiring attention ordered by urgency and time."""
+    # ------------------------------------------------------------------ chat scope (groups only when asked)
+    def _scoped(self, rows: list, limit: int, include_groups: bool, group: Optional[str]) -> List[InboxMessage]:
+        """Personal chats only by default; ``group`` (a chat id) = only that group; ``include_groups`` = everything."""
+        out: List[InboxMessage] = []
+        for r in rows:
+            m = self._row_to_msg(r)
+            if group:
+                if m.chat_id != group:
+                    continue
+            elif not include_groups and m.is_group:
+                continue
+            out.append(m)
+            if len(out) >= limit:
+                break
+        return out
+
+    def find_group(self, name: str) -> Optional[Tuple[str, str]]:
+        """(chat_id, group name) of the group whose name matches ``name`` ("cse", "CSE group", "the class group")."""
+        q = re.sub(r"\b(?:the|my|our|group|grp|chat|whatsapp)\b", " ", (name or "").casefold())
+        q = " ".join(q.split())
+        if not q:
+            return None
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT chat_id, chat_name, MAX(timestamp) AS ts FROM whatsapp_messages "
+                                "WHERE chat_name != '' GROUP BY chat_id ORDER BY ts DESC").fetchall()
+        exact = [r for r in rows if r["chat_name"].casefold() == q]
+        partial = [r for r in rows if q in r["chat_name"].casefold()
+                   or all(w in r["chat_name"].casefold().split() for w in q.split())]
+        hits = exact or partial
+        if len(hits) != 1 and not exact:
+            return None  # unknown or ambiguous: never guess a group
+        return hits[0]["chat_id"], hits[0]["chat_name"]
+
+    def group_names(self) -> List[str]:
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT DISTINCT chat_name FROM whatsapp_messages WHERE chat_name != ''").fetchall()
+        return sorted(r[0] for r in rows)
+
+    def get_messages_needing_reply(self, limit: int = 10, include_groups: bool = False,
+                                   group: Optional[str] = None) -> List[InboxMessage]:
+        """Pending messages requiring attention ordered by urgency and time (personal chats unless asked)."""
         with self._get_conn() as conn:
             cursor = conn.execute(
                 """
@@ -249,13 +300,12 @@ class WhatsAppInbox:
                     timestamp DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (max(limit * 10, 200),),
             )
-            rows = cursor.fetchall()
-            return [self._row_to_msg(r) for r in rows]
+            return self._scoped(cursor.fetchall(), limit, include_groups, group)
 
-    def get_unread(self, limit: int = 10) -> List[InboxMessage]:
-        """Returns unread incoming messages."""
+    def get_unread(self, limit: int = 10, include_groups: bool = False, group: Optional[str] = None) -> List[InboxMessage]:
+        """Returns unread incoming messages (personal chats unless asked)."""
         with self._get_conn() as conn:
             cursor = conn.execute(
                 """
@@ -264,18 +314,18 @@ class WhatsAppInbox:
                 ORDER BY timestamp DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (max(limit * 10, 200),),
             )
-            return [self._row_to_msg(r) for r in cursor.fetchall()]
+            return self._scoped(cursor.fetchall(), limit, include_groups, group)
 
-    def get_recent(self, limit: int = 10) -> List[InboxMessage]:
-        """Returns most recent messages regardless of read status."""
+    def get_recent(self, limit: int = 10, include_groups: bool = True, group: Optional[str] = None) -> List[InboxMessage]:
+        """Most recent messages regardless of read status (all chats by default: used for indexing)."""
         with self._get_conn() as conn:
             cursor = conn.execute(
                 "SELECT * FROM whatsapp_messages ORDER BY timestamp DESC LIMIT ?",
-                (limit,),
+                (limit if include_groups and not group else max(limit * 10, 200),),
             )
-            return [self._row_to_msg(r) for r in cursor.fetchall()]
+            return self._scoped(cursor.fetchall(), limit, include_groups, group)
 
     def get_chat_history(self, chat_id: str, limit: int = 8) -> List[InboxMessage]:
         """Most recent messages of one conversation, oldest first (for reply context)."""
@@ -400,38 +450,68 @@ class WhatsAppInbox:
             )
             conn.commit()
 
-    def summarize_inbox(self) -> Dict[str, Any]:
+    @staticmethod
+    def _speakable(text: str, words: int = 16) -> str:
+        t = " ".join((text or "").split())
+        parts = t.split(" ")
+        return t if len(parts) <= words else " ".join(parts[:words]) + "..."
+
+    def summarize_inbox(self, include_groups: bool = False, group: Optional[str] = None,
+                        max_people: int = 5) -> Dict[str, Any]:
+        """Who is waiting for a reply and what each one said - one line per person, attributed exactly.
+
+        Personal chats only unless the owner asked about groups (``include_groups``) or one group (``group``).
+        Deterministic on purpose: no model can mix up who said what, and it answers instantly.
         """
-        Produces a rich structured summary of the inbox with priority breakdown
-        and a speech-optimized string for voice output.
-        """
-        pending = self.get_messages_needing_reply(limit=20)
+        pending = self.get_messages_needing_reply(limit=40, include_groups=include_groups, group=group)
         urgent = [m for m in pending if m.urgency == "URGENT"]
-        normal = [m for m in pending if m.urgency == "NORMAL"]
+        normal = [m for m in pending if m.urgency != "URGENT"]
 
-        total_pending = len(pending)
+        # one entry per person (per chat for personal chats, per sender inside a group), urgent first
+        people: Dict[Tuple[str, str], List[InboxMessage]] = {}
+        for m in urgent + normal:
+            people.setdefault((m.chat_id, m.sender_id), []).append(m)
 
-        # Build natural spoken text
-        if total_pending == 0:
-            spoken = "You have no unread WhatsApp messages requiring a reply."
+        lines = []
+        for (chat_id, _), msgs in list(people.items())[:max_people]:
+            latest = max(msgs, key=lambda x: x.timestamp)
+            name = latest.sender_display_name or latest.sender_id.split("@")[0]
+            where = f" in {latest.chat_name or 'a group'}" if latest.is_group else ""
+            count = f" ({len(msgs)} messages)" if len(msgs) > 1 else ""
+            tag = "Urgent - " if any(x.urgency == "URGENT" for x in msgs) else ""
+            lines.append(f"{tag}{name}{where}{count}: \"{self._speakable(latest.text or latest.summary)}\"")
+
+        n_people = len(people)
+        scope = f"the {self._group_label(group)} group" if group else ("your chats" if include_groups else "your personal chats")
+        if n_people == 0:
+            spoken = f"No one is waiting for a reply in {scope}."
         else:
-            parts = []
-            if urgent:
-                u_senders = ", ".join(f"{m.sender_display_name} saying '{m.summary}'" for m in urgent[:2])
-                parts.append(f"You have {len(urgent)} urgent message{'s' if len(urgent)>1 else ''}: from {u_senders}")
-            if normal:
-                n_senders = ", ".join(f"{m.sender_display_name} asking '{m.summary}'" for m in normal[:2])
-                parts.append(f"{len(normal)} message{'s' if len(normal)>1 else ''} needing a response: from {n_senders}")
-            spoken = ". ".join(parts) + ". Would you like to reply to any of them?"
+            head = f"{n_people} {'person is' if n_people == 1 else 'people are'} waiting for a reply in {scope}."
+            more = f" And {n_people - max_people} more." if n_people > max_people else ""
+            spoken = head + " " + ". ".join(lines) + "." + more
+        if not include_groups and not group:
+            groups_waiting = len({m.chat_id for m in self.get_messages_needing_reply(limit=40, include_groups=True) if m.is_group})
+            if groups_waiting:
+                spoken += (f" {groups_waiting} group chat{'s have' if groups_waiting != 1 else ' has'} new messages; "
+                           "I didn't read them - say 'summarize my group messages' if you want them.")
 
         return {
-            "total_pending": total_pending,
+            "total_pending": len(pending),
+            "people": n_people,
             "urgent_count": len(urgent),
             "normal_count": len(normal),
             "urgent_messages": [m.to_dict() for m in urgent],
             "normal_messages": [m.to_dict() for m in normal],
             "spoken_summary": spoken,
         }
+
+    def _group_label(self, chat_id: Optional[str]) -> str:
+        if not chat_id:
+            return ""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT chat_name FROM whatsapp_messages WHERE chat_id = ? AND chat_name != '' LIMIT 1",
+                               (chat_id,)).fetchone()
+        return row[0] if row else "selected"
 
     def _row_to_msg(self, row: sqlite3.Row) -> InboxMessage:
         return InboxMessage(
@@ -448,4 +528,5 @@ class WhatsAppInbox:
             urgency=row["urgency"],
             summary=row["summary"],
             replied=bool(row["replied"]),
+            chat_name=(row["chat_name"] if "chat_name" in row.keys() else "") or "",
         )

@@ -656,6 +656,10 @@ intelligence stays in Python.
 - **Incoming messages** are announced on the PC. An AI draft is prepared: `mode = "DRAFT_ONLY"` keeps it as a draft,
   `ALLOWLIST_AUTO_REPLY` sends it to allow-listed contacts. Incoming text is untrusted data and can never trigger PC
   actions.
+- **Group chats stay silent unless you name them.** Group messages are stored but never announced, drafted, read
+  out, summarised or answered. Say the group to use it: "summarize the CSE group", "read my group messages",
+  "reply in the CSE group saying I'll be there", "send a message to the family group saying happy diwali" (always
+  confirmed first). "Summarize my WhatsApp" covers personal chats only, one line per person.
 - **Owner remote control.** Messages from the owner numbers run as commands, and replies go back to WhatsApp.
 - **Personal replies in your style.** Import a chat (or learn from history) on **Dashboard → WhatsApp → Contacts**.
   JARVIS learns how *you* write to each person (Tanglish or English, length, emojis, tone) from your own messages

@@ -22,6 +22,7 @@ class NormalizedWhatsAppMessage(BaseModel):
     reply_to: Optional[Dict[str, Any]] = None
     is_from_me: bool = False
     is_group: bool = False
+    chat_name: str = ""          # group subject for group chats (so the owner can name a group explicitly)
     # READY, or PENDING_DECRYPTION for a "Waiting for this message" placeholder (never replied to)
     state: str = "READY"
 

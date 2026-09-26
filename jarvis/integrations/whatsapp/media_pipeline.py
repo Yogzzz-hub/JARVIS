@@ -5,6 +5,8 @@ Enforces untrusted data boundaries and automatic temporary media lifecycle clean
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import os
 from pathlib import Path
@@ -71,7 +73,7 @@ class WhatsAppMediaPipeline:
             return ""
 
         try:
-            pcm_16k = decode_audio_to_16k_mono(path_obj)
+            pcm_16k = await asyncio.to_thread(decode_audio_to_16k_mono, path_obj)
             if len(pcm_16k) == 0:
                 return ""
 
@@ -82,16 +84,18 @@ class WhatsAppMediaPipeline:
             if not self.stt_engine.is_loaded:
                 await self.stt_engine.load()
 
-            # Transcribe via Whisper
-            if hasattr(self.stt_engine, "_model") and self.stt_engine._model is not None:
-                segments, _ = self.stt_engine._model.transcribe(
-                    pcm_16k,
-                    beam_size=1,
-                    language=getattr(self.stt_engine, "language", "en") or "en",
-                    without_timestamps=True,
-                )
-                transcript = " ".join(seg.text.strip() for seg in segments).strip()
-                return transcript
+            # Transcribe via Whisper in a worker thread: the event loop (and every other WhatsApp message)
+            # keeps running while the model works. VAD skips silence, which is most of a voice note.
+            model = getattr(self.stt_engine, "_model", None)
+            if model is not None:
+                language = getattr(self.stt_engine, "language", "en") or "en"
+
+                def _transcribe() -> str:
+                    segments, _ = model.transcribe(pcm_16k, beam_size=2, language=language, without_timestamps=True,
+                                                   vad_filter=True, condition_on_previous_text=False)
+                    return " ".join(seg.text.strip() for seg in segments).strip()
+
+                return await asyncio.to_thread(_transcribe)
             return "[Voice Note: Transcriber offline]"
         except Exception as exc:
             logger.error("Failed to transcribe WhatsApp voice note: %s", exc)

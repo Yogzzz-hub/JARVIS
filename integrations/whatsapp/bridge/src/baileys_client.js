@@ -86,6 +86,23 @@ class BaileysClient {
     }
   }
 
+  /** Group subject (name) for a group JID, cached; "" when unknown. Lets the owner name a group explicitly. */
+  async groupName(jid) {
+    if (!isGroupJid(jid) || !String(jid).endsWith("@g.us")) return "";
+    if (!this.groupNames) this.groupNames = new Map();
+    const hit = this.groupNames.get(jid);
+    if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.name;
+    let name = hit ? hit.name : "";
+    try {
+      if (this.sock && typeof this.sock.groupMetadata === "function") {
+        const meta = await this.sock.groupMetadata(jid);
+        name = (meta && meta.subject) || name;
+      }
+    } catch (e) {}
+    this.groupNames.set(jid, { name, at: Date.now() });
+    return name;
+  }
+
   getNormalizedMessage(id) {
     return (this.normalizedCache && this.normalizedCache.get(id)) || null;
   }
@@ -235,7 +252,9 @@ class BaileysClient {
         let mediaRef = null;
         const msgType = Object.keys(rawMsg.message || {})[0];
 
+        // Group media is never downloaded (JARVIS does not act on group chats unless asked): saves time and disk.
         if (
+          !isGroupJid(remote) &&
           downloadMediaMessage &&
           (msgType === "imageMessage" ||
             msgType === "documentMessage" ||
@@ -268,6 +287,7 @@ class BaileysClient {
 
         const normalized = normalizeIncomingMessage(rawMsg, mediaRef);
         if (normalized) {
+          if (normalized.is_group) normalized.chat_name = await this.groupName(remote);
           this.rememberNormalized(normalized);
         }
         if (normalized && this.onNormalizedMessage) {
@@ -284,6 +304,10 @@ class BaileysClient {
         const rawMsg = { key, message: update.message, pushName: update.pushName, messageTimestamp: update.messageTimestamp };
         const normalized = normalizeIncomingMessage(rawMsg, null);
         if (normalized && this.onNormalizedMessage) {
+          if (normalized.is_group) {
+            const cached = this.groupNames && this.groupNames.get(key.remoteJid);
+            normalized.chat_name = cached ? cached.name : "";
+          }
           this.rememberNormalized(normalized);
           this.onNormalizedMessage(normalized);
         }

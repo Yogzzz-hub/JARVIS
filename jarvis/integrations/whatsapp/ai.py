@@ -269,8 +269,12 @@ class WhatsAppAI:
             logger.debug("Chat history unavailable: %s", exc)
         return lines
 
-    async def draft_reply(self, who: str = "", instruction: str = "") -> Optional[ReplyDraft]:
-        msg = self.inbox.find_latest_incoming(who)
+    async def draft_reply(self, who: str = "", instruction: str = "", in_group: bool = False) -> Optional[ReplyDraft]:
+        if in_group:  # ``who`` is the group chat id the owner explicitly named
+            latest = [m for m in self.inbox.get_recent(limit=1, group=who)] if who else []
+            msg = latest[0] if latest else None
+        else:
+            msg = self.inbox.find_latest_incoming(who, direct_only=True)
         if msg is None:
             return None
         history = self._history_lines(msg.chat_id)
@@ -300,7 +304,7 @@ class WhatsAppAI:
             text = _sentence(instruction) if instruction else "Got your message, I'll get back to you soon."
         return ReplyDraft(
             recipient=msg.sender_display_name or msg.sender_id,
-            recipient_jid=msg.sender_id if "@" in msg.sender_id else msg.chat_id,
+            recipient_jid=msg.chat_id if in_group else (msg.sender_id if "@" in msg.sender_id else msg.chat_id),
             text=text,
             original=msg.text,
             chat_id=msg.chat_id,
