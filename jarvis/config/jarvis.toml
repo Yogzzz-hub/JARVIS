@@ -29,10 +29,10 @@ router_ai = true
 planner = true
 voice = true
 tts = true
-phone = false
+phone = true
 google = false
 browser = true
-vision = false
+vision = true
 
 [models]
 # Ollama model roles. If a configured model is not pulled, JARVIS automatically

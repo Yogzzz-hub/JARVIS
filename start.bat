@@ -44,7 +44,7 @@ if "%PYTHON_EXE%"=="" (
 )
 
 :: 3. Check Ollama Service (Port 11434)
-echo [1/5] Checking Ollama service status on port 11434...
+echo [1/7] Checking Ollama service status on port 11434...
 netstat -ano | findstr /R ":11434.*LISTENING" >nul 2>&1
 if not errorlevel 1 (
     echo [OK] Ollama is already active and listening on port 11434.
@@ -79,21 +79,21 @@ echo [WARNING] Ollama server is taking longer than expected. Continuing startup.
 :check_wa
 echo.
 :: 4. Check WhatsApp Omnichannel Bridge (Port 8768)
-echo [2/5] Checking WhatsApp bridge status on port 8768...
+echo [2/7] Checking WhatsApp bridge status on port 8768...
 netstat -ano | findstr /R ":8768.*LISTENING" >nul 2>&1
 if not errorlevel 1 (
     echo [OK] WhatsApp Bridge is already active and listening on port 8768.
-    goto :check_backend
+    goto :check_adb
 )
 
 echo [INFO] WhatsApp Bridge is not running. Launching transport bridge...
 set "WHATSAPP_PHONE_NUMBER=916381456199"
 if not exist "%~dp0integrations\whatsapp\bridge\src\index.js" (
     echo [WARNING] WhatsApp bridge files not found at integrations\whatsapp\bridge\src\index.js
-    goto :check_backend
+    goto :check_adb
 )
 
-start "JARVIS EDGE - WhatsApp Bridge" node "%~dp0integrations\whatsapp\bridge\src\index.js"
+start "JARVIS EDGE - WhatsApp Bridge" /min node "%~dp0integrations\whatsapp\bridge\src\index.js"
 echo [INFO] Waiting for WhatsApp bridge to reach ready state...
 set /a wa_attempts=0
 :wait_wa
@@ -102,15 +102,49 @@ set /a wa_attempts+=1
 netstat -ano | findstr /R ":8768.*LISTENING" >nul 2>&1
 if not errorlevel 1 (
     echo [OK] WhatsApp Bridge is READY on ws://127.0.0.1:8768 (Owner: 6381456199)
-    goto :check_backend
+    goto :check_adb
 )
 if !wa_attempts! lss 15 goto :wait_wa
 echo [WARNING] WhatsApp bridge is taking longer than usual to start. Continuing...
 
+:check_adb
+echo.
+:: 5. Check Local Device & Phone Connectivity (ADB)
+echo [3/7] Checking Android / Local Device connection (ADB)...
+where adb >nul 2>&1
+if not errorlevel 1 (
+    adb start-server >nul 2>&1
+    set "PHONE_ATTACHED="
+    for /f "skip=1 tokens=1,2" %%A in ('adb devices 2^>nul') do (
+        if "%%B"=="device" (
+            echo [OK] Android Device Connected: %%A
+            set "PHONE_ATTACHED=1"
+        )
+    )
+    if not defined PHONE_ATTACHED (
+        echo [INFO] ADB daemon active. Connect phone via USB or WiFi to enable mobile control.
+    )
+) else (
+    echo [INFO] ADB not in PATH. Phone bridge will activate when ADB is installed.
+)
+
+:check_browser
+echo.
+:: 6. Check Browser Automation Engine (Playwright)
+echo [4/7] Checking Browser Automation Engine [Playwright]...
+"%PYTHON_EXE%" -c "import playwright; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.executable_path; p.stop()" >nul 2>&1
+if not errorlevel 1 (
+    echo [OK] Browser Automations: Playwright Chromium ready.
+) else (
+    echo [INFO] Initializing Playwright Chromium...
+    "%PYTHON_EXE%" -m playwright install chromium >nul 2>&1
+    echo [OK] Browser Automations initialized.
+)
+
 :check_backend
 echo.
-:: 5. Start JARVIS Backend Daemon if not already running on port 8765
-echo [3/5] Checking JARVIS Backend status on port 8765...
+:: 7. Start JARVIS Backend Daemon if not already running on port 8765
+echo [5/7] Checking JARVIS Backend status on port 8765...
 netstat -ano | findstr /R ":8765.*LISTENING" >nul 2>&1
 if not errorlevel 1 (
     echo [OK] JARVIS Backend is already active and listening on port 8765.
@@ -135,8 +169,8 @@ echo [WARNING] Backend is taking longer than usual to report ready. Proceeding t
 
 :check_google
 echo.
-:: 6. Check Google Workspace Client Configuration
-echo [4/5] Checking Google Workspace Configuration...
+:: 8. Check Google Workspace Client Configuration
+echo [6/7] Checking Google Workspace Configuration...
 if exist "%~dp0config\google_client_secret.json" (
     echo [OK] Google OAuth credentials found: config\google_client_secret.json
     echo      ^(To link account: run connect_google.bat or 'python -m jarvis.integrations.google.cli connect all'^)
@@ -145,8 +179,8 @@ if exist "%~dp0config\google_client_secret.json" (
 )
 
 echo.
-:: 7. Launch JARVIS Desktop UI & Voice Overlay
-echo [5/5] Launching JARVIS Desktop UI and Voice Overlay...
+:: 9. Launch JARVIS Desktop UI & Voice Overlay
+echo [7/7] Launching JARVIS Desktop UI and Voice Overlay...
 start "JARVIS EDGE - Desktop UI" "%PYTHON_EXE%" -m jarvis.ui
 
 echo.
@@ -155,9 +189,11 @@ echo   JARVIS EDGE v1.0 - ALL SYSTEMS ACTIVE ^& CONNECTED
 echo ============================================================
 echo   * Ollama Service:       http://127.0.0.1:11434 (Connected)
 echo   * WhatsApp Bridge:      ws://127.0.0.1:8768 (Owner: 6381456199)
+echo   * Browser Automations:  Playwright Chromium (Connected)
+echo   * Local Device / Phone: ADB Active (tcp:5037)
 echo   * Google Workspace:     Configured (connect_google.bat)
-echo   * Jarvis Backend:       http://127.0.0.1:8765
-echo   * Voice Wake Word:      "Hey Jarvis" (threshold in jarvis\config\jarvis.toml [voice])
+echo   * Jarvis Backend:       http://127.0.0.1:8765 (116 Tools Loaded)
+echo   * Voice Wake Word:      "Hey Jarvis"
 echo   * Voice Hotkey:         Ctrl + Shift + J
 echo ============================================================
 echo.

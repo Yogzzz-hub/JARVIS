@@ -368,7 +368,7 @@ class SummarizeWhatsAppMessagesTool(Tool):
         output_model=SummarizeWhatsAppMessagesOutput,
         read_only=True,
         risk=RiskLevel.READ_ONLY,
-        timeout_s=5.0,
+        timeout_s=15.0,
         tags=("messaging", "whatsapp", "summary"),
         execution_method=ExecutionMethod.CLI,
     )

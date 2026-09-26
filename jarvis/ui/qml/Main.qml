@@ -76,8 +76,18 @@ Window {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 54
+        height: 56
 
+        // frosted header background
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0.06, 0.09, 0.14, 0.95) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.04, 0.07, 0.12, 0.75) }
+            }
+        }
+
+        // separator with glow
         Rectangle {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
             height: 1
@@ -85,6 +95,16 @@ Window {
                 orientation: Gradient.Horizontal
                 GradientStop { position: 0.0; color: "transparent" }
                 GradientStop { position: 0.5; color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.55) }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
+        // subtle glow bloom under separator
+        Rectangle {
+            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+            anchors.bottomMargin: -4
+            height: 8
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.08) }
                 GradientStop { position: 1.0; color: "transparent" }
             }
         }
@@ -96,7 +116,7 @@ Window {
             spacing: 12
 
             JarvisOrb {
-                orbSize: 30
+                orbSize: 32
                 assistantState: mainWindow.st
                 lowResourceMode: uiState ? uiState.lowResourceMode : false
                 level: uiState ? uiState.audioLevel : 0
@@ -104,8 +124,23 @@ Window {
             }
             Column {
                 anchors.verticalCenter: parent.verticalCenter
-                Text { text: "J.A.R.V.I.S"; color: "#F0F4F8"; font.pixelSize: 15; font.bold: true; font.letterSpacing: 4 }
-                Text { text: "EDGE  \u00B7  LOCAL AI"; color: mainWindow.tint; font.pixelSize: 9; font.bold: true; font.letterSpacing: 2.5 }
+                spacing: 2
+                Text {
+                    text: "J.A.R.V.I.S"
+                    color: "#F0F4F8"
+                    font.pixelSize: 16
+                    font.bold: true
+                    font.letterSpacing: 5
+                    font.family: "Segoe UI"
+                }
+                Text {
+                    text: "EDGE  \u00B7  LOCAL AI"
+                    color: mainWindow.tint
+                    font.pixelSize: 9
+                    font.bold: true
+                    font.letterSpacing: 3
+                    opacity: 0.85
+                }
             }
         }
 
@@ -113,7 +148,7 @@ Window {
             anchors.right: parent.right
             anchors.rightMargin: 18
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 14
+            spacing: 16
 
             StatusBadge {
                 status: uiState ? uiState.connectionStatus : "OFFLINE"
@@ -121,8 +156,24 @@ Window {
             }
             Column {
                 anchors.verticalCenter: parent.verticalCenter
-                Text { id: clockText; text: Qt.formatTime(new Date(), "hh:mm"); color: "#E6F7FF"; font.pixelSize: 16; font.bold: true; anchors.right: parent.right }
-                Text { id: dateText; text: Qt.formatDate(new Date(), "ddd, d MMM"); color: "#56708F"; font.pixelSize: 10; anchors.right: parent.right }
+                spacing: 1
+                Text {
+                    id: clockText
+                    text: Qt.formatTime(new Date(), "hh:mm")
+                    color: "#E6F7FF"
+                    font.pixelSize: 18
+                    font.bold: true
+                    font.family: "Segoe UI"
+                    anchors.right: parent.right
+                }
+                Text {
+                    id: dateText
+                    text: Qt.formatDate(new Date(), "ddd, d MMM")
+                    color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.6)
+                    font.pixelSize: 10
+                    font.letterSpacing: 0.5
+                    anchors.right: parent.right
+                }
                 Timer {
                     interval: 1000; running: true; repeat: true
                     onTriggered: { clockText.text = Qt.formatTime(new Date(), "hh:mm"); dateText.text = Qt.formatDate(new Date(), "ddd, d MMM") }
@@ -151,22 +202,61 @@ Window {
                 anchors.fill: parent
                 anchors.margins: 10
                 anchors.topMargin: 14
-                spacing: 4
+                spacing: 2
+
                 Repeater {
                     model: [
-                        { t: "Home", i: "\u25C9" }, { t: "Activity", i: "\u2630" }, { t: "System", i: "\u2699" },
-                        { t: "Memory", i: "\u25C8" }, { t: "Workflows", i: "\u26A1" }, { t: "Devices", i: "\u25A3" },
-                        { t: "Integrations", i: "\u2B21" }, { t: "Settings", i: "\u2692" }, { t: "Diagnostics", i: "\u2695" },
-                        { t: "WhatsApp", i: "\u260E" }
+                        { t: "Home",         n: "home" },
+                        { t: "Activity",     n: "activity" },
+                        { t: "System",       n: "system" },
+                        { t: "Memory",       n: "memory" },
+                        { t: "Workflows",    n: "workflows" },
+                        { t: "Devices",      n: "devices" },
+                        { t: "Integrations", n: "integrations" }
                     ]
                     delegate: SidebarButton {
                         text: modelData.t
-                        iconSymbol: modelData.i
+                        iconName: modelData.n
                         compact: sidebar.compact
                         accent: mainWindow.tint
                         selected: pageStack.currentIndex === index
                         onClicked: pageStack.currentIndex = index
                     }
+                }
+
+                SidebarButton {
+                    text: "WhatsApp"
+                    iconName: "whatsapp"
+                    compact: sidebar.compact
+                    accent: mainWindow.tint
+                    selected: pageStack.currentIndex === 9
+                    onClicked: pageStack.currentIndex = 9
+                }
+
+                // subtle divider before settings/diag
+                Item { width: parent.width; height: 12
+                    Rectangle {
+                        width: parent.width * 0.55; height: 1; radius: 1
+                        anchors.centerIn: parent
+                        color: Qt.rgba(1, 1, 1, 0.06)
+                    }
+                }
+
+                SidebarButton {
+                    text: "Settings"
+                    iconName: "settings"
+                    compact: sidebar.compact
+                    accent: mainWindow.tint
+                    selected: pageStack.currentIndex === 7
+                    onClicked: pageStack.currentIndex = 7
+                }
+                SidebarButton {
+                    text: "Diagnostics"
+                    iconName: "diagnostics"
+                    compact: sidebar.compact
+                    accent: mainWindow.tint
+                    selected: pageStack.currentIndex === 8
+                    onClicked: pageStack.currentIndex = 8
                 }
             }
         }
@@ -202,15 +292,25 @@ Window {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 30
+        height: 34
 
-        Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.06) }
+        // gradient separator line
+        Rectangle {
+            anchors.top: parent.top; width: parent.width; height: 1
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: "transparent" }
+                GradientStop { position: 0.3; color: Qt.rgba(1, 1, 1, 0.08) }
+                GradientStop { position: 0.7; color: Qt.rgba(1, 1, 1, 0.08) }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
 
         Row {
             anchors.left: parent.left
             anchors.leftMargin: 18
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 18
+            spacing: 22
             Repeater {
                 model: [
                     { k: "CPU", v: uiState ? uiState.cpuPercent.toFixed(0) + "%" : "-" },
@@ -219,8 +319,8 @@ Window {
                     { k: "PING", v: uiState ? uiState.pingMs + " ms" : "-" }
                 ]
                 delegate: Row {
-                    spacing: 5
-                    Text { text: modelData.k; color: "#4B6584"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1 }
+                    spacing: 6
+                    Text { text: modelData.k; color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.55); font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.2 }
                     Text { text: modelData.v; color: "#A9BCD3"; font.pixelSize: 10; font.bold: true }
                 }
             }
@@ -230,7 +330,7 @@ Window {
             anchors.right: parent.right
             anchors.rightMargin: 18
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 16
+            spacing: 18
             Repeater {
                 model: [
                     { k: "CORE", s: uiState ? (uiState.connectionStatus === "ONLINE" ? 1 : 0) : 0 },
@@ -241,7 +341,29 @@ Window {
                 delegate: Row {
                     spacing: 6
                     readonly property color c: modelData.s === 1 ? "#00E676" : (modelData.s === 0 ? "#FF5252" : "#56708F")
-                    Rectangle { width: 7; height: 7; radius: 4; color: c; anchors.verticalCenter: parent.verticalCenter }
+                    Item {
+                        width: 9; height: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 7; height: 7; radius: 4; color: c
+                        }
+                        // outer glow pulse for active services
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 12; height: 12; radius: 6
+                            color: "transparent"
+                            border.width: 1
+                            border.color: Qt.rgba(c.r, c.g, c.b, 0.35)
+                            visible: modelData.s === 1
+                            SequentialAnimation on opacity {
+                                running: modelData.s === 1
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.3; duration: 1200 }
+                                NumberAnimation { to: 1.0; duration: 1200 }
+                            }
+                        }
+                    }
                     Text { text: modelData.k; color: c; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1 }
                 }
             }

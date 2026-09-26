@@ -39,8 +39,8 @@ class Features(Frozen):
     planner: bool = True
     voice: bool = False
     tts: bool = False
-    phone: Literal[False] = False
-    google: Literal[False] = False
+    phone: bool = False
+    google: bool = False
     browser: bool = False
     vision: bool = False
 

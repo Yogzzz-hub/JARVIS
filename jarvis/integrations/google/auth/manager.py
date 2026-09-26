@@ -85,9 +85,9 @@ class GoogleAuthManager:
 
         requested_scopes = set()
         for cap in capabilities:
-            scope_uri = ScopeRegistry.get_scope_for_capability(cap)
-            if scope_uri:
-                requested_scopes.add(scope_uri)
+            cap_scopes = ScopeRegistry.get_scopes_for_capability(cap)
+            if cap_scopes:
+                requested_scopes.update(cap_scopes)
         requested_scopes.add("https://www.googleapis.com/auth/userinfo.email")
         requested_scopes.add("openid")
 
@@ -107,7 +107,7 @@ class GoogleAuthManager:
         creds = flow.run_local_server(
             host="127.0.0.1",
             port=8080,
-            authorization_prompt_message="Opening browser for Google authorization...",
+            authorization_prompt_message="\nPlease open the following URL in your browser to authorize Google Workspace:\n\n{url}\n\nWaiting for authorization...",
             success_message="Google authorization successful! You can now close this browser window.",
             open_browser=True,
         )

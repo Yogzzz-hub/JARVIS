@@ -293,33 +293,58 @@ Item {
             // quick actions
             Flow {
                 Layout.fillWidth: true
-                spacing: 8
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 10
                 Repeater {
                     model: [
-                        { label: "Screenshot", icon: "▣", cmd: "take a screenshot" },
-                        { label: "Weather", icon: "☁", cmd: "what's the weather today" },
-                        { label: "WhatsApp summary", icon: "✉", cmd: "summarize my whatsapp" },
-                        { label: "Reminders", icon: "⏰", cmd: "show my reminders" },
-                        { label: "Phone status", icon: "☎", cmd: "is my phone connected" },
-                        { label: "Open Chrome", icon: "◎", cmd: "open chrome" },
-                        { label: "System", icon: "⚙", cmd: "how is my system doing" }
+                        { label: "Screenshot",       iconKey: "screenshot", cmd: "take a screenshot" },
+                        { label: "Weather",           iconKey: "weather",    cmd: "what's the weather today" },
+                        { label: "WhatsApp summary",  iconKey: "whatsapp",   cmd: "summarize my whatsapp" },
+                        { label: "Reminders",         iconKey: "reminders",  cmd: "show my reminders" },
+                        { label: "Phone status",      iconKey: "phone",      cmd: "is my phone connected" },
+                        { label: "Open Chrome",       iconKey: "chrome",     cmd: "open chrome" },
+                        { label: "System",            iconKey: "cog",        cmd: "how is my system doing" }
                     ]
                     delegate: Rectangle {
-                        height: 30
-                        width: chipText.implicitWidth + 30
-                        radius: 15
-                        color: chipMouse.containsMouse ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.18) : Qt.rgba(1, 1, 1, 0.04)
-                        border.color: chipMouse.containsMouse ? root.tint : Qt.rgba(1, 1, 1, 0.10)
-                        scale: chipMouse.pressed ? 0.95 : 1.0
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        height: 34
+                        width: chipRow2.implicitWidth + 38
+                        radius: 17
+                        color: chipMouse.containsMouse
+                               ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.16)
+                               : Qt.rgba(1, 1, 1, 0.035)
+                        border.color: chipMouse.containsMouse
+                                      ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.55)
+                                      : Qt.rgba(1, 1, 1, 0.09)
+                        border.width: 1
+                        scale: chipMouse.pressed ? 0.94 : 1.0
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on border.color { ColorAnimation { duration: 150 } }
                         Behavior on scale { NumberAnimation { duration: 80 } }
-                        Text {
-                            id: chipText
+
+                        Row {
+                            id: chipRow2
                             anchors.centerIn: parent
-                            text: modelData.icon + "  " + modelData.label
-                            color: "#CFE3F7"
-                            font.pixelSize: 12
+                            spacing: 8
+
+                            IconCanvas {
+                                width: 14; height: 14
+                                icon: modelData.iconKey
+                                iconColor: chipMouse.containsMouse ? root.tint : "#8FB3D9"
+                                iconStroke: 1.3
+                                anchors.verticalCenter: parent.verticalCenter
+                                Behavior on iconColor { ColorAnimation { duration: 150 } }
+                            }
+
+                            Text {
+                                text: modelData.label
+                                color: chipMouse.containsMouse ? "#F0F4F8" : "#CFE3F7"
+                                font.pixelSize: 12
+                                font.family: "Segoe UI"
+                                anchors.verticalCenter: parent.verticalCenter
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
                         }
+
                         MouseArea {
                             id: chipMouse
                             anchors.fill: parent
@@ -427,21 +452,57 @@ Item {
 
                     // send
                     Rectangle {
-                        Layout.preferredWidth: 72
-                        Layout.preferredHeight: 36
-                        radius: 10
-                        opacity: cmdInput.text.trim().length ? 1.0 : 0.55
+                        Layout.preferredWidth: 76
+                        Layout.preferredHeight: 38
+                        radius: 12
+                        opacity: cmdInput.text.trim().length ? 1.0 : 0.45
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: Qt.lighter(root.tint, 1.15) }
-                            GradientStop { position: 1.0; color: Qt.darker(root.tint, 1.25) }
+                            GradientStop { position: 0.0; color: Qt.lighter(root.tint, 1.2) }
+                            GradientStop { position: 1.0; color: Qt.darker(root.tint, 1.15) }
                         }
-                        scale: sendMouse.pressed ? 0.95 : 1.0
-                        Behavior on scale { NumberAnimation { duration: 80 } }
-                        Text { anchors.centerIn: parent; text: "SEND"; color: "#05101A"; font.pixelSize: 12; font.bold: true; font.letterSpacing: 1.5 }
+                        scale: sendMouse.pressed ? 0.93 : (sendMouse.containsMouse ? 1.03 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 6
+                            Text {
+                                text: "SEND"
+                                color: "#05101A"
+                                font.pixelSize: 12
+                                font.bold: true
+                                font.letterSpacing: 1.5
+                                font.family: "Segoe UI"
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            Text {
+                                text: "→"
+                                color: "#05101A"
+                                font.pixelSize: 14
+                                font.bold: true
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        // hover glow
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: -3
+                            radius: parent.radius + 3
+                            color: "transparent"
+                            border.width: 2
+                            border.color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b,
+                                                  sendMouse.containsMouse ? 0.3 : 0)
+                            z: -1
+                            Behavior on border.color { ColorAnimation { duration: 180 } }
+                        }
+
                         MouseArea {
                             id: sendMouse
                             anchors.fill: parent
+                            hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: cmdInput.accepted()
                         }
@@ -461,15 +522,67 @@ Item {
                 anchors.margins: 14
                 spacing: 10
 
-                RowLayout {
+                // conversation header
+                Item {
                     Layout.fillWidth: true
-                    Text { text: "CONVERSATION"; color: "#8FB3D9"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2; Layout.fillWidth: true }
-                    Text {
-                        text: "Clear"
-                        color: clearMouse.containsMouse ? "#E6F7FF" : "#56708F"
-                        font.pixelSize: 11
-                        MouseArea { id: clearMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (stateModel) stateModel.clearConversation() }
+                    Layout.preferredHeight: 32
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 8
+
+                        // chat icon
+                        IconCanvas {
+                            Layout.preferredWidth: 16; Layout.preferredHeight: 16
+                            icon: "whatsapp"
+                            iconColor: root.tint
+                            iconStroke: 1.4
+                        }
+
+                        Text {
+                            text: "CONVERSATION"
+                            color: "#8FB3D9"
+                            font.pixelSize: 11
+                            font.bold: true
+                            font.letterSpacing: 2.5
+                            Layout.fillWidth: true
+                        }
+
+                        // clear button
+                        Rectangle {
+                            Layout.preferredWidth: 52; Layout.preferredHeight: 24
+                            radius: 12
+                            color: clearMouse.containsMouse ? Qt.rgba(1, 0.32, 0.32, 0.12) : "transparent"
+                            border.color: clearMouse.containsMouse ? "#FF5252" : Qt.rgba(1, 1, 1, 0.08)
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            Behavior on border.color { ColorAnimation { duration: 120 } }
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Clear"
+                                color: clearMouse.containsMouse ? "#FF8A80" : "#56708F"
+                                font.pixelSize: 10
+                                font.bold: true
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                            }
+                            MouseArea {
+                                id: clearMouse; anchors.fill: parent; hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: if (stateModel) stateModel.clearConversation()
+                            }
+                        }
+                    }
+
+                    // gradient underline
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left; anchors.right: parent.right
+                        height: 1
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0.0; color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.3) }
+                            GradientStop { position: 0.5; color: Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.08) }
+                            GradientStop { position: 1.0; color: "transparent" }
+                        }
                     }
                 }
 
