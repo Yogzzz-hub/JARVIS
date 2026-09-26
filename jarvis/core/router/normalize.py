@@ -119,11 +119,15 @@ def collapse_spaced_letters(text: str) -> str:
     return t
 
 
+_ORDINALS = "first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|next|previous"
+
+
 def resolve_discourse_correction(text: str) -> str:
     """Detects and applies mid-utterance self-corrections (e.g. 'Open Chrome—actually Edge', 'Launch Notepad, sorry I meant VS Code')."""
     cleaned = text.strip().rstrip(".!?")
 
-    corr_cues = r"actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))|make\s+that|scratch\s+that|rather|\bno\b"
+    corr_cues = (r"actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))?|make\s+that|scratch\s+that|rather|"
+                 r"\bno\b|i\s+mean|correction")
 
     pattern = re.compile(
         rf"^(?P<initial>.+?)(?:—|\.\.\.|,)\s*(?:{corr_cues})\s*,?\s*(?P<corr>.+)$",
@@ -144,6 +148,12 @@ def resolve_discourse_correction(text: str) -> str:
     corr = m.group("corr").strip()
     # Strip politeness suffixes from correction part
     clean_corr = re.sub(r"\s+please$", "", corr, flags=re.I).strip()
+    clean_corr = re.sub(r"^(?:take|pick|use|open|make\s+(?:it|that))\s+(?=the\s+(?:%s)\b)" % _ORDINALS, "", clean_corr, flags=re.I)
+
+    # "open the second file - sorry, the third" / "pick the first result, wait, take the last one": swap the ordinal
+    new_ord = re.match(r"^(?:the\s+)?(%s)(?:\s+one)?$" % _ORDINALS, clean_corr, re.I)
+    if new_ord and re.search(r"\b(?:%s)\b" % _ORDINALS, initial, re.I):
+        return re.sub(r"\b(?:%s)\b" % _ORDINALS, new_ord.group(1), initial, count=1, flags=re.I)
 
     verb_prefix = re.match(r"^(?:open|launch|start|bring\s+up|pull\s+up|send|message|search|find|adjust|set)\b", clean_corr, re.I)
     if verb_prefix:
@@ -269,7 +279,7 @@ def normalize_text(text: str) -> tuple[str, str]:
     routing = " ".join(cleaned.split())
 
     # 8b. Semantic Action Normalization (Action-Family Concept Normalization)
-    routing = re.sub(r"\bget\s+([a-zA-Z0-9_\-\.]+?)\s+(?:running|rolling)\b", r"open \1", routing, flags=re.I)
+    routing = re.sub(r"\bget\s+([a-zA-Z0-9_\-\.]+?)(?:\s+(?:media\s+player|player|app|application|browser))?\s+(?:running|rolling|going)\b", r"open \1", routing, flags=re.I)
     routing = re.sub(r"\bbring\s+([a-zA-Z0-9_\-\.]+?)\s+onto\s+(?:the\s+)?desktop\b", r"open \1", routing, flags=re.I)
     routing = re.sub(r"\b(?:fire\s+up|spin\s+up)\b", "open", routing, flags=re.I)
 
@@ -303,5 +313,105 @@ def normalize_text(text: str) -> tuple[str, str]:
     for typo, corrected in ASR_TYPOS.items():
         if typo in routing:
             routing = re.sub(rf"\b{re.escape(typo)}\b", corrected, routing)
+    routing = correct_command_typos(routing)
+    routing = normalize_paraphrases(routing)
 
     return original, routing
+
+
+# ------------------------------------------------------------------------------------------------ typo repair
+# Words that start / shape a command, and app names. A misspelt one ("launsh chrom", "mut volum") is repaired only
+# when the token is not a real English word and is very close to exactly one of these.
+COMMAND_VOCAB = frozenset("""
+open launch start run close quit exit find search show hide mute unmute check where install uninstall update play pause
+resume stop skip next previous set turn increase decrease raise lower take lock unlock minimize maximize restore switch
+snap move copy rename delete organize list read send reply summarize remind timer screenshot volume brightness desktop
+window windows files file folder downloads documents pictures music videos installed applications apps phone android
+bluetooth wifi battery status notifications clipboard settings system info memory storage display screen recording
+chrome firefox edge notepad calculator spotify explorer vscode terminal paint word excel powerpoint outlook teams zoom
+discord telegram whatsapp youtube vlc steam obs photoshop gmail calendar drive browser tab tabs bookmark bookmarks
+browse surf need want make give tell ask app pc web all
+""".split())
+_TYPO_CACHE: dict[str, str] = {}
+
+
+def _english_word(tok: str) -> bool:
+    try:
+        from jarvis.integrations.whatsapp.personal_reply.language import english_words
+        return tok in english_words()
+    except Exception:
+        return False
+
+
+def correct_command_typos(routing: str) -> str:
+    """'launsh chrom' -> 'launch chrome', 'mut volum' -> 'mute volume'. Only the command head (first 4 words),
+    never message content ('saying ...', quotes), never real English words or names that are not close to a command."""
+    if not routing or '"' in routing or "'" in routing[:1]:
+        return routing
+    import difflib
+    words = routing.split()
+    stop = next((i for i, w in enumerate(words) if w in ("saying", "that", "say", "message", "text", "tell")), len(words))
+    head = min(4, stop)
+    changed = False
+    for i in range(head):
+        w = words[i]
+        if len(w) < 3 or not w.isalpha() or w in COMMAND_VOCAB:
+            continue
+        fixed = _TYPO_CACHE.get(w)
+        if fixed is None:
+            fixed = w
+            if not _english_word(w):
+                cands = [c for c in difflib.get_close_matches(w, COMMAND_VOCAB, n=2, cutoff=0.75) if c[0] == w[0]]
+                if len(cands) == 1 or (len(cands) == 2 and difflib.SequenceMatcher(None, w, cands[0]).ratio()
+                                       - difflib.SequenceMatcher(None, w, cands[1]).ratio() > 0.08):
+                    fixed = cands[0]
+            _TYPO_CACHE[w] = fixed
+        if fixed != w:
+            words[i] = fixed
+            changed = True
+    return " ".join(words) if changed else routing
+
+
+_APP_WORD = r"[a-z0-9][a-z0-9.+\-]*(?:\s+(?!is\b|installed\b|web\b|browser\b|app\b|application\b|program\b)[a-z0-9][a-z0-9.+\-]*)?"
+
+
+def normalize_paraphrases(routing: str) -> str:
+    """Everyday paraphrases -> the canonical phrasing the deterministic lane already understands."""
+    r = routing
+    # "open calculator but not notepad" / "run edge but definitely not chrome": the exclusion is not a second command
+    r = re.sub(r"^((?:open|launch|start|run)\s+.+?)\s*,?\s+but\s+(?:definitely\s+|absolutely\s+|please\s+)?not\s+.+$", r"\1", r)
+    # "don't mute the sound , just turn it down to 20" -> the positive instruction
+    r = re.sub(r"^(?:do\s+not|don't|dont)\s+mute\b.*?\b(?:just\s+)?(?:turn\s+it\s+down|lower\s+it|set\s+it)\s+to\s+(\d+)%?$",
+               r"set volume to \1", r)
+    # installed?  "is firefox on this computer", "check whether firefox is on this pc", "check if c h r o m e is there"
+    r = re.sub(r"^(?:check\s+(?:whether|if)\s+|is\s+)(%s)\s+(?:is\s+)?(?:on\s+(?:this|my)\s+(?:computer|pc|laptop|system)|there|available)$" % _APP_WORD,
+               r"is \1 installed", r)
+    r = re.sub(r"^check\s+(?:whether|if)\s+(%s)\s+(?:is\s+)?installed$" % _APP_WORD, r"is \1 installed", r)
+    # where is it installed
+    r = re.sub(r"^(?:find|show|get|tell\s+me)\s+(?:the\s+)?(?:location|install(?:ation)?\s+(?:folder|path|location)|"
+               r"executable\s+(?:directory|folder|path)|path)\s+(?:of|for)\s+(%s)(?:\s+on\s+disk|\s+installed)?$" % _APP_WORD,
+               r"where is \1 installed", r)
+    r = re.sub(r"^where\s+is\s+(%s)\s+(?:located|on\s+disk|stored)$" % _APP_WORD, r"where is \1 installed", r)
+    # installed programs
+    r = re.sub(r"^(?:list|show)\s+(?:every|all|all\s+the)\s+(?:programs?|software|apps?|applications?)\s+installed(?:\s+on\s+(?:this\s+|my\s+)?(?:pc|computer|laptop))?$",
+               "list installed applications", r)
+    r = re.sub(r"^rebuild\s+(?:the\s+)?(?:application|app)\s+(?:index|catalog)(?:\s+cache)?$", "refresh applications", r)
+    # desktop / windows / lock
+    r = re.sub(r"^(?:go\s+)?back\s+to\s+(?:the\s+)?desktop$|^minimi[sz]e\s+all(?:\s+windows)?(?:\s+to\s+see\s+(?:the\s+)?desktop)?$",
+               "show desktop", r)
+    r = re.sub(r"^(?:kill|dismiss|close)\s+(?:the\s+)?(?:current|active|focused|this)\s+(?:active\s+)?window$", "close window", r)
+    r = re.sub(r"^lock\s+(?:my\s+|the\s+)?(?:windows\s+)?(?:session|computer|laptop|workstation)$", "lock the pc", r)
+    # hardware / system
+    r = re.sub(r"^(?:check|show|what\s+are)\s+(?:my\s+|the\s+)?(?:processor|cpu|hardware|pc|computer)\s+(?:specs|specifications|details)$",
+               "system info", r)
+    # "i need terminal", "need to browse the web", "need to do some math"
+    r = re.sub(r"^(?:i\s+)?need\s+to\s+(?:do\s+(?:some\s+)?)?(?:math|maths|calculations?|math\s+calculations)$", "open calculator", r)
+    r = re.sub(r"^(?:i\s+)?need\s+to\s+(?:browse|surf)\s+(?:the\s+)?(?:web|internet)$", "open chrome", r)
+    r = re.sub(r"^i\s+need\s+(?:the\s+|my\s+)?(%s)$" % _APP_WORD,
+               lambda m: f"open {m.group(1)}" if m.group(1).split()[0] in COMMAND_VOCAB else m.group(0), r)
+    # "pull up file explorer", "display the chrome web browser", "open up paint application"
+    r = re.sub(r"^(?:pull\s+up|display|open\s+up|bring\s+up|load\s+up)\s+(?:the\s+)?(%s)(?:\s+(?:web\s+)?(?:browser|application|app|program))?$" % _APP_WORD,
+               lambda m: f"open {m.group(1)}" if m.group(1).split()[0] in COMMAND_VOCAB else m.group(0), r)
+    # "pick the first result, wait, take the last one" (after correction) -> an ordinal reference
+    r = re.sub(r"^(?:pick|take|choose|select)\s+the\s+(first|second|third|fourth|fifth|last)\s+(?:result|one|item|file)$", r"open the \1 one", r)
+    return " ".join(r.split())

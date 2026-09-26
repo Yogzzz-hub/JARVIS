@@ -70,6 +70,17 @@ def content_words(text: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9']+", (text or "").lower()) if w not in _STOP and len(w) > 1]
 
 
+_PERSONAL_Q = re.compile(r"^(?:what|when|where|who|which|how\s+(?:much|many|long|often)|is|are|was|did|do|does)\b.*\b(?:my|mine|our)\b", re.I)
+_NOT_PERSONAL = re.compile(r"\bmy\s+(?:name|self|own\s+opinion)\b|\b(?:should|could|can)\s+(?:i|we)\b|\bhow\s+(?:do|can|should)\s+i\b", re.I)
+
+
+def is_personal_question(query: str) -> bool:
+    """A question about the owner's own information ("when is my exam", "what is my wifi password") - answerable only
+    from their documents, notes or saved facts, never from the model's imagination."""
+    q = (query or "").strip()
+    return bool(_PERSONAL_Q.search(q)) and not _NOT_PERSONAL.search(q) and not needs_live_data(q)
+
+
 def needs_live_data(query: str) -> bool:
     return bool(LIVE_DATA_PATTERN.search(query or ""))
 
@@ -231,10 +242,22 @@ class Assistant:
         return results
 
     @staticmethod
-    def _render_context(knowledge: list[dict[str, Any]], web: list[dict[str, Any]]) -> str:
-        if not knowledge and not web:
+    def _facts_context(query: str, limit: int = 3) -> list[dict[str, Any]]:
+        """Personal facts the owner asked JARVIS to remember that match this question (instant, local)."""
+        try:
+            from jarvis.tools.system.everyday_tools import get_store
+            return [{"title": "saved fact", "snippet": f, "source": "memory"} for _, f in get_store().facts(query, limit=limit)]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _render_context(knowledge: list[dict[str, Any]], web: list[dict[str, Any]], facts: list[dict[str, Any]] | None = None) -> str:
+        facts = facts or []
+        if not knowledge and not web and not facts:
             return ""
         lines = ["<context>"]
+        for idx, item in enumerate(facts, 1):
+            lines.append(f"[memory {idx}] {item['snippet']}")
         for idx, item in enumerate(knowledge, 1):
             lines.append(f"[doc {idx}] {item['title']}: {item['snippet']}")
         for idx, item in enumerate(web, 1):
@@ -242,12 +265,13 @@ class Assistant:
         lines.append("</context>")
         return "\n".join(lines)
 
-    async def _stream(self, messages: list[dict[str, str]], sink: StreamSink, max_tokens: int) -> ChatResult:
+    async def _stream(self, messages: list[dict[str, str]], sink: StreamSink, max_tokens: int,
+                      temperature: float = 0.4) -> ChatResult:
         """Stream the answer into ``sink`` (speech starts at the first sentence); returns the full text."""
         client = self.client
         model = await client.resolve("chat")
         try:
-            async for delta in client.stream_chat(messages, role="chat", model=model, temperature=0.4, max_tokens=max_tokens):
+            async for delta in client.stream_chat(messages, role="chat", model=model, temperature=temperature, max_tokens=max_tokens):
                 sink.feed(delta)
         except LLMUnavailable:
             raise
@@ -285,27 +309,40 @@ class Assistant:
         web_task = asyncio.create_task(self._web_context(query)) if want_web else None
         knowledge = await knowledge_task if knowledge_task else []
         web = await web_task if web_task else []
+        facts = self._facts_context(query) if use_knowledge and not channel.startswith("whatsapp") else []
+        personal = is_personal_question(query)
+        if personal and use_knowledge and not knowledge and not facts and not web:
+            # Nothing of the owner's mentions it: say so instead of letting the model invent a personal detail.
+            text = ("I couldn't find that in your documents or the things you asked me to remember. "
+                    "Tell me to remember it, or say \"learn my documents folder\" so I can look it up next time.")
+            if record:
+                self.memory.add(channel, "user", query)
+                self.memory.add(channel, "assistant", text)
+            return AssistantReply(text=text, ok=True)
 
         messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt(speakable, channel)}]
         history = self.memory.history(channel)
         if history and history[-1]["role"] == "user" and history[-1]["content"] == query:
             history = history[:-1]
         messages.extend(history)
-        context_block = self._render_context(knowledge, web)
+        context_block = self._render_context(knowledge, web, facts)
         user_content = query
         if context_block or extra_context:
-            user_content = "\n\n".join(p for p in (extra_context, context_block, f"User: {query}") if p)
+            rule = ("Answer from the context above. If it does not contain the answer, say you could not find it - "
+                    "do not guess names, dates, numbers or passwords." if (personal and context_block) else "")
+            user_content = "\n\n".join(p for p in (extra_context, context_block, rule, f"User: {query}") if p)
+        grounded_temp = 0.15 if (knowledge or facts) else 0.4
         messages.append({"role": "user", "content": user_content})
 
         sink = current_stream.get()
         try:
             if sink is not None:
-                result = await self._stream(messages, sink, max_tokens or (180 if speakable else 600))
+                result = await self._stream(messages, sink, max_tokens or (180 if speakable else 600), temperature=grounded_temp)
             else:
                 result = await self.client.chat(
                     messages,
                     role="chat",
-                    temperature=0.4,
+                    temperature=grounded_temp,
                     max_tokens=max_tokens or (180 if speakable else 600),
                 )
         except LLMUnavailable as exc:
@@ -325,7 +362,7 @@ class Assistant:
         if record:
             self.memory.add(channel, "user", query)
             self.memory.add(channel, "assistant", text)
-        sources = [{"type": "doc", **k} for k in knowledge] + [{"type": "web", **w} for w in web]
+        sources = [{"type": "memory", **f} for f in facts] + [{"type": "doc", **k} for k in knowledge] + [{"type": "web", **w} for w in web]
         return AssistantReply(text=text, model=result.model, sources=sources, used_web=bool(web), used_knowledge=bool(knowledge))
 
     def respond_sync(self, query: str, *, channel: str = "local", speakable: bool = True, system_prompt: str | None = None,

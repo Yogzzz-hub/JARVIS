@@ -19,6 +19,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 import numpy as np
 
+from jarvis.core.knowledge.rerank import rerank
+
 from jarvis.core.knowledge.models import (
     AccessPolicy,
     KnowledgeChunk,
@@ -485,7 +487,9 @@ class KnowledgeEngine:
                 row = rows.get(chunk_id)
                 if row is None or (col_id and row["collection_id"] != col_id) or not self._accessible(row, scope_filter):
                     continue
-                results.append(self._row_to_item(row, max(0.0, min(1.0, sim))))
+                item = self._row_to_item(row, max(0.0, min(1.0, sim)))
+                item.citation_metadata["dense_sim"] = round(sim, 4)  # kept through fusion for the reranker
+                results.append(item)
                 if len(results) >= limit:
                     break
         return results
@@ -500,26 +504,27 @@ class KnowledgeEngine:
         limit: int = 5,
     ) -> List[KnowledgeItem]:
         """Reciprocal Rank Fusion of lexical and dense retrieval (dense optional)."""
-        lexical = self.search(query_text, collection_name, scope_filter, limit * 2)
+        lexical = self.search(query_text, collection_name, scope_filter, max(limit * 4, 12))
         dense = (
             self.vector_search(query_vector, model, collection_name, scope_filter, limit * 2)
             if query_vector is not None and model else []
         )
         if not dense:
-            return lexical[:limit]
+            return rerank(query_text, lexical, limit=limit)
         scores: Dict[str, float] = {}
         items: Dict[str, KnowledgeItem] = {}
         for ranked in (lexical, dense):
             for rank, item in enumerate(ranked, start=1):
                 scores[item.resource_id] = scores.get(item.resource_id, 0.0) + 1.0 / (RRF_K + rank)
                 items.setdefault(item.resource_id, item)
-        ordered = sorted(scores, key=scores.get, reverse=True)[:limit]
-        out = []
+        ordered = sorted(scores, key=scores.get, reverse=True)
+        fused = []
         for rid in ordered:
             item = items[rid]
             item.relevance = min(1.0, scores[rid] * 30.0)
-            out.append(item)
-        return out
+            fused.append(item)
+        # precision layer: rerank against the query and drop candidates that do not answer it
+        return rerank(query_text, fused, limit=limit)
 
     # ------------------------------------------------------------------ chunking
     @staticmethod

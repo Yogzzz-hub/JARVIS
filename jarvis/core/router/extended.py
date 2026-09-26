@@ -176,6 +176,7 @@ _COMPOUND_JOIN = re.compile(rf"(?:,|\band\b|&)\s+(?:then\s+)?(?:also\s+)?(?:{_AC
 PHONE_REF = re.compile(
     rf"\b(?:my|the|on|from|of|to)\s+(?:android\s+)?{PHONE_WORDS}\b(?!\s+(?:app|apps|number|bill|case|call|charger|plan))"
     rf"|^{PHONE_WORDS}\b(?!\s+(?:app|apps|number|bill|case|call|charger|plan))|\bandroid\b"
+    rf"|\b{PHONE_WORDS}(?:'s)?\s+(?:volume|brightness|screen|wi-?fi|bluetooth|battery|settings|notifications?)\b"
 )
 
 
@@ -441,6 +442,69 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
     return None
 
 
+_BROWSER_QUICK = [
+    (r"^(?:open\s+)?(?:a\s+)?new\s+tab(?:\s+in\s+(?:the\s+)?browser)?$", "new_tab"),
+    (r"^close\s+(?:this\s+|the\s+|current\s+|that\s+)?(?:browser\s+)?tab$", "close_tab"),
+    (r"^(?:re-?open|restore|bring back|undo close)\s+(?:the\s+)?(?:last\s+)?(?:closed\s+)?tab$", "reopen_tab"),
+    (r"^(?:go\s+to\s+|switch\s+to\s+)?(?:the\s+)?next\s+tab$", "next_tab"),
+    (r"^(?:go\s+to\s+|switch\s+to\s+)?(?:the\s+)?(?:previous|prev|last\s+used)\s+tab$", "previous_tab"),
+    (r"^go\s+back$|^(?:go\s+)?back(?:\s+(?:a|one)\s+page)?\s+in\s+(?:the\s+)?browser$|^(?:go\s+)?(?:to\s+the\s+)?previous\s+page$|^go\s+back\s+a\s+page$", "back"),
+    (r"^(?:go\s+)?forward(?:\s+(?:a|one)\s+page)?(?:\s+in\s+(?:the\s+)?browser)?$|^(?:go\s+to\s+(?:the\s+)?)?next\s+page$", "forward"),
+    (r"^(?:refresh|reload)\s+(?:the\s+|this\s+)?(?:page|tab|website|site|web\s*page)$|^reload$", "reload"),
+    (r"^hard\s+(?:refresh|reload)(?:\s+(?:the\s+|this\s+)?page)?$", "hard_reload"),
+    (r"^zoom\s+in(?:\s+(?:the\s+|this\s+)?page)?$|^make\s+(?:the\s+)?(?:page|text)\s+bigger$", "zoom_in"),
+    (r"^zoom\s+out(?:\s+(?:the\s+|this\s+)?page)?$|^make\s+(?:the\s+)?(?:page|text)\s+smaller$", "zoom_out"),
+    (r"^(?:reset|normal)\s+zoom$|^reset\s+(?:the\s+)?zoom(?:\s+level)?$|^zoom\s+(?:to\s+)?(?:100|normal)%?$", "zoom_reset"),
+    (r"^bookmark\s+(?:this|the)(?:\s+(?:page|site|tab|website))?$|^(?:save|add)\s+(?:this\s+)?(?:page|site)\s+(?:to|as\s+a)\s+bookmarks?$", "bookmark"),
+    (r"^(?:show|open)\s+(?:my\s+|the\s+)?(?:browser|browsing|chrome|edge)\s+history$", "history"),
+    (r"^(?:show|open)\s+(?:my\s+|the\s+)?(?:browser|chrome|edge)\s+downloads$", "downloads"),
+    (r"^(?:open\s+)?(?:an?\s+)?(?:incognito|private|inprivate)(?:\s+(?:window|tab|mode|browsing|browser))?$", "incognito"),
+    (r"^(?:find|search)\s+(?:on|in)\s+(?:this\s+|the\s+)?page$", "find"),
+    (r"^(?:go\s+to|focus|select|click)\s+(?:the\s+)?(?:address|url)\s+bar$", "address_bar"),
+    (r"^scroll\s+down(?:\s+(?:a\s+bit|the\s+page|page))?$", "scroll_down"),
+    (r"^scroll\s+up(?:\s+(?:a\s+bit|the\s+page|page))?$", "scroll_up"),
+    (r"^(?:scroll|go)\s+to\s+(?:the\s+)?top(?:\s+of\s+(?:the\s+)?page)?$", "top"),
+    (r"^(?:scroll|go)\s+to\s+(?:the\s+)?bottom(?:\s+of\s+(?:the\s+)?page)?$", "bottom"),
+    (r"^(?:open|show|toggle)\s+(?:the\s+)?(?:dev(?:eloper)?\s*tools|inspect\s+element)$", "dev_tools"),
+]
+_PC_QUICK = [
+    (r"^(?:open|show|launch|start|bring up)\s+(?:the\s+)?task\s*manager$", "task_manager"),
+    (r"^(?:open|show)\s+(?:the\s+)?(?:windows|pc|computer|system|laptop)\s+settings$", "settings"),
+    (r"^(?:open|show|view)\s+(?:my\s+|the\s+)?clipboard(?:\s+(?:history|saved\s+items|items|manager))?$", "clipboard_history"),
+    (r"^(?:open|show)\s+(?:the\s+)?emoji(?:s|\s+panel|\s+picker|\s+keyboard)?$", "emoji_panel"),
+    (r"^(?:take\s+a\s+|do\s+a\s+)?(?:screen\s+)?(?:snip|clip)(?:\s+of\s+(?:the\s+|my\s+)?screen)?$|^(?:open\s+)?snipping\s+tool$", "snip"),
+    (r"^(?:open|show)\s+task\s+view$|^show\s+(?:me\s+)?all\s+(?:my\s+)?open\s+windows$", "task_view"),
+    (r"^(?:(?:create|make|add|open)\s+)?(?:a\s+)?new\s+virtual\s+desktop$|^(?:create|make|add|open)\s+(?:a\s+)?new\s+desktop$", "new_desktop"),
+    (r"^(?:switch|go|move)\s+to\s+(?:the\s+)?(?:next|right)\s+(?:virtual\s+)?desktop$", "next_desktop"),
+    (r"^(?:switch|go|move)\s+to\s+(?:the\s+)?(?:previous|left)\s+(?:virtual\s+)?desktop$", "previous_desktop"),
+    (r"^close\s+(?:this|the\s+current)\s+(?:virtual\s+)?desktop$", "close_desktop"),
+    (r"^open\s+(?:the\s+)?run(?:\s+(?:dialog|box|window|command))?$", "run_dialog"),
+    (r"^(?:project|extend|duplicate|mirror)\s+(?:my\s+)?(?:screen|display)(?:\s+to\s+(?:the\s+)?(?:tv|projector|monitor))?$|^(?:open\s+)?project(?:ion)?\s+(?:menu|options)$", "project_display"),
+    (r"^(?:open|show)\s+(?:the\s+)?(?:pc\s+|windows\s+)?(?:notification|action)\s+(?:center|centre|panel)$", "notification_center"),
+    (r"^(?:open|show)\s+(?:the\s+)?(?:windows\s+|pc\s+)?quick\s+settings$", "quick_settings"),
+    (r"^(?:open\s+)?windows\s+search$", "windows_search"),
+]
+
+
+def match_quick_actions(t: str, request_id: str) -> Optional[RouteDecision]:
+    """Browser and Windows shortcuts: instant, no model."""
+    if PHONE_REF.search(t):
+        return None
+    m = re.match(r"^(?:go\s+to|switch\s+to|open|show)\s+(?:the\s+)?tab\s+(?:number\s+)?(\d|one|two|three|four|five|six|seven|eight|nine)$", t) \
+        or re.match(r"^(?:go\s+to|switch\s+to|open)\s+(?:the\s+)?(first|second|third|fourth|fifth|last)\s+tab$", t)
+    if m:
+        v = m.group(1)
+        n = int(v) if v.isdigit() else _NUM_WORDS.get(v) or {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "last": 9}[v]
+        return _decision(request_id, t, "browser_quick_action", {"action": "go_to_tab", "tab": max(1, min(9, n))})
+    for pattern, action in _BROWSER_QUICK:
+        if re.match(pattern, t):
+            return _decision(request_id, t, "browser_quick_action", {"action": action})
+    for pattern, action in _PC_QUICK:
+        if re.match(pattern, t):
+            return _decision(request_id, t, "pc_quick_action", {"action": action})
+    return None
+
+
 def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     """Return a routing decision for the extended domains, or None to continue normal routing."""
     raw = text.strip()
@@ -459,6 +523,13 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
                 r"|^(?:i(?:'ve| have)?|ok(?:ay)?,? i(?:'ve| have)?)\s+(?:logged|signed)\s+in(?:\s+now)?(?:,? continue)?$"
                 r"|^done logging in$", t) or (re.match(r"^(?:continue|carry on|go on|keep going|resume)$", t) and _web_task_pending()):
         return _decision(request_id, t, "web_task", {"resume": True})
+    quick = match_quick_actions(t, request_id)
+    if quick:
+        return quick
+    if re.search(r"\b(?:sms|text message)\b", t):
+        sms = _match_phone_quick(t, raw, request_id)
+        if sms:
+            return sms
     transfer = match_phone_transfer(t, raw, request_id)
     if transfer:
         return transfer
@@ -601,7 +672,44 @@ _TOGGLES = {
 }
 
 
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+_PHONE_SETTINGS_PAGES = ("wifi", "wi-fi", "bluetooth", "battery", "display", "sound", "location", "apps", "storage", "hotspot",
+                         "data usage", "security", "developer", "date")
+
+
+def _match_phone_quick(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    body = re.sub(ON_PHONE + r"\b", " ", t)
+    body = " ".join(re.sub(rf"\b(?:(?:my|the)\s+)?{PHONE_WORDS}(?:'s)?\b", " ", body).split())
+    m = re.match(r"^(?:set|change|put|make)?\s*(?:the\s+)?(?:screen\s+)?brightness\s+(?:to\s+|at\s+)?(\d{1,3})\s*(?:%|percent)?$", body)
+    if m:
+        return _decision(request_id, t, "android_quick_action", {"action": "brightness", "value": m.group(1)})
+    m = re.match(r"^(?:set|change|put|make)?\s*(?:the\s+)?(?:media\s+|music\s+)?volume\s+(?:to\s+|at\s+)?(\d{1,2})$", body)
+    if m:
+        return _decision(request_id, t, "android_quick_action", {"action": "media_volume", "value": m.group(1)})
+    if re.match(r"^(?:open|show|pull down|swipe down)\s+(?:the\s+)?quick\s+(?:settings|toggles)(?:\s+panel)?$", body):
+        return _decision(request_id, t, "android_quick_action", {"action": "quick_settings"})
+    if re.match(r"^(?:open|show|pull down|swipe down|expand)\s+(?:the\s+)?(?:notification|notifications)\s+(?:shade|panel|bar|drawer)$", body):
+        return _decision(request_id, t, "android_quick_action", {"action": "notifications_panel"})
+    if re.match(r"^(?:close|collapse|hide)\s+(?:the\s+)?(?:notification\s+|quick\s+settings\s+)?(?:panels?|shade|drawer)$", body):
+        return _decision(request_id, t, "android_quick_action", {"action": "collapse_panels"})
+    m = re.match(r"^(?:open|show|go to)\s+(?:the\s+)?(?:(?P<page>" + "|".join(_PHONE_SETTINGS_PAGES) + r")\s+)?settings$", body)
+    if m:
+        page = (m.group("page") or "main").replace("-", "").replace(" ", "_")
+        return _decision(request_id, t, "android_quick_action", {"action": "settings", "value": page})
+    if re.match(r"^(?:what|which)\s+app\s+(?:is\s+)?(?:open|running|on screen|showing)(?:\s+(?:now|right now))?$", body):
+        return _decision(request_id, t, "android_quick_action", {"action": "current_app"})
+    m = re.match(r"^(?:send\s+(?:an?\s+)?)?(?:sms|text\s+message)\s+(?:to\s+)?(?P<num>\+?[\d ]{6,18})\s+(?:saying|that says|with)\s+(?P<body>.+)$", body) \
+        or re.match(r"^(?:sms|text)\s+(?P<num>\+?[\d ]{6,18})\s+(?:saying|that)\s+(?P<body>.+)$", body)
+    if m:
+        return _decision(request_id, t, "android_quick_action",
+                         {"action": "sms_draft", "number": re.sub(r"\s", "", m.group("num")), "text": raw_body(raw, m.group("body"))})
+    return None
+
+
 def _match_phone(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    quick = _match_phone_quick(t, raw, request_id)
+    if quick:
+        return quick
     if re.search(r"\b(?:notifications?|alerts)\b", t) and re.match(r"^(?:read|show|check|what(?:'s| are)?|any|do i have|tell me)\b", t) \
             and not re.match(r"^(?:send|push)\b", t):
         return _decision(request_id, t, "android_notifications", {})

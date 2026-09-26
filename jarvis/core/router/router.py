@@ -411,6 +411,20 @@ class SmartRouter:
                 self._record(ord_decision)
                 return ord_decision
 
+        # 3b-ord. "open the second one" with nothing listed yet: ask, never open an app called "second 1"
+        m_ref = re.match(r"^(?:open|pick|take|choose|select|play|show|use)\s+(?:the\s+)?(first|second|third|fourth|fifth|last|1st|2nd|3rd|4th|5th)"
+                         r"(?:\s+(?:one|1|file|result|item|document|option|link|video|song|match))?$", clean_lower)
+        if m_ref:
+            ordinal = {"first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+                       "fifth": 5, "5th": 5, "last": -1}[m_ref.group(1)]
+            ref_decision = RouteDecision(
+                request_id=request_id, lane=RouteLane.CLARIFY, intent="open_file", slots={"ordinal": ordinal},
+                confidence=0.5, source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE, normalized_text=clean_lower,
+                clarification="Which list do you mean? Search or list something first, then say 'open the second one'.",
+                reason_code=ReasonCode.EXACT_PATTERN, routing_ms=(perf_counter_ns() - t0) / 1e6, breakdown_ms=breakdown)
+            self._record(ref_decision)
+            return ref_decision
+
         # 3b-ext. EXTENDED DOMAINS: phone control, messaging, knowledge, web, reminders (< 1 ms)
         from jarvis.core.router.extended import match_extended
         ext_decision = match_extended(routing_text if positive_override else original_text, request_id)

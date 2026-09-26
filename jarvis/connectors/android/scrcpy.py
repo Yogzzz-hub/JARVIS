@@ -257,6 +257,79 @@ class AndroidScrcpyConnector(BaseConnector):
             "preview": f"Execute {action_name} on connected Android device",
         }
 
+    # Fixed ADB templates for fast phone actions. Every value that reaches the shell is validated first.
+    _SETTINGS_PAGES = {
+        "main": "android.settings.SETTINGS", "wifi": "android.settings.WIFI_SETTINGS",
+        "bluetooth": "android.settings.BLUETOOTH_SETTINGS", "battery": "android.intent.action.POWER_USAGE_SUMMARY",
+        "display": "android.settings.DISPLAY_SETTINGS", "sound": "android.settings.SOUND_SETTINGS",
+        "location": "android.settings.LOCATION_SOURCE_SETTINGS", "apps": "android.settings.APPLICATION_SETTINGS",
+        "storage": "android.settings.INTERNAL_STORAGE_SETTINGS", "hotspot": "android.settings.TETHER_SETTINGS",
+        "data_usage": "android.settings.DATA_USAGE_SETTINGS", "security": "android.settings.SECURITY_SETTINGS",
+        "developer": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS", "date": "android.settings.DATE_SETTINGS",
+    }
+
+    def _quick_action(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        what = str(arguments.get("what", "")).lower()
+        value = arguments.get("value")
+
+        def ok(msg: str, **extra: Any) -> dict[str, Any]:
+            return {"status": "SUCCESS", "success": True, "message": msg, **extra}
+
+        def adb(args: list[str], err_msg: str) -> str:
+            code, out, err = self._run_adb(args, timeout=8.0)
+            if code != 0:
+                raise RuntimeError(f"{err_msg}: {err.strip() or 'the phone refused'}")
+            return out
+
+        if what in ("quick_settings", "notifications_panel", "collapse_panels"):
+            verb = {"quick_settings": "expand-settings", "notifications_panel": "expand-notifications",
+                    "collapse_panels": "collapse"}[what]
+            adb(["shell", "cmd", "statusbar", verb], "Couldn't open the panel")
+            return ok({"quick_settings": "Opened quick settings on the phone.",
+                       "notifications_panel": "Opened the notification shade on the phone.",
+                       "collapse_panels": "Closed the phone's panels."}[what])
+        if what == "settings":
+            page = str(value or "main").lower().replace(" ", "_")
+            intent = self._SETTINGS_PAGES.get(page)
+            if not intent:
+                raise ValueError(f"I don't know the phone's '{page}' settings page")
+            adb(["shell", "am", "start", "-a", intent], "Couldn't open settings")
+            return ok(f"Opened {page.replace('_', ' ')} settings on the phone.")
+        if what == "brightness":
+            pct = max(0, min(100, int(value if value is not None else 50)))
+            adb(["shell", "settings", "put", "system", "screen_brightness_mode", "0"], "Couldn't change brightness")
+            adb(["shell", "settings", "put", "system", "screen_brightness", str(round(pct * 2.55))], "Couldn't change brightness")
+            return ok(f"Set the phone's brightness to {pct}%.")
+        if what == "media_volume":
+            level = max(0, min(15, int(value if value is not None else 7)))
+            adb(["shell", "cmd", "media_session", "volume", "--stream", "3", "--set", str(level)], "Couldn't change the volume")
+            return ok(f"Set the phone's media volume to {level} of 15.")
+        if what == "current_app":
+            out = adb(["shell", "dumpsys", "window"], "Couldn't read the current app")
+            m = re.search(r"mCurrentFocus=.*?\s([\w.]+)/", out) or re.search(r"mFocusedApp=.*?\s([\w.]+)/", out)
+            pkg = m.group(1) if m else ""
+            name = next((k for k, v in COMMON_PACKAGE_MAP.items() if v == pkg), pkg.split(".")[-1] if pkg else "unknown")
+            return ok(f"The phone is showing {name}." if pkg else "I couldn't tell which app is open.", package=pkg)
+        if what == "screen_off":
+            adb(["shell", "input", "keyevent", "223"], "Couldn't turn the screen off")
+            return ok("Turned the phone's screen off.")
+        if what == "screen_on":
+            adb(["shell", "input", "keyevent", "224"], "Couldn't wake the phone")
+            return ok("Woke the phone's screen.")
+        if what == "sms_draft":
+            number = re.sub(r"[^\d+]", "", str(arguments.get("number", "")))
+            body = str(arguments.get("text", ""))
+            if not re.fullmatch(r"\+?\d{6,15}", number):
+                raise ValueError("I need a phone number to write the SMS to")
+            if not re.fullmatch(r"[\w .,!?@#%&()+:;/='-]{0,300}", body):
+                raise ValueError("That message has characters I can't pass to the phone safely")
+            args = ["shell", "am", "start", "-a", "android.intent.action.SENDTO", "-d", f"sms:{number}"]
+            if body:  # single-quoted for the phone's shell; an apostrophe becomes '\'' (close, escaped quote, reopen)
+                args += ["--es", "sms_body", "'" + body.replace("'", "'\\''") + "'"]
+            adb(args, "Couldn't open the SMS app")
+            return ok(f"The SMS to {number} is ready on your phone - tap send to send it.")
+        raise ValueError(f"Unknown phone action: {what}")
+
     def execute_authorized_action(self, action_id: str, action_name: str, arguments: dict[str, Any]) -> Any:
         t0 = time.perf_counter()
         action = action_name.removeprefix("android.")
@@ -327,6 +400,9 @@ class AndroidScrcpyConnector(BaseConnector):
             if code_run != 0:
                 raise RuntimeError(f"Failed to press {key} on Android: {err}")
             return {"status": "SUCCESS", "success": True, "message": f"Pressed {key.replace('_', ' ')} on the phone."}
+
+        if action == "quick":
+            return self._quick_action(arguments)
 
         if action == "input":
             kind = str(arguments.get("action", "")).lower()

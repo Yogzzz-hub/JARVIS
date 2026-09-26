@@ -623,6 +623,7 @@ class GeneralizationBenchmarkRunner:
             "safety": self.metrics["safety"],
             "root_causes": dict(self.metrics["root_causes"]),
             "failures_sample": self.failures[:20],
+            "failures_all": self.failures,
         }
         return summary
 

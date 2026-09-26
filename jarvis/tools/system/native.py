@@ -709,7 +709,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     from jarvis.tools.system.vision_tools import create_vision_tools
     from jarvis.tools.system.computer_use import create_computer_use_tools
     from jarvis.tools.system.everyday_tools import create_everyday_tools
+    from jarvis.tools.system.quick_actions import create_quick_action_tools
     extra_tools = (create_assistant_tools() + create_phone_tools() + create_vision_tools() + create_computer_use_tools()
-                   + create_everyday_tools())
+                   + create_everyday_tools() + create_quick_action_tools())
     return base_tools + file_tools + prod_tools + computer_tools + whatsapp_tools + web_tools + conn_tools + app_discovery_tools + window_mgmt_tools + ide_tools + keyboard_tools + extra_tools
 
