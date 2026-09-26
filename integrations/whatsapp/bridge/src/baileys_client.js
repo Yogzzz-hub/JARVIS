@@ -7,7 +7,7 @@
 const path = require("path");
 const fs = require("fs");
 const pino = require("pino");
-const { normalizeIncomingMessage } = require("./protocol");
+const { normalizeIncomingMessage, normalizePendingMessage, isPendingDecryption, isGroupJid } = require("./protocol");
 const { saveMediaBuffer } = require("./media");
 const { ConnectionState, ReconnectManager } = require("./reconnect");
 
@@ -76,6 +76,18 @@ class BaileysClient {
         }
       }
     } catch (e) {}
+  }
+
+  rememberNormalized(normalized) {
+    if (!this.normalizedCache) this.normalizedCache = new Map();
+    this.normalizedCache.set(normalized.message_id, normalized);
+    if (this.normalizedCache.size > 500) {
+      this.normalizedCache.delete(this.normalizedCache.keys().next().value);
+    }
+  }
+
+  getNormalizedMessage(id) {
+    return (this.normalizedCache && this.normalizedCache.get(id)) || null;
   }
 
   saveMessage(id, msg) {
@@ -205,8 +217,20 @@ class BaileysClient {
       if (type !== "notify") return;
 
       for (const rawMsg of messages) {
-        // Skip messages sent by oneself unless explicitly configured
-        if (rawMsg.key?.fromMe) continue;
+        const fromMe = Boolean(rawMsg.key?.fromMe);
+        const remote = rawMsg.key?.remoteJid || "";
+        // The owner's own messages are forwarded only from direct chats (flagged is_from_me) so JARVIS can
+        // learn how the owner writes to each person; they are never treated as commands.
+        if (fromMe && isGroupJid(remote)) continue;
+
+        // Not decrypted yet ("Waiting for this message"): forward a placeholder, never a body.
+        if (isPendingDecryption(rawMsg)) {
+          const pending = normalizePendingMessage(rawMsg);
+          if (pending && !fromMe && this.onNormalizedMessage) {
+            this.onNormalizedMessage(pending);
+          }
+          continue;
+        }
 
         let mediaRef = null;
         const msgType = Object.keys(rawMsg.message || {})[0];
@@ -243,7 +267,24 @@ class BaileysClient {
         }
 
         const normalized = normalizeIncomingMessage(rawMsg, mediaRef);
+        if (normalized) {
+          this.rememberNormalized(normalized);
+        }
         if (normalized && this.onNormalizedMessage) {
+          this.onNormalizedMessage(normalized);
+        }
+      }
+    });
+
+    // A message that was a placeholder can be decrypted later: forward the real body once, same message_id
+    // (Python de-duplicates by message_id, so this can never create a second reply).
+    this.sock.ev.on("messages.update", (updates) => {
+      for (const { key, update } of updates || []) {
+        if (!key || !update || !update.message || key.fromMe) continue;
+        const rawMsg = { key, message: update.message, pushName: update.pushName, messageTimestamp: update.messageTimestamp };
+        const normalized = normalizeIncomingMessage(rawMsg, null);
+        if (normalized && this.onNormalizedMessage) {
+          this.rememberNormalized(normalized);
           this.onNormalizedMessage(normalized);
         }
       }

@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import os
+import re
 import time
 from typing import Any
 from pydantic import ValidationError
@@ -36,13 +37,87 @@ class CommandService:
         self._pending_execution: dict[str, Any] | None = None
         self._last_decisions: dict[str, Any] = {}
         self._request_channels: dict[str, str] = {}
+        self._last_command_text = ""
+
+    _last_volume = 50
+
+    def _translate_intent(self, name: str, slots: dict | None) -> tuple[str, dict]:
+        """Router intents that are phrasings of an existing tool call (relative volume, mute, restore, status)."""
+        slots = dict(slots or {})
+        if name in ("volume_up", "volume_down", "volume_mute", "mute", "volume_unmute", "unmute") and self.registry.contains("volume_set"):
+            current = None
+            if self.registry.contains("volume_get"):
+                try:
+                    current = float(self.registry.get("volume_get").run({}).get("percent"))
+                except Exception:
+                    current = None
+            if name in ("volume_mute", "mute"):
+                if current:
+                    CommandService._last_volume = int(current)
+                return "volume_set", {"percent": 0}
+            if name in ("volume_unmute", "unmute"):
+                return "volume_set", {"percent": int(CommandService._last_volume or 50)}
+            step = int(slots.get("step") or slots.get("amount") or 10)
+            base = 50.0 if current is None else current
+            target = base + step if name == "volume_up" else base - step
+            return "volume_set", {"percent": int(max(0, min(100, round(target))))}
+        if name == "restore_window" and self.registry.contains("move_resize_window"):
+            return "move_resize_window", {"action": "restore"}
+        if name == "whatsapp_status" and self.registry.contains("whatsapp_action"):
+            return "whatsapp_action", {"action": "status"}
+        return name, slots
+
+    def _expand_repeat(self, request):
+        """"Do that again" re-runs the last routed command (routing and policy run again as normal)."""
+        last = getattr(self, "_last_command_text", "")
+        if last and self._REPEAT.match((request.text or "").strip()):
+            try:
+                return request.model_copy(update={"text": last})
+            except Exception:
+                return request
+        return request
+
+    async def _run_shortcut(self, request, clock=None):
+        """Voice shortcuts: a saved phrase expands into its steps, each handled (routed + policy-checked) in order."""
+        if not getattr(request, "is_owner", True) or (getattr(request, "metadata", None) or {}).get("shortcut_depth"):
+            return None
+        try:
+            from jarvis.tools.system.everyday_tools import get_store, normalize_phrase
+            steps = get_store().shortcuts().get(normalize_phrase(request.text))
+        except Exception:
+            return None
+        if not steps:
+            return None
+        messages, state, started = [], "SUCCESS", now_ns()
+        for i, step in enumerate(steps, 1):
+            sub = request.model_copy(update={"text": step, "request_id": f"{request.request_id[:56]}_s{i}",
+                                             "metadata": {**(request.metadata or {}), "shortcut_depth": 1}})
+            try:
+                result = await self.handle(sub)
+            except Exception as exc:
+                messages.append(f"Step {i} ({step}) failed: {exc}")
+                state = "FAILED"
+                break
+            messages.append(result.message)
+            if result.state == "WAITING_CONFIRMATION":
+                state = "WAITING_CONFIRMATION"
+                if i < len(steps):
+                    messages.append(f"Say the shortcut again after confirming to run the remaining {len(steps) - i} step(s).")
+                break
+            if result.state != "SUCCESS":
+                state = result.state
+        return CommandResult(request_id=request.request_id, state=state, message=" ".join(m for m in messages if m),
+                             metrics={"total_ms": (now_ns() - started) / 1e6})
 
     def _jde_observe(self, request, decision) -> None:
         """Shadow mode: JDE decides in the background and logs; it never changes this request's route."""
         try:
             from jarvis.decision.runtime import get_runtime
-            get_runtime().observe(request.text, decision, self._channel(request),
-                                  pending_confirmation=self._pending_execution is not None)
+            runtime = get_runtime()
+            if runtime.writer is None and self.writer is not None and hasattr(self.writer, "pragmas"):
+                runtime.attach_writer(self.writer)
+            runtime.observe(request.text, decision, self._channel(request),
+                            pending_confirmation=self._pending_execution is not None, request_id=request.request_id)
         except Exception:
             pass
 
@@ -99,9 +174,16 @@ class CommandService:
         return getattr(assistant, "memory", None)
 
 
+    _REPEAT = re.compile(r"^(?:jarvis,?\s+)?(?:repeat (?:that|it|the last command|my last command)|do (?:it|that|the same) again|"
+                                       r"again|one more time|once more|same again)(?:\s+please)?[.!]?$", re.I)
+
     async def handle(self, request, clock=None):
         if not self.accepting:
             raise RuntimeError("service shutting down")
+        request = self._expand_repeat(request)
+        shortcut = await self._run_shortcut(request, clock)
+        if shortcut is not None:
+            return shortcut
         self.active = {t for t in self.active if not getattr(t, "done", lambda: False)()}
         if len(self.active) >= 8 and not match_control(request.text, request.request_id):
             raise RuntimeError("native execution capacity reached; retry later")
@@ -121,6 +203,9 @@ class CommandService:
             decision = await self.router.route(request)
             self._last_decisions[task.request_id] = decision
             self._jde_observe(request, decision)
+            if decision.lane not in (RouteLane.CONTROL, RouteLane.REJECT, RouteLane.CLARIFY) \
+                    and decision.intent not in ("command_history",):
+                self._last_command_text = request.text
             clock.resolved_ns = now_ns()
 
             # Handle CONTROL bypass
@@ -494,6 +579,7 @@ class CommandService:
                 ver = VerificationResult(verified=True, confidence=1.0, evidence={"control": True})
                 return self._finalize(task, State.SUCCESS, msg, tool_res, ver, clock, current, is_voice=is_voice)
 
+            name, raw_arguments = self._translate_intent(name, raw_arguments)
             if not self.registry.contains(name):
                 target_tool = None
                 if hasattr(self.router, "catalog") and hasattr(self.router.catalog, "intents"):

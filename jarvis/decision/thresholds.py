@@ -16,6 +16,17 @@ FALLBACK_THRESHOLDS = {"READ_ONLY": 0.70, "REVERSIBLE": 0.80, "EXTERNAL_EFFECT":
 MIN_THRESHOLD = {"READ_ONLY": 0.55, "REVERSIBLE": 0.65, "EXTERNAL_EFFECT": 0.85, "DESTRUCTIVE": 0.93, "PRIVILEGED": 0.95}
 
 
+def wilson_lower(successes: int, n: int, z: float = 1.645) -> float:
+    """One-sided 95% Wilson score lower bound of a proportion."""
+    if n <= 0:
+        return 0.0
+    p = successes / n
+    denom = 1 + z * z / n
+    centre = p + z * z / (2 * n)
+    margin = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return float((centre - margin) / denom)
+
+
 @dataclass
 class Thresholds:
     execute: dict[str, float] = field(default_factory=lambda: dict(FALLBACK_THRESHOLDS))
@@ -38,7 +49,10 @@ class Thresholds:
             chosen = None
             for t in np.linspace(MIN_THRESHOLD[rc], 0.995, 90):
                 sel = c >= t
-                if sel.sum() >= max(5, int(0.1 * n)) and ok[sel].mean() >= TARGET_PRECISION[rc]:
+                k = int(sel.sum())
+                # Precision must hold with 95% confidence (Wilson lower bound), not just on this sample:
+                # small validation sets otherwise yield optimistic, too-low gates for risky classes.
+                if k >= max(5, int(0.1 * n)) and wilson_lower(int(ok[sel].sum()), k) >= TARGET_PRECISION[rc]:
                     chosen = float(t)
                     break
             th.execute[rc] = chosen if chosen is not None else max(FALLBACK_THRESHOLDS[rc], 0.99)

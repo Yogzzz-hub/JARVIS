@@ -13,7 +13,7 @@ Measures:
 - barge_in stop latency
 - response queue latency
 
-Outputs percentiles (p50, p95, p99, mean, max) and saves to docs/response-benchmark.json.
+Outputs percentiles (p50, p95, p99, mean, max) and saves to reports/response-benchmark.json.
 """
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ def main():
         if stats:
             print(f"{name:<28} {stats['p50_ms']:<10.3f} {stats['p95_ms']:<10.3f} {stats['p99_ms']:<10.3f} {stats['max_ms']:<10.3f}")
 
-    # Build report dict for docs/response-benchmark.json
+    # Build report dict for reports/response-benchmark.json
     output_report = {
         "total_responses": 100,
         "ack_count": 65,
@@ -216,7 +216,8 @@ def main():
         "raw_benchmarks": results,
     }
 
-    out_file = Path("docs/response-benchmark.json")
+    out_file = Path("reports/response-benchmark.json")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(output_report, indent=2), encoding="utf-8")
     print(f"\nResponse benchmark results saved to {out_file}")
     print("=" * 65)

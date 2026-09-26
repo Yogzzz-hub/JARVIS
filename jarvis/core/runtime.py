@@ -81,6 +81,7 @@ class Runtime:
             self.registry.register_alias("volume_down", "volume_set")
             self.registry.register_alias("mute", "volume_set")
             self.registry.register_alias("unmute", "volume_set")
+            self.registry.register_alias("wifi_status", "network_info")
             self.registry.finalize()
             self.logs = LogQueue(self.root / cfg.paths.logs)
             self.bus = EventBus(cfg.performance.event_queue_size)
@@ -160,6 +161,14 @@ class Runtime:
                 self.llm_task = asyncio.create_task(self._prepare_models())
                 # Reminders: speak / show / push due reminders.
                 self.reminder_task = asyncio.create_task(self._run_reminders())
+                # Decision engine (shadow): load the model off the event loop so no request pays for it.
+                try:
+                    from jarvis.decision.runtime import get_runtime
+                    jde = get_runtime()
+                    jde.attach_writer(self.writer)
+                    self.jde_warm_task = asyncio.create_task(asyncio.to_thread(jde.warm))
+                except Exception as exc:
+                    logging.getLogger("jarvis.runtime").debug("JDE warm-up skipped: %s", exc)
 
                 # Phase 5 Omnichannel: WhatsApp integration service
                 try:

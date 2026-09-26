@@ -167,7 +167,8 @@ def main():
         "with sub-160ms first-chunk streaming on CPU and only ~63MB RAM footprint."
     )
 
-    out_file = Path("docs/tts-models-benchmark.json")
+    out_file = Path("reports/tts-models-benchmark.json")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"\nBenchmark report written to {out_file}")
     print("=" * 65)

@@ -39,6 +39,8 @@ AI_CONFIRM_TOOLS = frozenset({
     "localsend_text",
     "notification_send",
     "android_dial",
+    "empty_recycle_bin",
+    "whatsapp_auto_reply",
 })
 
 # Tools never offered to the agent: they are UI plumbing or would recurse.
@@ -53,6 +55,11 @@ AGENT_EXCLUDED_TOOLS = frozenset({
     "whatsapp_action",
     "reply_whatsapp_message",
     "reply_whatsapp_all",
+    "create_shortcut",
+    "delete_shortcut",
+    "forget_fact",
+    "generate_password",
+    "whatsapp_auto_reply",
 })
 
 _retrievers: "weakref.WeakKeyDictionary[Any, Any]" = weakref.WeakKeyDictionary()

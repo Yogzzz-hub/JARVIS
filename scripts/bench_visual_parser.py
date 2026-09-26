@@ -74,7 +74,8 @@ def run_parser_benchmark() -> None:
         "candidate_precision": 0.942,
     }
 
-    out_path = Path("docs/parser-benchmark.json")
+    out_path = Path("reports/parser-benchmark.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(benchmark_data, indent=2), encoding="utf-8")
     print(f"\nBenchmark results saved to {out_path}")
 

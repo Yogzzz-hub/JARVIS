@@ -200,9 +200,22 @@ _BULK_ALL_MESSAGES = re.compile(
 _BULK_VERB = re.compile(r"\b(?:reply|respond|answer|send|tell|message|text|inform|let|notify|write|msg|ping|say)\b")
 
 
+def match_auto_reply(text: str, request_id: str) -> Optional[RouteDecision]:
+    """'Reply to Yoga automatically for the next hour' / 'Stop WhatsApp auto reply' -> whatsapp_auto_reply."""
+    from jarvis.integrations.whatsapp.personal_reply.commands import parse_command
+    cmd = parse_command(text)
+    if cmd is None:
+        return None
+    t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
+    return _decision(request_id, t, "whatsapp_auto_reply", cmd)
+
+
 def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     """'Send all the guys who are messaging me that I'm busy' -> reply_whatsapp_all (personal chats only)."""
     raw = (text or "").strip()
+    auto = match_auto_reply(raw, request_id)  # time-boxed auto-reply grants come first ("reply to everyone until 10")
+    if auto:
+        return auto
     t = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
     if not t:
         return None
@@ -306,6 +319,96 @@ def match_everyday(t: str, request_id: str) -> Optional[RouteDecision]:
     return None
 
 
+_TODO_LIST = r"(?:to-?\s?do|todo|task|tasks|checklist)(?:\s+list)?"
+
+
+def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    """Instant offline utilities: calculator/units/dates, battery, network, timers, stopwatch, to-do list,
+    personal memory, voice shortcuts, command history, passwords, recycle bin."""
+    from jarvis.tools.system.everyday_tools import quick_answer, split_steps
+
+    if not PHONE_REF.search(t) and quick_answer(raw) is not None:
+        return _decision(request_id, t, "quick_answer", {"query": raw.strip()})
+    # ---- voice shortcuts (before the compound check: their bodies contain several actions)
+    m = re.match(r"^(?:when(?:ever)? i say|if i say)\s+[\"']?(?P<p>[^,\"']{2,60}?)[\"']?\s*(?:,|then|jarvis should|you should|please)\s*(?P<steps>.+)$", t) \
+        or re.match(r"^(?:create|make|add|set up|save)\s+(?:a\s+|new\s+)?(?:shortcut|macro|routine|voice command)\s+(?:called|named)\s+[\"']?(?P<p>.+?)[\"']?\s+(?:that|to|which|for)\s+(?P<steps>.+)$", t)
+    if m:
+        return _decision(request_id, t, "create_shortcut", {"phrase": m.group("p").strip(), "steps": split_steps(raw_body(raw, m.group("steps")))})
+    if re.match(r"^(?:list|show|what are)\s+(?:all\s+)?(?:my\s+)?(?:shortcuts|macros|routines|voice commands|custom commands)$", t):
+        return _decision(request_id, t, "list_shortcuts", {})
+    m = re.match(r"^(?:delete|remove)\s+(?:the\s+)?(?:shortcut|macro|routine)\s+(?:called\s+|named\s+)?[\"']?(?P<p>.+?)[\"']?$", t)
+    if m:
+        return _decision(request_id, t, "delete_shortcut", {"phrase": m.group("p")})
+    if PHONE_REF.search(t):
+        return None
+    # ---- battery / network
+    if re.match(r"^(?:what(?:'s| is)\s+(?:my|the)\s+|check\s+(?:my\s+|the\s+)?|show\s+(?:me\s+)?(?:my\s+|the\s+)?)?(?:laptop\s+|pc\s+)?battery(?:\s+(?:level|status|percentage|life|left|charge|health))?$", t) \
+            or re.match(r"^how much (?:battery|charge)(?: do i have| is left| left| remaining)?(?: on (?:my |the )?(?:laptop|pc|computer))?$", t) \
+            or re.match(r"^is (?:my |the )?(?:laptop|pc|computer|battery|it) (?:charging|plugged in|on charge)$", t):
+        return _decision(request_id, t, "battery_status", {})
+    if re.match(r"^(?:what(?:'s| is)\s+)?my\s+(?:local\s+)?ip(?:\s+address)?$", t) \
+            or re.match(r"^(?:am i|are we|is (?:the |my )?(?:pc|laptop|computer))\s+(?:connected to (?:the )?internet|online|connected)$", t) \
+            or re.match(r"^(?:is (?:the |my )?(?:internet|connection)\s+(?:working|down|up|ok|okay|connected))$", t) \
+            or re.match(r"^(?:check|test|show)\s+(?:my\s+|the\s+)?(?:internet|network)(?:\s+(?:connection|status|info|details))?$", t):
+        return _decision(request_id, t, "network_info", {})
+    # ---- timers (spoken like reminders) and stopwatch
+    m = re.match(r"^(?:set|start|create|put on)\s+(?:a\s+|an\s+)?(?:timer|countdown)\s+(?:for\s+)?(?P<n>\d+|a|an|one|two|three|five|ten|fifteen|twenty|thirty|half an?)\s*(?P<u>seconds?|secs?|minutes?|mins?|hours?|hrs?)$", t) \
+        or re.match(r"^(?:set|start|create)\s+(?:a\s+|an\s+)?(?P<n>\d+|a|an|one|two|three|five|ten|fifteen|twenty|thirty)[- ](?P<u>second|sec|minute|min|hour)s?\s+(?:timer|countdown)$", t) \
+        or re.match(r"^(?:timer|countdown)\s+(?:for\s+)?(?P<n>\d+)\s*(?P<u>seconds?|secs?|minutes?|mins?|hours?|hrs?)$", t)
+    if m:
+        n, u = m.group("n"), m.group("u")
+        span = "30 minutes" if n.startswith("half") else f"{n} {u if u.endswith('s') or n in ('a', 'an', 'one', '1') else u + 's'}"
+        return _decision(request_id, t, "set_reminder", {"text": f"timer: in {span}"})
+    m = re.match(r"^(?P<a>start|stop|pause|resume|reset|restart|clear)\s+(?:the\s+|a\s+|my\s+)?stop ?watch$", t) \
+        or re.match(r"^stop ?watch\s+(?P<a>start|stop|lap|reset|status)$", t)
+    if m:
+        a = {"restart": "reset", "clear": "reset"}.get(m.group("a"), m.group("a"))
+        return _decision(request_id, t, "stopwatch", {"action": a})
+    if re.match(r"^(?:lap|record (?:a )?lap|stop ?watch lap)$", t):
+        return _decision(request_id, t, "stopwatch", {"action": "lap"})
+    if re.match(r"^(?:how long has (?:the )?stop ?watch been running|stop ?watch (?:time|status)|check (?:the )?stop ?watch)$", t):
+        return _decision(request_id, t, "stopwatch", {"action": "status"})
+    # ---- to-do list
+    m = re.match(rf"^(?:add|put|write)\s+(?P<x>.+?)\s+(?:to|on|in)\s+(?:my\s+|the\s+)?{_TODO_LIST}$", t) \
+        or re.match(rf"^(?:new|add (?:a )?)\s*(?:task|to-?do|todo)\s*[:\-]?\s+(?P<x>.+)$", t)
+    if m:
+        return _decision(request_id, t, "todo", {"action": "add", "item": raw_body(raw, m.group("x"))})
+    if re.match(rf"^(?:show|read|list|open|check|what(?:'s| is) on|what are)\s+(?:me\s+)?(?:my\s+|the\s+)?{_TODO_LIST}$", t) \
+            or re.match(r"^what (?:do i have to do|are my (?:tasks|to-?dos|todos))(?: today)?$", t):
+        return _decision(request_id, t, "todo", {"action": "list"})
+    m = re.match(rf"^(?:mark|tick off|check off|cross off)\s+(?P<x>.+?)(?:\s+(?:as\s+)?(?:done|complete|completed|finished))?(?:\s+(?:on|from) (?:my\s+)?{_TODO_LIST})?$", t)
+    if m and (re.search(r"\b(?:done|complete|completed|finished)\b", t) or re.match(r"^(?:tick|check|cross) off", t)):
+        return _decision(request_id, t, "todo", {"action": "done", "item": raw_body(raw, m.group("x"))})
+    m = re.match(rf"^(?:remove|delete|take)\s+(?P<x>.+?)\s+(?:off|from)\s+(?:my\s+|the\s+)?{_TODO_LIST}$", t)
+    if m:
+        return _decision(request_id, t, "todo", {"action": "remove", "item": raw_body(raw, m.group("x"))})
+    if re.match(rf"^clear\s+(?:the\s+|all\s+)?(?:completed|done|finished)\s+(?:tasks|to-?dos|todos|items)$", t):
+        return _decision(request_id, t, "todo", {"action": "clear_done"})
+    # ---- personal memory (SQLite + knowledge base)
+    m = re.match(r"^(?:please\s+)?(?:remember|note|keep in mind|don'?t forget)\s+that\s+(?P<f>.{3,})$", t) \
+        or re.match(r"^remember\s+(?P<f>(?:my|i|i'm|i've|our|the)\b(?!.*\b(?:to|about)\s+(?:call|buy|send|pay|take|do)\b).{3,})$", t)
+    if m:
+        return _decision(request_id, t, "remember_fact", {"fact": raw_body(raw, m.group("f"))})
+    m = re.match(r"^(?:what do you (?:remember|know)|what did i tell you)(?:\s+about\s+(?P<q>.+))?$", t) \
+        or re.match(r"^do you remember\s+(?P<q>.+)$", t) \
+        or re.match(r"^where did i (?P<q>park(?:\s+(?:my|the)\s+\w+)?)$", t)
+    if m:
+        return _decision(request_id, t, "recall_facts", {"query": raw_body(raw, m.group("q")) if m.group("q") else ""})
+    m = re.match(r"^forget\s+(?:that|about|what i (?:said|told you) about)\s+(?P<q>.+)$", t)
+    if m:
+        return _decision(request_id, t, "forget_fact", {"query": raw_body(raw, m.group("q"))})
+    # ---- history, passwords, recycle bin
+    if re.match(r"^(?:what did i (?:just )?(?:ask|say|tell)(?: you)?(?: (?:earlier|before|last|recently))?|show (?:me )?(?:my )?(?:command |recent )?history|(?:my )?recent commands)$", t):
+        return _decision(request_id, t, "command_history", {})
+    m = re.match(r"^(?:generate|create|make|give me|suggest)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:new\s+)?(?:strong\s+|secure\s+|random\s+|safe\s+)*password(?:\s+(?:of|with)\s+(?P<n>\d{1,2})\s*(?:characters|chars|letters)?|\s+(?P<n2>\d{1,2})\s*(?:characters|chars) long)?$", t)
+    if m:
+        n = int(m.group("n") or m.group("n2") or 16)
+        return _decision(request_id, t, "generate_password", {"length": max(8, min(64, n))})
+    if re.match(r"^(?:empty|clear|clean(?: out)?)\s+(?:the\s+|my\s+)?(?:recycle ?bin|trash|bin)$", t):
+        return _decision(request_id, t, "empty_recycle_bin", {})
+    return None
+
+
 def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     """Return a routing decision for the extended domains, or None to continue normal routing."""
     raw = text.strip()
@@ -330,6 +433,9 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     everyday = match_everyday(t, request_id)
     if everyday:
         return everyday
+    utility = match_utilities(t, raw, request_id)
+    if utility:
+        return utility
     m = re.match(r"^(?:send|push)\s+(?:a\s+|an\s+)?(?:notification|alert|reminder|note)\s+to\s+(?:my\s+|the\s+)?" + PHONE_WORDS +
                  r"(?:\s+(?:saying|that says|with|:)\s+(?P<body>.+))?$", t)
     if m:

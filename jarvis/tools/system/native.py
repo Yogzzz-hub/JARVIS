@@ -691,6 +691,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
         ReplyWhatsAppAllTool(),
         SendWhatsAppBulkTool(),
     ]
+    from jarvis.integrations.whatsapp.personal_reply.commands import WhatsAppAutoReplyTool
+    whatsapp_tools.append(WhatsAppAutoReplyTool())
     web_tools = [WebSearchTool()]
     from jarvis.tools.system.connector_tools import create_connector_tools
     conn_tools = create_connector_tools(working_memory=working_memory)
@@ -706,6 +708,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     from jarvis.tools.system.phone_tools import create_phone_tools
     from jarvis.tools.system.vision_tools import create_vision_tools
     from jarvis.tools.system.computer_use import create_computer_use_tools
-    extra_tools = create_assistant_tools() + create_phone_tools() + create_vision_tools() + create_computer_use_tools()
+    from jarvis.tools.system.everyday_tools import create_everyday_tools
+    extra_tools = (create_assistant_tools() + create_phone_tools() + create_vision_tools() + create_computer_use_tools()
+                   + create_everyday_tools())
     return base_tools + file_tools + prod_tools + computer_tools + whatsapp_tools + web_tools + conn_tools + app_discovery_tools + window_mgmt_tools + ide_tools + keyboard_tools + extra_tools
 

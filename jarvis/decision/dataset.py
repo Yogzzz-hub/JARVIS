@@ -267,6 +267,30 @@ def synthetic(n_per_family: int = 140, seed: int = 13) -> list[LabeledExample]:
                    "open display settings", "it's too loud", "i can't hear anything", "show system info"],
         fills={"n": [str(x) for x in (10, 20, 30, 45, 50, 70, 80, 100)]})
     add("SYSTEM", ["shut down the computer", "restart the pc", "restart my laptop now"], "ad1", n=40)
+    # everyday offline utilities
+    add("KNOWLEDGE", ["what is {n} times {n}", "calculate {n} plus {n}", "{n} divided by {n}", "what's {n} percent of {n}",
+                      "convert {n} km to miles", "{n} celsius in fahrenheit", "how many days until christmas",
+                      "what time is it in {city}", "flip a coin", "roll a dice", "square root of {n}", "{n} kg in pounds",
+                      "what day is it in {n} days", "is {year} a leap year", "pick a random number between 1 and {n}"],
+        "1", n=90, fills={"n": ["3", "12", "45", "100", "250", "7.5", "1200"], "city": ["london", "tokyo", "new york", "dubai"],
+                          "year": ["2024", "2027", "2100"]})
+    add("SYSTEM", ["what's my battery", "how much battery is left", "is my laptop charging", "battery status",
+                   "what's my ip address", "am i connected to the internet", "is the internet working", "check my network",
+                   "generate a strong password", "make me a random password of {n} characters", "what did i ask you earlier",
+                   "show my command history"], "a1", n=80, fills={"n": ["12", "16", "20", "24"]})
+    add("SYSTEM", ["empty the recycle bin", "clear the trash", "empty my recycle bin now"], "ad1", n=25)
+    add("REMINDER", ["set a timer for {n} minutes", "start a {n} minute timer", "start the stopwatch", "stop the stopwatch",
+                     "add {todo} to my to-do list", "show my to-do list", "what's on my task list", "mark {todo} as done",
+                     "remove {todo} from my todo list", "put {todo} on my to do list"], "a1", n=90,
+        fills={"n": ["2", "5", "10", "25"], "todo": ["buy milk", "call the bank", "finish the report", "water the plants", "renew passport"]})
+    add("RAG", ["remember that {fact}", "note that {fact}", "keep in mind that {fact}", "what do you remember about {thing}",
+                "do you remember {thing}", "where did i park", "forget that {fact}", "what did i tell you about {thing}"], "a1", n=80,
+        fills={"fact": ["my car is on level 2", "the wifi guest network is home5g", "my locker number is 42", "priya's birthday is in may"],
+               "thing": ["my car", "the locker", "priya's birthday", "the guest wifi"]})
+    add("WORKFLOW", ["when i say {ph}, {steps}", "create a shortcut called {ph} that {steps}", "list my shortcuts",
+                     "delete the {ph} shortcut", "show my voice commands"], "a1", n=70,
+        fills={"ph": ["goodnight", "movie time", "study mode", "work mode"],
+               "steps": ["lock the pc and mute the volume", "opens spotify and dims the screen", "open notion and play lofi music"]})
     add("FILE", ["find {file}", "where is {file}", "open {file}", "search my files for {doc}", "show my downloads",
                  "organize my downloads", "list files on my desktop", "find duplicate photos", "create a folder called {pname}",
                  "rename {file} to final", "move {file} to documents", "copy {file} to the desktop", "locate {file}"],

@@ -224,6 +224,15 @@ Window {
                     }
                 }
 
+                SidebarButton {
+                    text: "WhatsApp"
+                    iconName: "whatsapp"
+                    compact: sidebar.compact
+                    accent: mainWindow.tint
+                    selected: pageStack.currentIndex === 9
+                    onClicked: pageStack.currentIndex = 9
+                }
+
                 // subtle divider before settings/diag
                 Item { width: parent.width; height: 12
                     Rectangle {
@@ -273,6 +282,7 @@ Window {
             IntegrationsPage { stateModel: uiState; controller: uiController }
             SettingsPage { controller: uiController }
             DiagnosticsPage { stateModel: uiState; controller: uiController }
+            WhatsAppContactsPage { }
         }
     }
 

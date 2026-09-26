@@ -89,6 +89,9 @@ def _stem_and_normalize(word: str) -> str:
 
 _PHONE_MENTION = re.compile(r"\b(?:phone|mobile|android|smartphone|cell ?phone|handset)\b")
 
+_NUMBER_WORDS = re.compile(r"\b(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|percent|%)\b")
+
+
 class CapabilityRetriever:
     """
     Sub-millisecond BM25 and semantic hybrid capability retriever with
@@ -99,7 +102,19 @@ class CapabilityRetriever:
         self.registry = registry or get_default_capability_registry()
         self._build_index()
 
+    def _keyword_patterns(self, cap: CapabilityDefinition) -> List[Tuple[str, "re.Pattern[str]"]]:
+        cached = self._kw_cache.get(cap.id)
+        if cached is None:
+            cached = []
+            for kw in cap.keywords:
+                kw_clean = kw.lower().strip()
+                if kw_clean:
+                    cached.append((kw_clean, re.compile(r"\b" + re.escape(kw_clean) + r"\b")))
+            self._kw_cache[cap.id] = cached
+        return cached
+
     def _build_index(self) -> None:
+        self._kw_cache: Dict[str, List[Tuple[str, "re.Pattern[str]"]]] = {}
         self.capabilities = self.registry.list_all()
         self.doc_count = len(self.capabilities)
         self.doc_tokens: Dict[str, Counter] = {}
@@ -272,6 +287,8 @@ class CapabilityRetriever:
             candidates = [c for c in candidates if c.category == category]
 
         scored: List[Tuple[CapabilityDefinition, float]] = []
+        has_number = bool(_NUMBER_WORDS.search(clause))
+        is_vol_adjust = has_number or any(w in clause for w in ("up", "down", "increase", "decrease", "raise", "lower", "to", "set"))
 
         for cap in candidates:
             tok_counts = self.doc_tokens.get(cap.id, Counter())
@@ -295,14 +312,15 @@ class CapabilityRetriever:
             if cap_fam in inferred_families:
                 score += 8.0
 
-            # 4. Keyword / Example boosts
-            for kw in cap.keywords:
-                kw_clean = kw.lower().strip()
+            # 4. Keyword / Example boosts (keyword patterns are compiled once per capability)
+            for kw_clean, kw_re in self._keyword_patterns(cap):
+                if kw_clean not in clause:
+                    continue  # a whole-word match implies a substring match; skip the regex cheaply
                 if len(kw_clean) <= 3:
-                    if re.search(r"\b" + re.escape(kw_clean) + r"\b", clause):
+                    if kw_re.search(clause):
                         score += 8.0
                         break
-                elif re.search(r"\b" + re.escape(kw_clean) + r"\b", clause) or (len(kw_clean) > 6 and kw_clean in clause):
+                elif kw_re.search(clause) or len(kw_clean) > 6:
                     score += 8.0
                     break
 
@@ -319,8 +337,6 @@ class CapabilityRetriever:
                     score -= 15.0
 
             # 6. Resource type compatibility & domain rules
-            has_number = bool(re.search(r"\b(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|percent|%)\b", clause))
-            is_vol_adjust = has_number or any(w in clause for w in ("up", "down", "increase", "decrease", "raise", "lower", "to", "set"))
             if "SystemAudio" in inferred_resources:
                 if any(w in clause for w in ("mute", "silence", "quiet")) and "unmute" not in clause:
                     if "volume_mute" in cap.id:

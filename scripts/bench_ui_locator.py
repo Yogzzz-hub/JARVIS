@@ -1,7 +1,7 @@
 """
 Benchmark suite for Phase 10 Structured Computer & Browser Agent.
 Measures window discovery, UIA snapshot, locator resolution, browser semantic locators, and action dispatch.
-Saves results to docs/computer-benchmark.json.
+Saves results to reports/computer-benchmark.json.
 """
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ async def main():
         print(f"   p50: {dispatch_stats['p50']:.4f} ms | p95: {dispatch_stats['p95']:.4f} ms (Target: < 5.0 ms)")
         assert dispatch_stats["p95"] < 5.0
 
-        # Save to docs/computer-benchmark.json
+        # Save to reports/computer-benchmark.json
         bench_data = {
             "benchmark_timestamp": time.time(),
             "window_lookup_p50_ms": win_stats["p50"],
@@ -161,7 +161,8 @@ async def main():
             "vision_required_triggers": 1,
         }
 
-        out_path = ROOT / "docs" / "computer-benchmark.json"
+        out_path = ROOT / "reports" / "computer-benchmark.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(bench_data, indent=2), encoding="utf-8")
         print(f"\n[SAVED] Benchmark metrics written to {out_path}")
         print("=" * 65)

@@ -103,6 +103,10 @@ wss.on("connection", (ws, req) => {
         const { to, file_path, mimetype, caption, is_voice_note } = payload;
         const res = await baileys.sendMediaMessage(to, file_path, mimetype, caption, is_voice_note);
         ws.send(JSON.stringify({ id, action, success: true, result: res }));
+      } else if (action === "get_message") {
+        // Bounded retry for messages that arrived undecrypted: return the body only once it exists.
+        const found = baileys.getNormalizedMessage((payload || {}).message_id);
+        ws.send(JSON.stringify({ id, action, success: Boolean(found), result: found }));
       } else if (action === "get_status") {
         ws.send(JSON.stringify({ id, action, success: true, result: baileys.getStatus() }));
       } else if (action === "ping") {

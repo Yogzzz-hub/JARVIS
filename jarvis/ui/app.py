@@ -114,6 +114,10 @@ def run_app(argv: list[str] | None = None) -> int:
     root_context.setContextProperty("uiController", controller)
     root_context.setContextProperty("uiActivityModel", activity_model)
     root_context.setContextProperty("uiSettings", settings)
+    from jarvis.ui.whatsapp_contacts import WhatsAppContactsClient
+    whatsapp_contacts = WhatsAppContactsClient(http_url="http://127.0.0.1:8765")
+    controller.whatsappPersonalEvent.connect(whatsapp_contacts.on_backend_event)
+    root_context.setContextProperty("uiWhatsApp", whatsapp_contacts)
 
     main_qml = qml_dir / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(main_qml)))

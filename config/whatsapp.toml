@@ -31,6 +31,16 @@ auto_reply_contacts = []
 # Group auto-reply is disabled by default for safety
 auto_reply_groups = []
 
+[whatsapp.personal_reply]
+# Contact-specific replies that sound like you (learned from your own messages to each person).
+# Auto-reply is OFF until you grant it for a limited time ("reply to Yoga for the next hour").
+# Group chats are never auto-replied, whatever is configured here.
+enabled = true
+coalesce_seconds = 1.2                  # messages sent within this window are understood together
+max_auto_reply_hours = 12               # longest auto-reply window a single command can grant
+auto_reply_untrained_contacts = false   # in "everyone" mode, people without a style profile only get suggestions
+export_names = []                       # your name as it appears in exported chats, e.g. ["Yogesh"]
+
 [whatsapp.pulse]
 ack_latency_threshold_ms = 250.0
 progress_updates_enabled = true

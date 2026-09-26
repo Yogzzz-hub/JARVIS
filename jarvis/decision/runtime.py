@@ -4,7 +4,8 @@ Stages (``[decision] stage`` in config/jarvis.toml, overridable with ``JARVIS_JD
 
 * ``off``       - JDE is not loaded at all.
 * ``shadow``    - (default) the existing router decides and acts; JDE decides in a background thread and the
-                  pair is appended to ``data/jde/shadow.jsonl`` for offline comparison. Zero effect on routing.
+                  pair is stored in the SQLite table ``jde_decisions`` (or ``data/jde/shadow.jsonl`` when no
+                  database writer is attached) for offline comparison. Zero effect on routing.
 * ``read_only`` - stage B: additionally, when the router has *no* deterministic match (the ``unknown_command``
                   fallback that would start the tool-using agent) and JDE says, with a calibrated EXECUTE gate,
                   that the request is a plain KNOWLEDGE question, it is answered by the read-only chat model
@@ -63,6 +64,10 @@ class JDERuntime:
         self.previous_route = ""
         self.dropped = 0
         self.logged = 0
+        self.writer: Any = None  # PersistenceWriter: when attached, decisions go to SQLite (jde_decisions)
+
+    def attach_writer(self, writer: Any) -> None:
+        self.writer = writer
 
     # --- engine -------------------------------------------------------------------------------------------
     @property
@@ -93,13 +98,14 @@ class JDERuntime:
             return None
 
     # --- shadow -------------------------------------------------------------------------------------------
-    def observe(self, text: str, router_decision: Any, channel: str = "local", pending_confirmation: bool = False) -> None:
+    def observe(self, text: str, router_decision: Any, channel: str = "local", pending_confirmation: bool = False,
+                request_id: str = "") -> None:
         """Queue a shadow comparison. Non-blocking; drops the sample when the worker is behind."""
         if not self.enabled or not text:
             return
         try:
             state = self.state_for(text, channel, pending_confirmation)
-            self._queue.put_nowait((time.time(), state, _router_summary(router_decision)))
+            self._queue.put_nowait((time.time(), state, _router_summary(router_decision), request_id))
             self._ensure_worker()
         except queue.Full:
             self.dropped += 1
@@ -114,7 +120,7 @@ class JDERuntime:
     def _run(self) -> None:
         while True:
             try:
-                ts, state, router = self._queue.get(timeout=30)
+                ts, state, router, request_id = self._queue.get(timeout=30)
             except queue.Empty:
                 return
             try:
@@ -123,19 +129,38 @@ class JDERuntime:
                     self.previous_route = result.route.value
                     self._write({"ts": round(ts, 3), "stage": self.stage, "text": state.text, "channel": state.channel,
                                  "router": router, "jde": _jde_summary(result),
-                                 "agree": _agrees(router, result)})
+                                 "agree": _agrees(router, result)}, request_id)
             except Exception as exc:
                 logger.debug("JDE shadow worker error: %s", exc)
             finally:
                 self._queue.task_done()
 
-    def _write(self, record: dict) -> None:
+    def _write(self, record: dict, request_id: str = "") -> None:
+        writer = self.writer
+        if writer is not None and not getattr(writer, "error", None):
+            try:
+                if writer.enqueue("jde_decisions", request_id or "shadow", record):
+                    self.logged += 1
+                    return
+            except Exception:
+                pass
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         if self.log_path.exists() and self.log_path.stat().st_size > SHADOW_LOG_MAX_BYTES:
             self.log_path.replace(self.log_path.with_suffix(".jsonl.1"))
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         self.logged += 1
+
+    def warm(self) -> bool:
+        """Load the model and encoder ahead of the first request (call from a background thread)."""
+        engine = self.engine()
+        if engine is None:
+            return False
+        try:
+            engine.decide(self.state_for("warm up the decision engine"))
+            return True
+        except Exception:
+            return False
 
     def flush(self, timeout: float = 5.0) -> None:
         end = time.time() + timeout

@@ -82,6 +82,9 @@ def create_app(runtime=None):
                 raise HTTPException(503, str(exc)) from exc
             raise
 
+    from jarvis.integrations.whatsapp.personal_reply.api import register as register_personal_reply
+    register_personal_reply(app, runtime)
+
     @app.get("/tasks/{request_id}", response_model=TaskSnapshot)
     async def task(request_id: str):
         found = runtime.tasks.get(request_id)
