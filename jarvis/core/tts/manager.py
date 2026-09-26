@@ -95,7 +95,8 @@ class TTSManager:
 
         Returns (pcm_bytes, backend_used).
         """
-        clean_text = text.strip()
+        from jarvis.core.tts.speech_text import speech_text
+        clean_text = speech_text(text).strip()
         if not clean_text:
             return b"", "none"
 

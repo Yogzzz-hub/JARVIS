@@ -79,6 +79,28 @@ class InboxMessage:
         }
 
 
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
+
+
+def _domain(url: str) -> str:
+    host = re.sub(r"^(?:https?://)?(?:www\.)?", "", url, flags=re.I).split("/")[0].split("?")[0]
+    return host.lower() or "a website"
+
+
+def describe_message(text: str, words: int = 14) -> str:
+    """Speakable description of a message: links become "a link from dribbble.com", long text is shortened."""
+    t = " ".join((text or "").split())
+    urls = _URL.findall(t)
+    rest = " ".join(_URL.sub(" ", t).split()).strip(" -:,")
+    if urls and not rest:
+        domains = list(dict.fromkeys(_domain(u) for u in urls))
+        return (f"a link from {domains[0]}" if len(urls) == 1 else
+                f"{len(urls)} links ({', '.join(domains[:2])})")
+    parts = rest.split(" ")
+    short = rest if len(parts) <= words else " ".join(parts[:words]) + "..."
+    return f'"{short}"' + (f" (with a link from {_domain(urls[0])})" if urls else "")
+
+
 class UrgencyClassifier:
     """Classifies message urgency and whether a reply is expected."""
 
@@ -88,6 +110,14 @@ class UrgencyClassifier:
         clean = text.strip()
         if not clean:
             return "LOW", False, "Empty message"
+        urls = _URL.findall(clean)
+        if urls:
+            # A link's "?" is a query string, not a question: judge only the words around it.
+            words = " ".join(_URL.sub(" ", clean).split())
+            if not words:
+                return "LOW", False, f"Shared a link from {_domain(urls[0])}"
+            urgency, needs_reply, _ = cls.analyze(words, is_from_me=is_from_me)
+            return urgency, needs_reply, (clean[:77] + "...") if len(clean) > 80 else clean
 
         lower = clean.lower()
         norm_words = set(re.findall(r"\b\w+\b", lower))
@@ -463,7 +493,9 @@ class WhatsAppInbox:
         Personal chats only unless the owner asked about groups (``include_groups``) or one group (``group``).
         Deterministic on purpose: no model can mix up who said what, and it answers instantly.
         """
-        pending = self.get_messages_needing_reply(limit=40, include_groups=include_groups, group=group)
+        # re-check stored flags with the current rules (older rows marked links with "?" as questions)
+        pending = [m for m in self.get_messages_needing_reply(limit=40, include_groups=include_groups, group=group)
+                   if UrgencyClassifier.analyze(m.text)[1]]
         urgent = [m for m in pending if m.urgency == "URGENT"]
         normal = [m for m in pending if m.urgency != "URGENT"]
 
@@ -475,11 +507,15 @@ class WhatsAppInbox:
         lines = []
         for (chat_id, _), msgs in list(people.items())[:max_people]:
             latest = max(msgs, key=lambda x: x.timestamp)
-            name = latest.sender_display_name or latest.sender_id.split("@")[0]
+            name = self._spoken_name(latest.sender_display_name or latest.sender_id.split("@")[0])
             where = f" in {latest.chat_name or 'a group'}" if latest.is_group else ""
-            count = f" ({len(msgs)} messages)" if len(msgs) > 1 else ""
-            tag = "Urgent - " if any(x.urgency == "URGENT" for x in msgs) else ""
-            lines.append(f"{tag}{name}{where}{count}: \"{self._speakable(latest.text or latest.summary)}\"")
+            is_urgent = any(x.urgency == "URGENT" for x in msgs)
+            said = describe_message(latest.text or latest.summary)
+            verb = "sent" if not said.startswith('"') else "says"
+            if len(msgs) > 1:
+                lines.append(f"{'Urgent: ' if is_urgent else ''}{name}{where} sent {len(msgs)} messages; the latest {verb} {said}")
+            else:
+                lines.append(f"{'Urgent: ' if is_urgent else ''}{name}{where} {verb} {said}")
 
         n_people = len(people)
         scope = f"the {self._group_label(group)} group" if group else ("your chats" if include_groups else "your personal chats")
@@ -488,12 +524,12 @@ class WhatsAppInbox:
         else:
             head = f"{n_people} {'person is' if n_people == 1 else 'people are'} waiting for a reply in {scope}."
             more = f" And {n_people - max_people} more." if n_people > max_people else ""
-            spoken = head + " " + ". ".join(lines) + "." + more
+            spoken = head + " " + " ".join(ln if re.search(r"[.?!]\"?$", ln) else ln + "." for ln in lines) + more
         if not include_groups and not group:
             groups_waiting = len({m.chat_id for m in self.get_messages_needing_reply(limit=40, include_groups=True) if m.is_group})
             if groups_waiting:
-                spoken += (f" {groups_waiting} group chat{'s have' if groups_waiting != 1 else ' has'} new messages; "
-                           "I didn't read them - say 'summarize my group messages' if you want them.")
+                spoken += (f" {groups_waiting} group chat{'s' if groups_waiting != 1 else ''} also "
+                           f"{'have' if groups_waiting != 1 else 'has'} new messages - ask if you want them.")
 
         return {
             "total_pending": len(pending),
@@ -504,6 +540,12 @@ class WhatsAppInbox:
             "normal_messages": [m.to_dict() for m in normal],
             "spoken_summary": spoken,
         }
+
+    @staticmethod
+    def _spoken_name(name: str) -> str:
+        """'sushmitaa mahesh' -> 'Sushmitaa Mahesh', 'Scooby!!' -> 'Scooby' (names read out naturally)."""
+        n = re.sub(r"[^\w\s.'-]", "", name or "").strip() or "Someone"
+        return n.title() if n.islower() else n
 
     def _group_label(self, chat_id: Optional[str]) -> str:
         if not chat_id:

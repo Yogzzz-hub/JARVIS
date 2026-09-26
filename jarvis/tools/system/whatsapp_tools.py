@@ -406,8 +406,9 @@ class ReadWhatsAppMessagesTool(Tool):
             items_spoken = []
             for m in msg_dicts[:3]:
                 who = m["sender"] + (f" in {m.get('chat_name') or 'a group'}" if m.get("is_group") and not group_id else "")
+                from jarvis.integrations.whatsapp.inbox import describe_message
                 urg_prefix = f"Urgent from {who}" if m["urgency"] == "URGENT" else f"From {who}"
-                items_spoken.append(f"{urg_prefix}: '{m['summary']}'")
+                items_spoken.append(f"{urg_prefix}: {describe_message(m['text'] or m['summary'])}")
             spoken = f"Found {count} message{'s' if count > 1 else ''}{where}: " + ". ".join(items_spoken)
 
         return {

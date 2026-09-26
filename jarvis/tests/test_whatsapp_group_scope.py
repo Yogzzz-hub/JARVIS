@@ -41,14 +41,14 @@ def test_summary_is_personal_chats_only_and_attributed_per_person(tmp_path):
     assert "2 people are waiting" in spoken and "Mom" in spoken and "Arun" in spoken
     assert spoken.index("Mom") < spoken.index("Arun")  # urgent first
     assert "Nisha" not in spoken and "Team 62" not in spoken  # group content is not read out
-    assert "1 group chat has new messages" in spoken
+    assert "1 group chat also has new messages" in spoken
 
 
 def test_named_group_summary_and_unknown_group(tmp_path):
     inbox = _inbox(tmp_path)
     tool = wt.SummarizeWhatsAppMessagesTool(inbox=inbox)
     spoken = tool.run({"group": "cse a"})["spoken_summary"]
-    assert "Devi in CSE A (2 messages)" in spoken and "Arun" not in spoken
+    assert "Devi in CSE A sent 2 messages" in spoken and "Arun" not in spoken
     assert "couldn't find" in tool.run({"group": "football"})["spoken_summary"]
 
 
@@ -115,3 +115,23 @@ def test_router_only_targets_a_group_when_it_is_named():
     assert d.intent == "summarize_whatsapp_messages" and d.slots == {"group": "cse"}
     assert match_bulk_reply("summarize my whatsapp", "r") is None
     assert match_bulk_reply("reply to devi saying ok", "r") is None
+
+
+def test_links_are_not_questions_and_are_described_not_read_out(tmp_path):
+    from jarvis.integrations.whatsapp.inbox import UrgencyClassifier, describe_message
+    url = "https://dribbble.com/shots/6317917-AI?utm_source=Clipboard_Shot&utm_campaign=x"
+    assert UrgencyClassifier.analyze(url)[:2] == ("LOW", False)
+    assert UrgencyClassifier.analyze("can you check this? " + url)[1] is True
+    assert describe_message(url) == "a link from dribbble.com"
+    inbox = WhatsAppInbox(tmp_path / "l.db")
+    inbox.add_message(_msg("l1", "sush@s.whatsapp.net", "sush@s.whatsapp.net", "sushmitaa mahesh", url, 1000))
+    inbox.add_message(_msg("l2", "arun@s.whatsapp.net", "arun@s.whatsapp.net", "Scooby!!", "are you free? " + url, 1001))
+    spoken = wt.SummarizeWhatsAppMessagesTool(inbox=inbox).run({})["spoken_summary"]
+    assert "http" not in spoken and "utm_" not in spoken and "Sushmitaa" not in spoken  # link-only: no reply needed
+    assert spoken.startswith("1 person is waiting") and 'Scooby says "are you free?" (with a link from dribbble.com)' in spoken
+
+
+def test_spoken_text_never_reads_out_links_paths_or_emoji():
+    from jarvis.core.tts.speech_text import speech_text
+    said = speech_text("Scooby!! sent https://claude.com/contact-sales/claude-for-oss?mcp_token=x 😀 saved to C:\\Users\\me\\Downloads\\report.pdf")
+    assert said == "Scooby! sent a link from claude.com saved to report.pdf"
