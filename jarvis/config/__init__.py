@@ -87,7 +87,7 @@ class VoiceConfig(Frozen):
     ptt_enabled: bool = True
     model_path: str = "models/wake/hey_jarvis_v0.1.onnx"
     threshold: float = Field(default=0.5, ge=0, le=1)
-    stt_model: str = "small.en"
+    stt_model: str = "auto"
     stt_device: Literal["auto", "cpu", "cuda"] = "auto"
     compute_type: str = "int8"
     stt_beam_size: int = Field(default=5, ge=1, le=10)

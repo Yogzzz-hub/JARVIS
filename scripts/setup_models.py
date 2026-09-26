@@ -44,6 +44,24 @@ def _download(url: str, dest: Path) -> None:
 
 
 def setup_whisper(config, check: bool) -> bool:
+    if config.voice.stt_model in ("auto", "best"):
+        try:
+            import ctranslate2
+            gpu = ctranslate2.get_cuda_device_count() > 0
+        except Exception:
+            gpu = False
+        size = "large-v3-turbo" if gpu else "small.en"
+        print(f"[whisper] auto -> '{size}' ({'NVIDIA GPU' if gpu else 'CPU'})")
+        if check:
+            return True
+        try:
+            from faster_whisper import download_model
+            download_model(size)  # into the faster-whisper cache, used on first start
+            print("[whisper] OK")
+            return True
+        except Exception as exc:
+            print(f"[whisper] download failed ({exc}); it will be downloaded on first use")
+            return False
     target = PROJECT / config.voice.stt_model
     if not target.is_dir() and "/" not in config.voice.stt_model and "\\" not in config.voice.stt_model:
         print(f"[whisper] using model name '{config.voice.stt_model}' (faster-whisper cache)")

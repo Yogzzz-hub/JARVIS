@@ -64,7 +64,7 @@ wake_enabled = true
 ptt_enabled = true
 model_path = "models/wake/hey_jarvis_v0.1.onnx"
 threshold = 0.5   # openWakeWord hey_jarvis: lower = easier to wake (more false wakes), higher = stricter
-stt_model = "models/whisper/small.en"  # more accurate than base (accents, names); "large-v3-turbo" is best on a GPU
+stt_model = "auto"  # auto = large-v3-turbo on an NVIDIA GPU (best accuracy), small.en on the CPU; or a size/path
 stt_device = "auto"        # use the NVIDIA GPU when available, else the CPU
 compute_type = "int8"
 stt_beam_size = 5          # final-pass accuracy (lower = faster on slow CPUs)

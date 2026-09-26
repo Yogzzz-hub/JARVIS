@@ -36,6 +36,37 @@ GENERIC_RESOURCE_PATTERNS = (
     re.compile(r"^(?:send|forward)\s+(?:the\s+)?(?:email|document|file)(?:\s+to\s+\w+)?$", re.I),
 )
 
+_HELPER_WORDS = re.compile(r"stub|helper|service|updater|update|crash|report|setup|uninst|install|host|daemon|agent|broker|"
+                           r"elevat|notif|svc|tray|diag|reset|repair|telemetry|bootstrap|launcher\.exe|runtime|redist")
+_BARE_VERBS = {"", "open", "start", "launch", "run", "the", "app", "application", "program", "it", "that", "this", "something"}
+
+
+def _app_words(name: str) -> list[str]:
+    n = re.sub(r"\.exe$", "", (name or "").casefold())
+    n = re.sub(r"([a-z])([A-Z])", r"\1 \2", n)
+    return [w for w in re.split(r"[^a-z0-9+]+", n) if w]
+
+
+def plausible_app_match(query: str, candidate: str) -> bool:
+    """Would a person saying ``query`` plausibly mean the app ``candidate``?
+
+    "engine" does not mean "mlenginestub" or "resetengine" (helper executables, substring hits), and a bare verb
+    ("open") means no app at all. A whole-word or real prefix match is required.
+    """
+    q_words = [w for w in _app_words(query) if w not in ("the", "a", "an", "my")]
+    q = "".join(q_words)
+    if not q or " ".join(q_words) in _BARE_VERBS or len(q) < 3:
+        return False
+    cand = (candidate or "").casefold()
+    if _HELPER_WORDS.search(cand) and not _HELPER_WORDS.search(q):
+        return False
+    c_words = _app_words(candidate)
+    compact = "".join(c_words)
+    if any(w in c_words for w in q_words if len(w) >= 3):
+        return True
+    return compact.startswith(q) and len(q) / max(1, len(compact)) >= 0.34
+
+
 def disambiguate_app(
     app_name: str,
     resolver: Any,
@@ -77,10 +108,10 @@ def disambiguate_app(
 
     # Check resolver cache if available
     if resolver and hasattr(resolver, "cache") and isinstance(resolver.cache, dict):
-        matching = [
-            k for k in resolver.cache.keys()
-            if lowered in k or k in lowered
-        ]
+        matching = []
+        for k in resolver.cache.keys():
+            if plausible_app_match(clean_app, k) and re.sub(r"\.exe$", "", k) not in [re.sub(r"\.exe$", "", m) for m in matching]:
+                matching.append(k)
         if len(matching) > 1 and lowered not in resolver.cache:
             choices_str = ", ".join(matching[:3])
             return RouteDecision(

@@ -48,6 +48,8 @@ class VoicePipeline:
     STT runs in a separate worker, never in audio callback.
     """
 
+    MIN_VOICED_MS = 220  # less real speech than this is noise, not a command
+
     def __init__(
         self,
         hub: AudioHub | None = None,
@@ -519,7 +521,11 @@ class VoicePipeline:
         session.transition(VoiceState.FINALIZING)
         self._emit("voice.state", state="transcribing", session_id=session.session_id)
         final = None
-        if self.stt and self.stt.is_loaded and (session.speech_start_ns or session.audio_frames > 15):
+        voiced_ms = float(getattr(self.vad, "speech_duration_ms", 0.0) or 0.0)
+        if session.speech_start_ns and 0 < voiced_ms < self.MIN_VOICED_MS:
+            # A click, cough or noise burst: too little real speech to be a command (Whisper would invent words).
+            logger.info("Ignoring %.0f ms of voiced audio (below %d ms)", voiced_ms, self.MIN_VOICED_MS)
+        elif self.stt and self.stt.is_loaded and (session.speech_start_ns or session.audio_frames > 15):
             final = await self.stt.finalize()
 
         if final and final.text:

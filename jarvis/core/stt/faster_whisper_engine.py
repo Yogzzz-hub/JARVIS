@@ -51,6 +51,9 @@ def resolve_whisper_model(model: str) -> str:
     return ref
 
 
+from jarvis.core.stt.quality import clean_transcript, join_segments, prepare_audio  # noqa: E402
+
+
 class FasterWhisperEngine:
     """Faster-Whisper STT engine with CUDA/CPU support.
 
@@ -115,20 +118,26 @@ class FasterWhisperEngine:
 
             device = self.device_preference
             compute = self.compute_type
+            auto = self.model_name_str in ("auto", "best")
+            # "auto": the most accurate model the hardware runs in real time -
+            # large-v3-turbo on an NVIDIA GPU (near large-v3 accuracy, ~8x faster), small.en on the CPU.
+            gpu_model = "large-v3-turbo" if auto else self.model_name_str
+            cpu_model = "small.en" if auto else self.model_name_str
 
             # Try CUDA first ("auto" uses the GPU when CUDA libraries are present)
             if device in ("cuda", "auto"):
                 try:
                     model = WhisperModel(
-                        self.model_name_str,
+                        gpu_model,
                         device="cuda",
-                        compute_type="int8_float16" if compute == "int8" else compute,
+                        compute_type=("float16" if auto else "int8_float16") if compute == "int8" else compute,
                     )
                     # Verify CUDA DLLs are present by running a tiny test slice
                     dummy = np.zeros(1600, dtype=np.float32)
                     _ = list(model.transcribe(dummy, beam_size=1, without_timestamps=True)[0])
                     self._device_actual = "cuda"
-                    logger.info("Whisper loaded on CUDA: model=%s, compute=%s", self.model_name_str, compute)
+                    self.model_name_str = gpu_model
+                    logger.info("Whisper loaded on CUDA: model=%s, compute=%s", gpu_model, compute)
                     return model
                 except Exception as exc:
                     logger.warning("CUDA load/warmup failed, falling back to CPU: %s", exc)
@@ -137,17 +146,19 @@ class FasterWhisperEngine:
             import os
             num_threads = min(8, max(4, os.cpu_count() or 4))
             model = WhisperModel(
-                self.model_name_str,
+                cpu_model,
                 device="cpu",
                 compute_type="int8",
                 cpu_threads=num_threads,
             )
             self._device_actual = "cpu"
+            self.model_name_str = cpu_model
             logger.info("Whisper loaded on CPU (%d threads): model=%s", num_threads, self.model_name_str)
             return model
 
 
         self._model = await asyncio.to_thread(_load)
+        await asyncio.to_thread(prepare_audio, np.zeros(1600, dtype=np.float32))  # warm the filter (SciPy import)
         self._loaded = True
         self._load_time_ms = (perf_counter_ns() - t0) / 1e6
         logger.info("Whisper load time: %.1f ms", self._load_time_ms)
@@ -197,8 +208,8 @@ class FasterWhisperEngine:
                 vad_filter=False,  # We handle VAD externally
                 without_timestamps=True,
             )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
-            return text
+            text, _ = join_segments(segments)
+            return clean_transcript(text)
 
         text = await asyncio.to_thread(_transcribe)
 
@@ -246,7 +257,7 @@ class FasterWhisperEngine:
             duration_ms = len(self._audio_buffer) / 16.0
             return TranscriptFinal(
                 session_id=self._session_id,
-                text=self._last_partial_text,
+                text=clean_transcript(self._last_partial_text),
                 language=self.language or "en",
                 duration_ms=duration_ms,
                 stt_model=self.model_name_str,
@@ -257,28 +268,27 @@ class FasterWhisperEngine:
             )
 
         def _transcribe_final():
+            # Accuracy pass: rumble removed and level normalised, Whisper's own Silero VAD cuts out the non-speech
+            # parts (noise, music, TV), and segments Whisper is not confident about are dropped.
             segments, info = self._model.transcribe(
-                self._audio_buffer,
+                prepare_audio(self._audio_buffer),
                 language=self.language,
                 beam_size=self._final_beam(),
                 best_of=1,
                 temperature=0.0,
                 condition_on_previous_text=False,
                 initial_prompt=self.initial_prompt or None,
-                vad_filter=False,
+                vad_filter=True,
+                vad_parameters={"threshold": 0.5, "min_speech_duration_ms": 180, "min_silence_duration_ms": 400,
+                                "speech_pad_ms": 250},
+                no_speech_threshold=0.6,
+                log_prob_threshold=-1.0,
+                compression_ratio_threshold=2.4,
                 without_timestamps=True,
             )
-            seg_list = []
-            texts = []
-            for seg in segments:
-                t = seg.text.strip()
-                texts.append(t)
-                seg_list.append({
-                    "start": seg.start,
-                    "end": seg.end,
-                    "text": t,
-                })
-            return " ".join(texts).strip(), info.language, seg_list
+            text, seg_list = join_segments(segments)
+            voiced_ms = float(getattr(info, "duration_after_vad", 0.0) or 0.0) * 1000.0 or None
+            return clean_transcript(text, speech_ms=voiced_ms), info.language, seg_list
 
         text, language, segments = await asyncio.to_thread(_transcribe_final)
         finalization_ms = (perf_counter_ns() - t0) / 1e6

@@ -201,10 +201,12 @@ class AliasResolver:
                 if t in self._alias_to_app_id:
                     return self._alias_to_app_id[t], None, None
 
-        # 4. Prefix match check or whole word match for ambiguity
+        # 4. Prefix match or whole-word match - only for plausible app names (never helper executables such as
+        #    "mlenginestub", never a bare verb such as "open")
+        from jarvis.core.router.disambiguation import plausible_app_match
         matches: List[str] = []
         for alias, app_id in self._alias_to_app_id.items():
-            if len(cleaned) >= 3 and (alias.startswith(cleaned) or re.search(rf"\b{re.escape(cleaned)}\b", alias)):
+            if (alias.startswith(cleaned) or re.search(rf"\b{re.escape(cleaned)}\b", alias)) and plausible_app_match(cleaned, alias):
                 if app_id not in matches:
                     matches.append(app_id)
 

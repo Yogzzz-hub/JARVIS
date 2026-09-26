@@ -436,6 +436,10 @@ WhatsApp (Baileys bridge) ────────┘        │  shortcut expan
 ### Request workflow step by step
 
 1. **Input.** Voice goes through the wake word (openWakeWord), VAD (Silero), adaptive endpointing and Whisper (STT).
+   Speech recognition is local, free and unlimited. `stt_model = "auto"` picks Whisper large-v3-turbo on an NVIDIA
+   GPU (near large-v3 accuracy) and small.en on the CPU. The final pass filters rumble, cuts non-speech with Whisper's
+   own voice detection, drops pieces Whisper isn't confident about, and rejects noise hallucinations (repeated phrases,
+   "Also, we...", "Thanks for watching", more words than the audio could hold, or under 0.22 s of real speech).
    Text arrives from the UI, CLI, HTTP or WhatsApp.
 2. **CommandService.**
    - Creates the task.

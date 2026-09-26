@@ -411,6 +411,17 @@ class SmartRouter:
                 self._record(ord_decision)
                 return ord_decision
 
+        # 3b-verb. A bare verb ("open", "launch the") is half a command - ask for the rest, never guess an app.
+        if re.fullmatch(r"(?:open|launch|start|run|close)(?:\s+(?:the|a|an|up))?", clean_lower):
+            verb = clean_lower.split()[0]
+            bare = RouteDecision(
+                request_id=request_id, lane=RouteLane.CLARIFY, intent="clarify", slots={}, confidence=0.3,
+                source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE, normalized_text=clean_lower,
+                clarification=f"What should I {verb}?", reason_code=ReasonCode.LOW_CONFIDENCE,
+                routing_ms=(perf_counter_ns() - t0) / 1e6, breakdown_ms=breakdown)
+            self._record(bare)
+            return bare
+
         # 3b-ord. "open the second one" with nothing listed yet: ask, never open an app called "second 1"
         m_ref = re.match(r"^(?:open|pick|take|choose|select|play|show|use)\s+(?:the\s+)?(first|second|third|fourth|fifth|last|1st|2nd|3rd|4th|5th)"
                          r"(?:\s+(?:one|1|file|result|item|document|option|link|video|song|match))?$", clean_lower)
