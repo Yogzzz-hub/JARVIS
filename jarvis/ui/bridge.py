@@ -188,6 +188,10 @@ class BridgeWorker(QObject):
                         "llm.status": UIEventType.MODEL_STATE,
                     }
                     event_type = mapping.get(data.get("event"))
+                    if event_type is None and str(data.get("event", "")).startswith("whatsapp.personal."):
+                        payload = {"event": data.get("event"), **(data.get("payload") or {})}
+                        self.eventReceived.emit(UIEvent(UIEventType.WHATSAPP_PERSONAL, data.get("request_id", ""), payload))
+                        continue
                     if event_type:
                         self.eventReceived.emit(UIEvent(event_type, data.get("request_id", ""), data.get("payload", {})))
                 elif msg_type == "task_state":

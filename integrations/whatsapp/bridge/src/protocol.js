@@ -4,6 +4,46 @@
  * Transport-only: Zero AI intelligence or prompt generation.
  */
 
+// WAMessageStubType.CIPHERTEXT: the message arrived but could not be decrypted yet
+// (WhatsApp shows "Waiting for this message. This may take a while.").
+const STUB_CIPHERTEXT = 2;
+
+function isGroupJid(jid) {
+  return /@(g\.us|broadcast|newsletter)$/.test(jid || "") || String(jid || "").startsWith("status@");
+}
+
+/**
+ * Placeholder event for a message whose body is not available yet. Python never replies to it;
+ * the real body arrives later (messages.upsert / messages.update) with the same message_id.
+ */
+function normalizePendingMessage(rawMsg) {
+  const key = (rawMsg && rawMsg.key) || {};
+  if (!key.id || !key.remoteJid) return null;
+  const isFromMe = Boolean(key.fromMe);
+  const senderId = key.participant || (isFromMe ? "me" : key.remoteJid) || "";
+  return {
+    channel: "whatsapp",
+    message_id: key.id,
+    chat_id: key.remoteJid,
+    sender_id: senderId,
+    sender_display_name: rawMsg.pushName || senderId.split("@")[0] || "Unknown",
+    timestamp: new Date(rawMsg.messageTimestamp ? Number(rawMsg.messageTimestamp) * 1000 : Date.now()).toISOString(),
+    type: "text",
+    text: "",
+    media_ref: null,
+    reply_to: null,
+    is_from_me: isFromMe,
+    is_group: isGroupJid(key.remoteJid),
+    state: "PENDING_DECRYPTION"
+  };
+}
+
+function isPendingDecryption(rawMsg) {
+  if (!rawMsg || !rawMsg.key) return false;
+  // other stub events (missed calls, security notices) carry no body and are not pending messages
+  return rawMsg.messageStubType === STUB_CIPHERTEXT || (!rawMsg.message && !rawMsg.messageStubType);
+}
+
 function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
   if (!rawMsg || !rawMsg.message) {
     return null;
@@ -71,10 +111,15 @@ function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
     text: text.trim(),
     media_ref: mediaRef,
     reply_to: replyTo,
-    is_from_me: isFromMe
+    is_from_me: isFromMe,
+    is_group: isGroupJid(chatId),
+    state: "READY"
   };
 }
 
 module.exports = {
-  normalizeIncomingMessage
+  normalizeIncomingMessage,
+  normalizePendingMessage,
+  isPendingDecryption,
+  isGroupJid
 };

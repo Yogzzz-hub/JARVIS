@@ -156,7 +156,8 @@ Window {
                     model: [
                         { t: "Home", i: "\u25C9" }, { t: "Activity", i: "\u2630" }, { t: "System", i: "\u2699" },
                         { t: "Memory", i: "\u25C8" }, { t: "Workflows", i: "\u26A1" }, { t: "Devices", i: "\u25A3" },
-                        { t: "Integrations", i: "\u2B21" }, { t: "Settings", i: "\u2692" }, { t: "Diagnostics", i: "\u2695" }
+                        { t: "Integrations", i: "\u2B21" }, { t: "Settings", i: "\u2692" }, { t: "Diagnostics", i: "\u2695" },
+                        { t: "WhatsApp", i: "\u260E" }
                     ]
                     delegate: SidebarButton {
                         text: modelData.t
@@ -191,6 +192,7 @@ Window {
             IntegrationsPage { stateModel: uiState; controller: uiController }
             SettingsPage { controller: uiController }
             DiagnosticsPage { stateModel: uiState; controller: uiController }
+            WhatsAppContactsPage { }
         }
     }
 

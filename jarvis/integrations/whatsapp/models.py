@@ -21,6 +21,9 @@ class NormalizedWhatsAppMessage(BaseModel):
     media_ref: Optional[Dict[str, Any]] = None
     reply_to: Optional[Dict[str, Any]] = None
     is_from_me: bool = False
+    is_group: bool = False
+    # READY, or PENDING_DECRYPTION for a "Waiting for this message" placeholder (never replied to)
+    state: str = "READY"
 
 
 class WhatsAppBridgeStatus(BaseModel):

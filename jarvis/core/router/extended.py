@@ -200,9 +200,22 @@ _BULK_ALL_MESSAGES = re.compile(
 _BULK_VERB = re.compile(r"\b(?:reply|respond|answer|send|tell|message|text|inform|let|notify|write|msg|ping|say)\b")
 
 
+def match_auto_reply(text: str, request_id: str) -> Optional[RouteDecision]:
+    """'Reply to Yoga automatically for the next hour' / 'Stop WhatsApp auto reply' -> whatsapp_auto_reply."""
+    from jarvis.integrations.whatsapp.personal_reply.commands import parse_command
+    cmd = parse_command(text)
+    if cmd is None:
+        return None
+    t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
+    return _decision(request_id, t, "whatsapp_auto_reply", cmd)
+
+
 def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     """'Send all the guys who are messaging me that I'm busy' -> reply_whatsapp_all (personal chats only)."""
     raw = (text or "").strip()
+    auto = match_auto_reply(raw, request_id)  # time-boxed auto-reply grants come first ("reply to everyone until 10")
+    if auto:
+        return auto
     t = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
     if not t:
         return None

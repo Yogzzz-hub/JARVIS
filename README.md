@@ -26,7 +26,7 @@ the project history.
 1. [Quick start](#1-quick-start)
 2. [How to talk to JARVIS](#2-how-to-talk-to-jarvis)
 3. [Everyday command cheat sheet](#3-everyday-command-cheat-sheet)
-4. [Complete feature and command reference (140 capabilities)](#4-complete-feature-and-command-reference)
+4. [Complete feature and command reference (141 capabilities)](#4-complete-feature-and-command-reference)
 5. [Architecture and workflow](#5-architecture-and-workflow)
 6. [The decision engine (JDE)](#6-the-decision-engine-jde)
 7. [AI models, knowledge (RAG), memory and the database](#7-ai-models-knowledge-rag-memory-and-the-database)
@@ -147,7 +147,7 @@ Tickets expire after 30 seconds.
 | **Software** | `install vlc`, `uninstall zoom`, `update all my apps`, `is python installed` |
 | **Phone (Android)** | `lock my phone`, `turn up the volume on my phone`, `open spotify on my phone`, `take a screenshot of my phone`, `read my phone notifications`, `tap Allow on my phone`, `turn off bluetooth on my phone`, `call 98765 43210 on my phone`, `mirror my phone` |
 | **Phone ⇄ PC files** | `get the latest photo from my phone`, `copy my last 3 screenshots from my phone`, `copy report.pdf to my phone`, `send this file to my phone` (LocalSend) |
-| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting` (personal chats only; groups are skipped) |
+| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting` (personal chats only; groups are skipped), `reply to Yoga automatically for the next hour`, `stop WhatsApp auto reply` |
 | **Google** | `check my emails`, `draft an email to priya about the report`, `what's on my calendar tomorrow`, `schedule a meeting with arun at 11 tomorrow` |
 | **Developer** | `git status`, `run the project tests`, `what's causing this stack trace` |
 | **Multi-step** | `find the latest invoice and send it to my phone`, `look up train timings to madurai and email them to dad`, or anything else in plain words. The planner or agent works it out and asks before any risky step. |
@@ -157,7 +157,7 @@ Tickets expire after 30 seconds.
 ## 4. Complete feature and command reference
 
 Every capability JARVIS can route to, generated from the live capability registry (`jarvis/core/capabilities/registry.py`).
-The table covers 140 capabilities across 134 registered tools.
+The table covers 141 capabilities across 135 registered tools.
 
 "Risk" drives the safety policy:
 - **Read only** and **Reversible** run directly;
@@ -371,7 +371,7 @@ Examples are phrasings the router is tested on. You can say them in your own wor
 | 129 | Transfers files, photos, or documents to connected Android phone over Wi-Fi via LocalSend | `localsend_file` | Reversible | `Send this file to my phone` · `Transfer report to mobile via LocalSend` · `Send photo to phone` |
 | 130 | Sends text snippets, clipboard content, or web URLs to Android phone via LocalSend | `localsend_text` | Reversible | `Send this link to my phone` · `Send text to phone via LocalSend` · `Share clipboard with mobile` |
 
-#### Whatsapp (6)
+#### Whatsapp (7)
 
 | # | Feature | Tool | Risk | Say, for example |
 |---|---|---|---|---|
@@ -381,15 +381,16 @@ Examples are phrasings the router is tested on. You can say them in your own wor
 | 134 | Replies to everyone who messaged recently (personal chats only, groups skipped) with one message, personalised per person, after confirmation | `reply_whatsapp_all` | Read Only | `Tell everyone who messaged me that I'm in a meeting` · `Reply to all the people texting me that I'll call back in an hour` |
 | 135 | Sends a WhatsApp message to a recipient contact or phone number. Requires confirmation ticket in production | `send_whatsapp_message` | External Effect | `Send a WhatsApp message to Mom saying I will be home soon` · `Message Rahul on WhatsApp` · `Say hi to yoga in whatsapp` |
 | 136 | Summarizes pending WhatsApp messages requiring attention, highlighting urgent items | `summarize_whatsapp_messages` | Read Only | `Summarize my WhatsApp messages` · `What urgent WhatsApp messages need my attention?` |
+| 137 | Turns WhatsApp auto-reply on for one contact, several, or all direct contacts for a limited time (never groups), turns it off, or reports its status. Replies follow the owner's own style with each person | `whatsapp_auto_reply` | Reversible | `Reply to Yoga automatically for the next hour` · `Handle Arun's messages until 6 PM` · `Stop WhatsApp auto reply` |
 
 #### Google (4)
 
 | # | Feature | Tool | Risk | Say, for example |
 |---|---|---|---|---|
-| 137 | Schedules a new meeting or event on Google Calendar | `calendar_create_event` | External Effect | `Schedule meeting with team tomorrow at 10am` · `Add calendar event Doctor Appointment on Friday` · `New calendar event Review at 3pm` |
-| 138 | Lists upcoming events and appointments from Google Calendar | `calendar_list_events` | Read Only | `What meetings do I have today?` · `Show my upcoming calendar events` · `Check my schedule for tomorrow` |
-| 139 | Composes and sends an email draft via connected Gmail account | `gmail_create_draft` | External Effect | `Send an email to boss@company.com` · `Draft email to client about project` · `Compose new email to Sarah` |
-| 140 | Reads recent or unread emails from connected Gmail inbox | `gmail_list_recent` | Read Only | `Check my emails` · `Read recent emails from inbox` · `Show my unread emails` |
+| 138 | Schedules a new meeting or event on Google Calendar | `calendar_create_event` | External Effect | `Schedule meeting with team tomorrow at 10am` · `Add calendar event Doctor Appointment on Friday` · `New calendar event Review at 3pm` |
+| 139 | Lists upcoming events and appointments from Google Calendar | `calendar_list_events` | Read Only | `What meetings do I have today?` · `Show my upcoming calendar events` · `Check my schedule for tomorrow` |
+| 140 | Composes and sends an email draft via connected Gmail account | `gmail_create_draft` | External Effect | `Send an email to boss@company.com` · `Draft email to client about project` · `Compose new email to Sarah` |
+| 141 | Reads recent or unread emails from connected Gmail inbox | `gmail_list_recent` | Read Only | `Check my emails` · `Read recent emails from inbox` · `Show my unread emails` |
 
 **Beyond the table:**
 - **Control words**: stop, cancel, pause, resume, yes / no, stop talking.
@@ -656,6 +657,15 @@ intelligence stays in Python.
   `ALLOWLIST_AUTO_REPLY` sends it to allow-listed contacts. Incoming text is untrusted data and can never trigger PC
   actions.
 - **Owner remote control.** Messages from the owner numbers run as commands, and replies go back to WhatsApp.
+- **Personal replies in your style.** Import a chat (or learn from history) on **Dashboard → WhatsApp → Contacts**.
+  JARVIS learns how *you* write to each person (Tanglish or English, length, emojis, tone) from your own messages
+  only, with a separate profile and example index per contact.
+  - **Modes:** Off, Suggest, Ask before send, or automatic replies for a window you grant ("reply to Yoga
+    automatically for the next hour", "for the next two hours, respond to everyone"). "Stop WhatsApp auto reply" ends
+    everything at once.
+  - **Never:** groups, "Waiting for this message" placeholders, a resend of an uncertain send, or PC actions.
+  - **Held for you:** sensitive, unclear or low-confidence messages. Full guide:
+    [docs/WHATSAPP_PERSONAL_REPLY_AGENT.md](docs/WHATSAPP_PERSONAL_REPLY_AGENT.md).
 - **Diagnostics:** `python -m jarvis.integrations.whatsapp.doctor`.
 
 ### Android phone
@@ -779,7 +789,7 @@ What makes it fast:
 | File | What it controls |
 |---|---|
 | `jarvis/config/jarvis.toml` | `[server]` host/port; `[performance]` queue sizes, verify timing; `[database]`; `[paths]` db/logs/models; `[features]` router_ai, planner, voice, tts, browser, vision; `[models]` Ollama roles, base URL, keep_alive, timeout, num_ctx, auto_start, warm_on_start; `[aliases]`; `[voice]` mic device, wake word on/off, push-to-talk, wake threshold, Whisper model/device/compute/beam, preroll, `endpoint_silence_ms`, `max_utterance_s`, `wake_ack` (chime/voice/none); `[search]` folders to index, exclusions, limits; `[decision]` JDE stage |
-| `config/whatsapp.toml` | `[whatsapp]` mode, country code, remember_chats; `[whatsapp.owner]` owner numbers; `[whatsapp.allowlist]`; `[whatsapp.pulse]`; `[whatsapp.contacts]` name → number |
+| `config/whatsapp.toml` | `[whatsapp]` mode, country code, remember_chats; `[whatsapp.owner]` owner numbers; `[whatsapp.allowlist]`; `[whatsapp.pulse]`; `[whatsapp.contacts]` name → number; `[whatsapp.personal_reply]` coalescing, maximum auto-reply hours, untrained contacts, your name in chat exports |
 | `config/response.toml` | response style, spoken acknowledgements, progress updates, TTS backend and voice |
 | `config/connectors.toml` | Android (ADB / scrcpy), LocalSend, browser, FreshRSS, ntfy/Gotify notifications, Memos, Node-RED |
 | `config/integrations.toml` | Google OAuth: client file, token store (keyring), loopback host/ports, scope upgrades |
@@ -828,6 +838,7 @@ python -m pytest -q                                   # full test suite
 python -m pytest -q jarvis/tests/test_everyday_tools.py jarvis/tests/test_jde.py
 python -m tests.generalization.benchmark_runner       # deterministic generalization benchmark (no model)
 python -m jarvis.decision.evaluation.evaluate         # decision-engine benchmark
+python -m tests.whatsapp_personal.benchmark           # 500-case WhatsApp personal-reply benchmark (fake provider)
 ```
 
 Useful test infrastructure:

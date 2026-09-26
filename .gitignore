@@ -22,6 +22,7 @@ config/google_accounts.json
 contacts.vcf
 tmp_test_dir/
 data/
+!jarvis/integrations/whatsapp/personal_reply/data/
 jarvis/jarvis/
 data/whatsapp_auth/
 data/whatsapp_temp/
@@ -45,4 +46,5 @@ models/jde/encoders/
 
 # Generated benchmark / evaluation output (the combined guide in README.md is the documentation)
 reports/
-docs/
+docs/*
+!docs/WHATSAPP_PERSONAL_REPLY_AGENT.md

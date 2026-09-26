@@ -68,6 +68,8 @@ class WhatsAppChannelGateway:
         self.whatsapp_ai = whatsapp_ai
         self.announcer = announcer
         self.event_bus = event_bus
+        # Contact-specific personal reply agent (set by WhatsAppIntegrationService); None = feature off.
+        self.personal_reply: Any = None
 
         from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
         from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
@@ -94,6 +96,30 @@ class WhatsAppChannelGateway:
         Main entry point for incoming WhatsApp messages from transport.
         Returns response metadata or None.
         """
+        from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat, is_placeholder
+        # 0a. "Waiting for this message" / undecrypted: not content. No reply, no inbox entry, no read/replied
+        #     marking, and NOT recorded as processed, so the real body (same message_id) is handled once later.
+        if is_placeholder(message):
+            if self.personal_reply is not None:
+                await self.personal_reply.handle_incoming(message)
+            return {"status": "PENDING_DECRYPTION", "message_id": message.message_id}
+
+        # 0b. The owner's own messages typed on the phone: recorded and (for direct chats with a style profile)
+        #     learned as real user-authored examples. They are never commands and never trigger a reply.
+        if message.is_from_me:
+            if message.message_id in self._processed_message_ids:
+                return {"status": "DUPLICATE_IGNORED", "message_id": message.message_id}
+            self._record_processed(message.message_id)
+            if not is_group_chat(message.chat_id):
+                try:
+                    self.inbox.add_message(message, is_from_me=True)
+                    self.inbox.mark_as_replied(message.chat_id)
+                except Exception as exc:
+                    logger.debug("Could not record own message: %s", exc)
+                if self.personal_reply is not None:
+                    self.personal_reply.learn_owner_message(message)
+            return {"status": "OWN_MESSAGE", "message_id": message.message_id}
+
         # 1. Idempotency Check (Duplicate message protection)
         if message.message_id in self._processed_message_ids:
             logger.info("Ignoring duplicate WhatsApp message_id: %s", message.message_id)
@@ -167,10 +193,22 @@ class WhatsAppChannelGateway:
         if not sender_is_owner:
             # Check if auto-reply is permitted for this contact
             contact_clean = message.sender_id.split("@")[0].casefold()
-            is_allowlisted = contact_clean in self.auto_reply_allowlist or message.sender_id.casefold() in self.auto_reply_allowlist
+            # Groups can never receive an automatic reply (structural gate, before any model runs).
+            is_group = bool(getattr(message, "is_group", False)) or is_group_chat(message.chat_id)
+            is_allowlisted = not is_group and (contact_clean in self.auto_reply_allowlist
+                                               or message.sender_id.casefold() in self.auto_reply_allowlist)
 
             if self.mode == "OFF":
                 return {"status": "MODE_OFF"}
+
+            # Contact-specific personal replies (style profile + time-boxed grants). The agent has no tools:
+            # the message can only ever produce a text reply to this same direct chat.
+            if self.personal_reply is not None and not is_group and message.type in ("text", "voice_note"):
+                pr_message = message if processed_text == message.text else message.model_copy(update={"text": processed_text})
+                outcome = await self.personal_reply.handle_incoming(pr_message)
+                if outcome.get("status") not in ("NOT_ENABLED",):
+                    await self._announce_incoming(message)
+                    return {"personal_reply": True, **outcome}
 
             # For non-owners, force conversational lane only (zero PC actions)
             # Create knowledge scope filter strictly isolated to this contact's chat

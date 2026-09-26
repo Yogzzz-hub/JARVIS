@@ -1712,6 +1712,13 @@ EXTENDED_CAPABILITY_DEFINITIONS: List[CapabilityDefinition] = [
     _cap("security.password", CapabilityCategory.SYSTEM, "Generates a strong random password and copies it to the clipboard.",
          ["generate password", "strong password", "random password"], ["Generate a strong password", "Create a password of 20 characters"],
          "generate_password", optional=["length"], risk=RiskLevel.READ_ONLY, cost=CostTier.FREE, family="SYSTEM"),
+    _cap("whatsapp.auto_reply", CapabilityCategory.WHATSAPP,
+         "Turns WhatsApp auto-reply on for one contact, several, or all direct contacts for a limited time (never groups), "
+         "turns it off, or reports its status. Replies follow the owner's own style with each person.",
+         ["auto reply", "reply automatically", "handle messages", "stop auto reply", "respond to everyone for"],
+         ["Reply to Yoga automatically for the next hour", "Handle Arun's messages until 6 PM", "Stop WhatsApp auto reply"],
+         "whatsapp_auto_reply", counter=["Reply to Rahul saying yes", "Tell everyone who messaged me that I'm busy"],
+         required=["action"], optional=["who", "everyone", "window_text"], cost=CostTier.FREE, family="WHATSAPP"),
     _cap("system.recycle_bin", CapabilityCategory.SYSTEM, "Empties the Windows Recycle Bin (asks for confirmation).",
          ["empty recycle bin", "clear trash", "empty trash"], ["Empty the recycle bin"], "empty_recycle_bin",
          counter=["Delete this file", "Open recycle bin"], risk=RiskLevel.DESTRUCTIVE, cost=CostTier.LOW, family="SYSTEM"),

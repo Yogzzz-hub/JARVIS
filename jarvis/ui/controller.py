@@ -25,6 +25,7 @@ class JarvisUIController(QObject):
     showDashboardRequested = Signal()
     hideDashboardRequested = Signal()
     showToastRequested = Signal(str, str)  # title, message
+    whatsappPersonalEvent = Signal(str, dict)  # event name, payload (Dashboard -> WhatsApp -> Contacts)
 
     def __init__(
         self,
@@ -250,6 +251,13 @@ class JarvisUIController(QObject):
                 self.state.set_llm_status("ONLINE" if event.payload.get("reachable") else "OFFLINE")
         elif ev_type == UIEventType.AUDIO_LEVEL:
             self.state.set_audio_levels(event.payload.get("levels", []))
+        elif ev_type == UIEventType.WHATSAPP_PERSONAL:
+            payload = dict(event.payload)
+            name = str(payload.pop("event", ""))
+            self.whatsappPersonalEvent.emit(name, payload)
+            if name.endswith("approval_needed") or name.endswith("review_needed"):
+                who = payload.get("display_name", "a contact")
+                self.showToastRequested.emit("WhatsApp", f"Reply to {who} is waiting for you in Contacts.")
         elif ev_type == UIEventType.TASK_STARTED:
             self.state.set_assistant_state(AssistantState.EXECUTING.value)
         elif ev_type == UIEventType.TTS_STARTED:

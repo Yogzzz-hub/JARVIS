@@ -203,6 +203,12 @@ class BaileysWebSocketTransport:
         )
         return res
 
+    async def get_message(self, message_id: str, chat_id: str = "") -> Optional[NormalizedWhatsAppMessage]:
+        """Re-fetch a message by id (used to recover messages that arrived undecrypted)."""
+        res = await self._call("get_message", {"message_id": message_id, "chat_id": chat_id}, timeout=5.0)
+        payload = res.get("result") if res.get("success") else None
+        return NormalizedWhatsAppMessage(**payload) if payload else None
+
     async def get_status(self) -> Dict[str, Any]:
         """Query real-time status from bridge."""
         res = await self._call("get_status")
@@ -288,6 +294,33 @@ class WhatsAppIntegrationService:
             event_bus=event_bus,
         )
 
+        # Contact-specific personal replies (style learning + time-boxed auto-reply grants; groups never).
+        self.personal_reply = None
+        pr_cfg = wa_cfg.get("personal_reply", {})
+        if bool(pr_cfg.get("enabled", True)):
+            try:
+                from jarvis.integrations.whatsapp.personal_reply.agent import PersonalReplyAgent, set_personal_reply_agent
+                from jarvis.integrations.whatsapp.personal_reply.auto_reply_policy import AutoReplyPolicy
+                from jarvis.integrations.whatsapp.personal_reply.reply_generator import ReplyGenerator
+                from jarvis.integrations.whatsapp.personal_reply.store import PersonalReplyStore
+                from jarvis.security.ledger.ledger import ActionLedger
+                from jarvis.security.policy.evaluator import PolicyEvaluator
+                store = PersonalReplyStore()
+                self.personal_reply = PersonalReplyAgent(
+                    store=store, transport=self.transport, inbox=self.gateway.inbox,
+                    generator=ReplyGenerator(client=getattr(whatsapp_ai, "_client", None)),
+                    policy=AutoReplyPolicy(store, auto_reply_untrained=bool(pr_cfg.get("auto_reply_untrained_contacts", False)),
+                                           max_hours=float(pr_cfg.get("max_auto_reply_hours", 12))),
+                    ledger=ActionLedger(), policy_evaluator=PolicyEvaluator(), event_bus=event_bus,
+                    coalesce_s=float(pr_cfg.get("coalesce_seconds", 1.2)),
+                    owner_names=[self.owner_name, *pr_cfg.get("export_names", [])],
+                    notifier=announcer if self.announce_new_messages else None,
+                )
+                self.gateway.personal_reply = self.personal_reply
+                set_personal_reply_agent(self.personal_reply)
+            except Exception as exc:
+                logger.warning("WhatsApp personal reply agent unavailable: %s", exc)
+
         # Chat memory: every conversation becomes searchable for the owner's questions.
         self.memory = None
         engine = getattr(self.knowledge_service, "knowledge_engine", None) if self.knowledge_service else None
@@ -302,6 +335,11 @@ class WhatsAppIntegrationService:
             return
         logger.info("Starting WhatsApp omnichannel service (Owner: %s)...", self.owner_identities)
         await self.transport.start()
+        if self.personal_reply is not None:
+            recovered = self.personal_reply.recover()  # expire old grants; never resend interrupted sends
+            if any(recovered.values()):
+                logger.info("WhatsApp personal reply recovery: %s", recovered)
+            self.personal_reply.start_background()
         if self.memory is not None:
             async def _index_history():
                 try:
@@ -316,6 +354,8 @@ class WhatsAppIntegrationService:
     async def stop(self) -> None:
         """Stop the WhatsApp integration."""
         logger.info("Stopping WhatsApp omnichannel service...")
+        if self.personal_reply is not None:
+            await self.personal_reply.close()
         await self.transport.stop()
 
     async def _on_incoming_message(self, message: NormalizedWhatsAppMessage) -> None:
