@@ -129,6 +129,16 @@ class WhatsAppChannelGateway:
         self.status.last_message_time = message.timestamp
 
         sender_is_owner = self.is_owner(message.sender_id)
+        in_group = bool(getattr(message, "is_group", False)) or is_group_chat(message.chat_id)
+
+        # Group chats: stored for later ("summarize the CSE group") and nothing else - no announcement, no AI draft,
+        # no media processing, no command. JARVIS only reads or writes in a group when the owner names it.
+        if in_group:
+            try:
+                self.inbox.add_message(message, is_from_me=message.is_from_me or sender_is_owner)
+            except Exception as exc:
+                logger.warning("Could not persist group message to inbox: %s", exc)
+            return {"status": "GROUP_STORED", "chat_id": message.chat_id}
 
         # Record incoming message in WhatsAppInbox
         try:
@@ -150,6 +160,10 @@ class WhatsAppChannelGateway:
         if message.type == "voice_note" and message.media_ref and self.media_pipeline:
             file_path = message.media_ref.get("file_path", "")
             transcript = await self.media_pipeline.process_voice_note(file_path)
+            if transcript.startswith("[Voice Note"):  # transcription failed: never run an error text as a command
+                if sender_is_owner:
+                    await self._send_reply(message.chat_id, "I couldn't hear that voice note clearly. Please try again or type it.")
+                return {"status": "VOICE_NOTE_UNREADABLE"}
             processed_text = transcript
         elif message.type == "image" and message.media_ref and self.media_pipeline:
             file_path = message.media_ref.get("file_path", "")

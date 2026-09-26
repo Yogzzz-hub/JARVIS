@@ -210,12 +210,44 @@ def match_auto_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     return _decision(request_id, t, "whatsapp_auto_reply", cmd)
 
 
+_GROUP_REPLY = re.compile(
+    r"^(?:(?:hey |ok )?jarvis,? )?(?:please )?(?:reply|respond|answer|send|write|post|message|text|tell)\s+(?:a message\s+|it\s+)?"
+    r"(?:in|to|on)\s+(?P<group>(?:the |that |this |my |our )?[\w .&'-]{0,40}?\b(?:group|grp))(?:\s+on whatsapp)?"
+    r"\s*(?:,|:|-)?\s*(?:saying|that|with|and say|to say)?\s*(?P<msg>.+)?$", re.I)
+_GROUP_READ = re.compile(
+    r"^(?:(?:hey |ok )?jarvis,? )?(?:please )?(?:summari[sz]e|read(?: out)?|check|show|what(?:'s| is| are)? (?:new )?(?:in|on))\s+"
+    r"(?:(?:the |my |new |unread |recent )*(?:whatsapp )?(?:messages?|msgs?|chats?)\s+(?:in|from|of|on)\s+)?"
+    r"(?P<group>(?:the |that |this |my |our )?[\w .&'-]{0,40}?\b(?:group|grp)s?)(?:\s+(?:messages?|msgs?|chats?))?(?:\s+on whatsapp)?$", re.I)
+
+
+def match_group_whatsapp(text: str, request_id: str) -> Optional[RouteDecision]:
+    """The owner explicitly names a group: 'reply in the CSE group saying ...', 'summarize the CSE group'."""
+    t = " ".join((text or "").split()).strip(" .!?")
+    m = _GROUP_REPLY.match(t)
+    if m:
+        group, body = m.group("group").strip(), (m.group("msg") or "").strip()
+        if body and not re.match(r"^(?:reply|respond|answer)\b", t, re.I):
+            # "send/post/tell ... in the X group saying <text>": exactly that text, confirmed before sending
+            return _decision(request_id, t.lower(), "send_whatsapp_message", {"recipient": group, "message": body})
+        slots = {"recipient": group, **({"instruction": body} if body else {})}
+        return _decision(request_id, t.lower(), "reply_whatsapp_message", slots)
+    m = _GROUP_READ.match(t)
+    if m:
+        from jarvis.tools.system.whatsapp_tools import group_scope_from_text
+        intent = "read_whatsapp_messages" if t.lower().startswith("read") else "summarize_whatsapp_messages"
+        return _decision(request_id, t.lower(), intent, dict(group_scope_from_text(t)))
+    return None
+
+
 def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     """'Send all the guys who are messaging me that I'm busy' -> reply_whatsapp_all (personal chats only)."""
     raw = (text or "").strip()
     auto = match_auto_reply(raw, request_id)  # time-boxed auto-reply grants come first ("reply to everyone until 10")
     if auto:
         return auto
+    group = match_group_whatsapp(raw, request_id)  # a group only when the owner names it
+    if group:
+        return group
     t = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
     if not t:
         return None
