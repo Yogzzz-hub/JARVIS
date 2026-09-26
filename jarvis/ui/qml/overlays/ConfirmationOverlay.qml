@@ -15,7 +15,7 @@ Window {
 
     ConfirmationCard {
         anchors.centerIn: parent
-        ticketId: (stateModel && stateModel.confirmationTicket) ? (stateModel.confirmationTicket.ticket_id || "TKT-100") : ""
+        ticketId: (stateModel && stateModel.confirmationTicket) ? (stateModel.confirmationTicket.ticket_id || "") : ""
         title: (stateModel && stateModel.confirmationTicket) ? (stateModel.confirmationTicket.title || "SECURITY CONFIRMATION") : "SECURITY CONFIRMATION"
         target: (stateModel && stateModel.confirmationTicket) ? (stateModel.confirmationTicket.target || "Execute Tool") : "Execute Tool"
         details: (stateModel && stateModel.confirmationTicket) ? (stateModel.confirmationTicket.details || "Confirm system state change.") : "Confirm system state change."

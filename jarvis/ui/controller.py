@@ -277,7 +277,22 @@ class JarvisUIController(QObject):
         elif ev_type == UIEventType.CONFIRMATION_REQUIRED:
             self.state.set_assistant_state(AssistantState.WAITING_CONFIRMATION.value)
             self.state.set_status_message("Awaiting Confirmation")
-            self.state.set_confirmation(event.payload)
+            
+            ticket_id = event.payload.get("ticket_id")
+            summary = event.payload.get("summary")
+            
+            if not ticket_id and "tool_result" in event.payload:
+                tr_data = event.payload.get("tool_result", {}).get("data", {})
+                if isinstance(tr_data, dict):
+                    ticket_id = tr_data.get("ticket_id")
+                    summary = tr_data.get("human_summary") or event.payload.get("message")
+                    
+            self.state.set_confirmation({
+                "ticket_id": ticket_id or "",
+                "title": "ACTION REQUIRED",
+                "target": "Execution Approval",
+                "details": summary or "Confirm action to proceed."
+            })
         elif ev_type == UIEventType.TASK_FAILED:
             self.state.set_assistant_state(AssistantState.ERROR.value)
             err = event.payload.get("message") or event.payload.get("error") or "Task failed"
