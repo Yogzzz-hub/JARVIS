@@ -146,6 +146,7 @@ Tickets expire after 30 seconds.
 | **Typing & clipboard** | `type Hello World` (types into the window in front), `open notepad and type Dear Sir`, `select all`, `copy`, `cut`, `paste it`, `undo that`, `press enter`, `save`, `copy this and paste in notepad`, `paste in notepad` |
 | **Screenshot & paste** | `take a screenshot and paste it here`, `take a screenshot and paste it in whatsapp`, `copy screenshot to clipboard` |
 | **Live voice typing** | `start voice typing`, `type what I say in claude`, `dictate in notepad`, `open claude and start voice typing`. Everything you say is then typed into that box (commands are written, not run). Say `new line`, `delete that`, `select all`, `send it` or `stop typing`. |
+| **Thanglish** | `chrome open pannu`, `volume konjam kammi pannu`, `volume 30 ku vai`, `youtube la lofi music podu`, `screenshot edu`, `amma ku late aagum nu message anuppu`, `time enna`, `battery evlo iruku`, `pc lock pannu`. JARVIS replies in the language you used; `reply in thanglish`, `english la pesu`, `reply in my language` fix or free the choice. |
 | **Several steps at once** | `open youtube and play lofi music then set volume to 30`, `open chrome then go to gmail.com`, `mute and open spotify`, `close chrome and edge`, `open notepad, type hello and save`. Each step runs in order; if one step needs thinking (research, find, decide), the planner does the whole request. |
 | **Windows (instant)** | `open task manager`, `show clipboard history`, `open the emoji panel`, `take a snip`, `open task view`, `new virtual desktop`, `switch to the next desktop`, `open windows settings`, `open the run box`, `project my screen` |
 | **Web & browser** | `search amazon for headphones`, `go to wikipedia.org`, `play lofi music on youtube`, `use the browser to find the price of a Pixel 9 on Flipkart`, `continue` after signing in to a site |
@@ -726,6 +727,24 @@ intelligence stays in Python.
   - **Held for you:** sensitive, unclear or low-confidence messages. Full guide:
     [docs/WHATSAPP_PERSONAL_REPLY_AGENT.md](docs/WHATSAPP_PERSONAL_REPLY_AGENT.md).
 - **Diagnostics:** `python -m jarvis.integrations.whatsapp.doctor`.
+
+### English and Thanglish
+
+JARVIS understands commands and questions in English and in Thanglish (Tamil in English letters), and answers in
+the language you used (`jarvis/core/multilingual.py`).
+
+- **Commands:** Tamil word order ("chrome open pannu", "amma ku ... nu message anuppu") is rewritten to the English
+  command the router already knows, so Thanglish commands are just as fast and exact (no AI model involved).
+  English sentences are never rewritten.
+- **Replies:** chat answers are written by the model in Thanglish; action confirmations use a Thanglish phrasebook
+  ("Chrome open panniten.", "Volume 30 percent ku vechiten."). Say `reply in thanglish`, `english la pesu` or
+  `reply in my language` (the default: mirror you). The choice is kept in `data/language.json`.
+- **Speech:** with `[voice] language = "thanglish"` (the default) the multilingual Whisper model is used (`small` on
+  the CPU, `large-v3-turbo` on an NVIDIA GPU) with a Thanglish prompt, so Tamil words are written in English letters;
+  any Tamil letters are romanised. Set `language = "english"` for the English-only model if you never speak Tamil
+  (slightly more accurate for pure English). Run `python scripts/setup_models.py` once to download the model.
+- **Voice output:** the English Piper voice reads Thanglish; it is understandable but has an English accent.
+- **WhatsApp replies** to your contacts keep following each contact's own English/Tanglish style.
 
 ### Android phone
 

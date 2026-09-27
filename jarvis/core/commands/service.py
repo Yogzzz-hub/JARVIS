@@ -98,6 +98,22 @@ class CommandService:
             return CommandResult(request_id=request.request_id, state="FAILED", message=f"Dictation failed: {exc}", metrics={})
         return CommandResult(request_id=request.request_id, state="SUCCESS", message=message, metrics={})
 
+    def _language(self, request):
+        """English or Thanglish: pick the reply language and turn a Thanglish command into the English one the
+        router understands ("chrome open pannu" -> "open chrome"). The reply language follows the request."""
+        try:
+            from jarvis.core.multilingual import AUTO, REPLY_LANGUAGE, match_language_switch, reply_language, to_english_command
+            text = request.text or ""
+            switch = match_language_switch(text)
+            language = reply_language(text, None if switch in (None, AUTO) else switch)
+            REPLY_LANGUAGE.set(language)
+            english = to_english_command(text)
+            if english != text:
+                return request.model_copy(update={"text": english})
+        except Exception:
+            pass
+        return request
+
     _FRAGMENT = re.compile(r"^(?:(?:no|i mean|i meant|it's|its|do it)\s*,?\s+)?(?:in|on|via|using|through|with)\s+(?:the\s+|my\s+)?"
                            r"(?:whats\s?app|chrome|edge|firefox|brave|browser|gmail|e-?mail|telegram|phone|mobile|youtube|spotify)"
                            r"(?:\s+(?:app|please))?[.!?]?$", re.I)
@@ -226,6 +242,7 @@ class CommandService:
             return dictated
         request = self._expand_repeat(request)
         request = self._expand_fragment(request)
+        request = self._language(request)
         self._last_user_text, self._last_user_at = request.text, time.monotonic()
         shortcut = await self._run_shortcut(request, clock)
         if shortcut is not None:
@@ -767,6 +784,12 @@ class CommandService:
         return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=locals().get("predicted_ms", 400.0))
 
     def _finalize(self, task, state, message, tool_result, verification, clock, current, is_voice: bool = False, predicted_ms: float = 400.0):
+        try:
+            from jarvis.core.multilingual import REPLY_LANGUAGE, THANGLISH, in_thanglish
+            if REPLY_LANGUAGE.get() == THANGLISH:
+                message = in_thanglish(message)
+        except Exception:
+            pass
         try:
             if task.state != state:
                 self.tasks.transition(task, state)

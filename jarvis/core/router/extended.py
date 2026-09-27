@@ -618,6 +618,10 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
                 r"|^(?:i(?:'ve| have)?|ok(?:ay)?,? i(?:'ve| have)?)\s+(?:logged|signed)\s+in(?:\s+now)?(?:,? continue)?$"
                 r"|^done logging in$", t) or (re.match(r"^(?:continue|carry on|go on|keep going|resume)$", t) and _web_task_pending()):
         return _decision(request_id, t, "web_task", {"resume": True})
+    from jarvis.core.multilingual import match_language_switch
+    language = match_language_switch(t)
+    if language:
+        return _decision(request_id, t, "set_reply_language", {"mode": language})
     dictation = match_dictation(t, request_id)
     if dictation:
         return dictation

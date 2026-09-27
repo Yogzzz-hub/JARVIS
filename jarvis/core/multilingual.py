@@ -1,0 +1,325 @@
+"""English + Thanglish: understand commands in either, and reply in the language the owner uses.
+
+Thanglish = Tamil written in English letters, usually mixed with English ("chrome open pannu", "volume konjam
+kammi pannu", "amma ku late aagum nu message anuppu").
+
+* ``to_english_command`` rewrites Tamil word order (object first, verb last) into the English commands the
+  router already understands. Only whole, recognised patterns are rewritten; anything else is left untouched.
+* ``reply_language`` decides the reply language: "auto" mirrors the owner (Thanglish in -> Thanglish out),
+  or a fixed "english" / "thanglish" chosen with "reply in thanglish" / "english la pesu".
+* ``in_thanglish`` turns JARVIS's short action confirmations ("Chrome is open.") into Thanglish; chat answers
+  are written in Thanglish by the model itself (``prompt_instruction``).
+* ``tamil_to_latin`` romanises Tamil script, in case speech recognition writes Tamil letters.
+"""
+from __future__ import annotations
+
+import json
+import re
+from contextvars import ContextVar
+from pathlib import Path
+from typing import Optional
+
+ENGLISH, THANGLISH, AUTO = "english", "thanglish", "auto"
+
+# Language of the reply for the request being handled (set by the command service, read by the assistant).
+REPLY_LANGUAGE: ContextVar[str] = ContextVar("reply_language", default=ENGLISH)
+
+_STATE = Path(__file__).resolve().parents[2] / "data" / "language.json"
+
+# Verbs and particles that only occur in Thanglish commands (added to the WhatsApp detector's Tamil lexicon).
+_COMMAND_WORDS = frozenset("""pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
+anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thora thorakku thiranthu edu eduthu edunga
+kammi korai kurai kuraichu jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
+sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu""".split())
+
+
+def _tamil_lexicon() -> frozenset[str]:
+    try:
+        from jarvis.integrations.whatsapp.personal_reply.language import _TAMIL_SEED
+        return frozenset(_TAMIL_SEED) | _COMMAND_WORDS
+    except Exception:
+        return _COMMAND_WORDS
+
+
+_LEXICON = _tamil_lexicon()
+_WORD = re.compile(r"[a-z]+")
+
+
+def tamil_words(text: str) -> list[str]:
+    """Tamil words (Latin script) in ``text`` - only real lexicon words, never guesses from word endings."""
+    return [w for w in _WORD.findall((text or "").lower()) if w in _LEXICON and w not in _ENGLISH_HOMOGRAPHS]
+
+
+# Words in the Tamil lexicon that are also everyday English in commands.
+_ENGLISH_HOMOGRAPHS = frozenset({"en", "ana", "pa", "ma", "va", "vai", "ku", "nu", "edu", "ok", "po", "mama", "ethu", "adi"})
+
+
+def is_thanglish(text: str) -> bool:
+    words = _WORD.findall((text or "").lower())
+    if not words:
+        return False
+    ta = tamil_words(text)
+    return len(ta) >= 2 or (len(ta) == 1 and (len(words) <= 4 or ta[0] in _COMMAND_WORDS))
+
+
+# ------------------------------------------------------------------ preference ("reply in thanglish")
+def get_preference() -> str:
+    try:
+        value = json.loads(_STATE.read_text(encoding="utf-8")).get("reply", AUTO)
+        return value if value in (AUTO, ENGLISH, THANGLISH) else AUTO
+    except Exception:
+        return AUTO
+
+
+def set_preference(mode: str) -> str:
+    mode = mode if mode in (AUTO, ENGLISH, THANGLISH) else AUTO
+    try:
+        _STATE.parent.mkdir(parents=True, exist_ok=True)
+        _STATE.write_text(json.dumps({"reply": mode}), encoding="utf-8")
+    except Exception:
+        pass
+    return mode
+
+
+def reply_language(text: str, preference: Optional[str] = None) -> str:
+    pref = preference or get_preference()
+    if pref in (ENGLISH, THANGLISH):
+        return pref
+    return THANGLISH if is_thanglish(text) or to_english_command(text) != text else ENGLISH
+
+
+_SWITCH = [
+    (re.compile(r"^(?:(?:please\s+)?(?:reply|talk|speak|answer|respond)\s+(?:to\s+me\s+)?(?:in|using)\s+(?:thanglish|tanglish|tamil)"
+                r"|(?:thanglish|tanglish|tamil)\s*(?:la|le|lae)\s+(?:pesu|pesunga|sollu|reply\s+pannu|bathil\s+sollu)"
+                r"|(?:use|switch\s+to)\s+(?:thanglish|tanglish))(?:\s+(?:da|please|from\s+now(?:\s+on)?))*[.!]?$"), THANGLISH),
+    (re.compile(r"^(?:(?:please\s+)?(?:reply|talk|speak|answer|respond)\s+(?:to\s+me\s+)?(?:in|using)\s+english"
+                r"|english\s*(?:la|le|lae)\s+(?:pesu|pesunga|sollu|reply\s+pannu)|(?:use|switch\s+to)\s+english)"
+                r"(?:\s+(?:da|please|only|from\s+now(?:\s+on)?))*[.!]?$"), ENGLISH),
+    (re.compile(r"^(?:reply|talk|speak|answer)\s+in\s+(?:my|the\s+same)\s+language|^match\s+my\s+language"
+                r"|^(?:set\s+)?(?:reply\s+)?language\s+(?:to\s+)?auto(?:matic)?[.!]?$"), AUTO),
+]
+
+
+def match_language_switch(text: str) -> Optional[str]:
+    t = " ".join((text or "").lower().split()).strip(" .!?")
+    t = re.sub(r"^(?:hey\s+)?jarvis\s*,?\s*", "", t)
+    for pattern, mode in _SWITCH:
+        if pattern.search(t):
+            return mode
+    return None
+
+
+# ------------------------------------------------------------------ Thanglish command -> English command
+_P_END = r"(?:\s+(?:da|di|dei|pa|ma|please|plz|jarvis|ippo|seekiram|konjam|ok|sari|seri))*"
+_OPEN = r"(?:open\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|panniduda)|thora|thorakku|thiranthu\s+vidu|open)"
+_CLOSE = r"(?:close\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu)|moodu|mudu|moodunga)"
+_PLAY = r"(?:podu|podunga|pottu\s+vidu|potu\s+vidu|play\s+(?:pannu|panu|pannunga|panni\s+vidu))"
+_SEND = r"(?:anuppu|anupu|anuppidu|anuppunga|anuppi\s+vidu|send\s+(?:pannu|panu|pannunga|pannidu))"
+_TELL = r"(?:sollu|sollidu|sollunga|solli\s+vidu)"
+_EN_VERBS = (r"open|close|play|pause|stop|mute|unmute|lock|search|install|uninstall|download|restart|shutdown|shut down|"
+             r"minimize|maximize|refresh|reload|copy|paste|save|delete|check|read|summarize|summarise|increase|decrease|"
+             r"reduce|scroll down|scroll up|select all|undo|redo|call|connect|update|start|translate|type|record|share")
+_PANNU = r"(?:pannu|panu|pannunga|pannuga|pannidu|panni\s+vidu|panniduda|pannu\s+da)"
+_DOWN = r"(?:kammi|korai|kurai|kuraichu|koraichu|reduce|decrease)"
+_UP = r"(?:jaasthi|jasthi|athigam|adhigam|koodu|kootu|koottu|ethu|eathu|increase)"
+_SET = r"(?:vai|vechidu|vachidu|vachu\s+vidu|set\s+" + _PANNU + r"|podu|pannu)"
+
+
+def _clean(text: str) -> str:
+    t = " ".join((text or "").strip().split())
+    t = re.sub(r"^(?:hey\s+)?jarvis\s*,?\s*", "", t, flags=re.I)
+    t = re.sub(r"^(?:konjam|please|plz|seekiram)\s+", "", t, flags=re.I)
+    return t.strip(" .!?")
+
+
+def to_english_command(text: str) -> str:
+    """English command for a Thanglish one ("chrome open pannu" -> "open chrome"); ``text`` itself otherwise."""
+    raw = _clean(text)
+    t = raw.lower()
+    if not t or not (set(_WORD.findall(t)) & _LEXICON):
+        return text
+    body = re.sub(_P_END + "$", "", t).strip()
+    body = re.sub(r"\s+konjam\b", "", body)
+
+    def keep(fragment: str) -> str:  # original casing for names / message text
+        i = raw.lower().find(fragment)
+        return raw[i:i + len(fragment)] if i >= 0 else fragment
+
+    # messages: "amma ku late aagum nu message anuppu", "arun kitta naan varala nu sollu"
+    m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku|kitta)\s+(?P<msg>.+?)\s+(?:nu|apdinu|endru|nnu)\s+"
+                     r"(?:(?:whatsapp\s+)?(?:message|msg|text)\s+)?(?:" + _SEND + "|" + _TELL + ")", body)
+    if m:
+        return f"send a message to {keep(m.group('who').strip())} saying {keep(m.group('msg').strip())}"
+    m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku)\s+call\s+" + _PANNU, body)
+    if m:
+        return f"call {keep(m.group('who').strip())}"
+
+    # volume / brightness
+    m = re.fullmatch(r"(?:volume|sound|saththam|sattham)\s+(?P<n>\d{1,3})\s*(?:ku|kku|%|percent)?\s*" + _SET, body)
+    if m:
+        return f"set volume to {m.group('n')}"
+    m = re.fullmatch(r"brightness\s+(?P<n>\d{1,3})\s*(?:ku|kku|%|percent)?\s*" + _SET, body)
+    if m:
+        return f"set brightness to {m.group('n')}"
+    m = re.fullmatch(r"(?P<what>volume|sound|saththam|sattham|brightness)\s+(?P<dir>" + _DOWN + "|" + _UP + r")(?:\s+" + _PANNU + ")?", body)
+    if m:
+        what = "brightness" if m.group("what") == "brightness" else "volume"
+        return f"{what} {'down' if re.fullmatch(_DOWN, m.group('dir')) else 'up'}"
+    if re.fullmatch(r"(?:sound|volume|saththam)\s+(?:mute\s+" + _PANNU + r"|off\s+" + _PANNU + r"|niruthu|illama\s+" + _PANNU + ")", body):
+        return "mute"
+
+    # "youtube la lofi music podu" / "lofi music podu" / "song podu"
+    m = re.fullmatch(r"(?:youtube\s*(?:la|le|il)\s+)(?P<q>.+?)\s+" + _PLAY, body)
+    if m:
+        return f"play {keep(m.group('q'))} on youtube"
+    m = re.fullmatch(r"(?:spotify\s*(?:la|le|il)\s+)(?P<q>.+?)\s+" + _PLAY, body)
+    if m:
+        return f"play {keep(m.group('q'))} on spotify"
+    m = re.fullmatch(r"(?P<q>.+?)\s+" + _PLAY, body)
+    if m:
+        q = m.group("q")
+        return "play music" if q in ("song", "songs", "paatu", "paattu", "music", "oru song", "oru paatu") else f"play {keep(q)}"
+
+    # "google la ipl score thedu", "ipl score search pannu"
+    m = re.fullmatch(r"(?:google\s*(?:la|le|il)\s+)?(?P<q>.+?)\s+(?:thedu|theadu|thedunga|search\s+" + _PANNU + r"|google\s+" + _PANNU + ")", body)
+    if m:
+        return f"search google for {keep(m.group('q'))}"
+
+    # "screenshot edu", "oru screenshot eduthu vai"
+    if re.fullmatch(r"(?:oru\s+)?(?:screenshot|screen\s*shot|ss)\s+(?:edu|eduthu|edunga|eduthu\s+vai|eduthudu|" + _PANNU + ")", body):
+        return "take a screenshot"
+    if re.fullmatch(r"(?:oru\s+)?(?:screenshot|ss)\s+(?:edu|eduthu)\s+(?:inga|ingae|here)\s+(?:paste|potu|podu)\s*(?:" + _PANNU + ")?", body):
+        return "take a screenshot and paste it here"
+
+    # "chrome open pannu", "chrome la gmail open pannu", "notepad close pannu"
+    m = re.fullmatch(r"(?P<host>[a-z0-9 .+-]{2,30}?)\s*(?:la|le|il)\s+(?P<obj>[a-z0-9 .+-]{2,40}?)\s+" + _OPEN, body)
+    if m:
+        host, obj = keep(m.group("host")), keep(m.group("obj"))
+        if host.lower() in ("chrome", "google chrome", "edge", "firefox", "brave", "browser"):
+            return f"open {obj}"  # sites open in the browser anyway
+        return f"open {obj} in {host}"
+    m = re.fullmatch(r"(?P<obj>[a-z0-9 .+-]{2,40}?)\s+" + _OPEN, body)
+    if m and not tamil_words(m.group("obj")):
+        return f"open {keep(m.group('obj'))}"
+    m = re.fullmatch(r"(?P<obj>[a-z0-9 .+-]{2,40}?)\s+" + _CLOSE, body)
+    if m and not tamil_words(m.group("obj")):
+        return f"close {keep(m.group('obj'))}"
+    # "<thing> type pannu" -> type <thing>
+    m = re.fullmatch(r"(?P<text>.+?)\s+(?:nu\s+)?type\s+(?:" + _PANNU + "|adi)", body)
+    if m:
+        return f"type {keep(m.group('text'))}"
+    # generic "<object> <english verb> pannu": "wifi on pannu", "pc lock pannu", "volume increase pannu"
+    m = re.fullmatch(r"(?P<obj>[a-z0-9 .+-]{1,40}?)\s+(?P<verb>" + _EN_VERBS + r"|on|off)\s+" + _PANNU, body)
+    if m:
+        verb, obj = m.group("verb"), keep(m.group("obj"))
+        if verb in ("on", "off"):
+            return f"turn {verb} {obj}"
+        return f"{verb} {obj}"
+    m = re.fullmatch(r"(?P<verb>" + _EN_VERBS + r")\s+(?P<obj>.+?)\s+" + _PANNU, body)  # "open chrome pannu"
+    if m:
+        return f"{m.group('verb')} {keep(m.group('obj'))}"
+    m = re.fullmatch(r"(?P<verb>" + _EN_VERBS + r")\s+" + _PANNU, body)  # "mute pannu", "lock pannu"
+    if m:
+        return m.group("verb")
+
+    # questions: "time enna", "inniku date enna", "battery evlo iruku", "weather eppadi iruku"
+    if re.fullmatch(r"(?:ippo\s+)?(?:time|mani)\s+(?:enna|ennachu|evlo|evvalavu|aachu)(?:\s+(?:aagudhu|aachu|agudhu))?", body):
+        return "what time is it"
+    if re.fullmatch(r"(?:inniku|innaiku|indru)?\s*(?:date|thethi|theadhi)\s+(?:enna|ennachu)", body):
+        return "what is today's date"
+    if re.fullmatch(r"(?:en\s+|laptop\s+|pc\s+)?(?:battery|charge)\s+(?:evlo|evvalavu|eppadi|enna)(?:\s+(?:iruku|irukku))?", body):
+        return "what's my battery"
+    m = re.fullmatch(r"(?:(?P<place>[a-z ]{2,20}?)\s*(?:la|le)\s+)?(?:weather|climate|mazhai)\s+(?:eppadi|epdi|enna)(?:\s+(?:iruku|irukku|irukum))?", body)
+    if m:
+        return f"what's the weather in {keep(m.group('place'))}" if m.group("place") else "what's the weather"
+    return text
+
+
+# ------------------------------------------------------------------ replies
+def prompt_instruction(language: str) -> str:
+    if language != THANGLISH:
+        return ""
+    return ("Reply in Thanglish: Tamil written in English letters, casually mixed with English the way people in "
+            "Tamil Nadu text (for example \"Seri, naan check panren\", \"Adhu 25 degree dhaan, konjam hot ah irukum\"). "
+            "Never use Tamil script. Keep technical words, names and numbers in English.")
+
+
+_CONFIRMATIONS = [
+    (r"(?P<x>.+?) is open\.?", "{x} open panniten."),
+    (r"(?P<x>.+?) is closed\.?", "{x} close panniten."),
+    (r"Opened (?P<x>.+?)\.?", "{x} open panniten."),
+    (r"Opening (?P<x>.+?)\.?", "{x} open panren."),
+    (r"Closed (?P<x>.+?)\.?", "{x} close panniten."),
+    (r"Volume set to (?P<x>\d+) percent\.?", "Volume {x} percent ku vechiten."),
+    (r"Volume is (?P<x>\d+) percent\.?", "Volume ippo {x} percent la iruku."),
+    (r"Volume increased\.?", "Volume jaasthi panniten."),
+    (r"Volume decreased\.?", "Volume kammi panniten."),
+    (r"Muted\.?|Volume muted\.?", "Sound mute panniten."),
+    (r"Unmuted\.?|Volume unmuted\.?", "Sound thirumba on panniten."),
+    (r"Brightness set to (?P<x>\d+) percent\.?", "Brightness {x} percent ku vechiten."),
+    (r"Screen brightness is (?P<x>\d+) percent\.?", "Brightness ippo {x} percent la iruku."),
+    (r"Screenshot saved\.?", "Screenshot eduthuten, save aayiduchu."),
+    (r"Took a screenshot and pasted it(?P<x>.*?)\.?", "Screenshot eduthu paste panniten."),
+    (r"Playing (?P<x>.+?) on YouTube\.?", "YouTube la {x} play panren."),
+    (r"Playing on YouTube\.?", "YouTube la play panren."),
+    (r"Timer set for (?P<x>.+?)\.?", "{x} ku timer vechiten."),
+    (r"Done\.?", "Mudinjiduchu."),
+    (r"Done on the phone\.?", "Phone la panniten."),
+    (r"Copied\.?", "Copy panniten."),
+    (r"Pasted\.?", "Paste panniten."),
+    (r"Pasted into (?P<x>.+?)\.?", "{x} la paste panniten."),
+    (r"Stopped\.?", "Niruthiten."),
+    (r"Speech stopped\.?", "Seri, pesaradha niruthiten."),
+    (r"Sent\.?", "Anuppiten."),
+    (r"Typed: (?P<x>.+)", "Type panniten: {x}"),
+    (r"It is (?P<x>.+?) on (?P<y>.+?)\.?", "Ippo mani {x}, {y}."),
+    (r"Your phone is connected \((?P<x>.+?)\)\.?", "Unga phone connect aayiduchu ({x})."),
+    (r"Command was negated\. No action taken\.?", "Seri, edhuvum pannala."),
+    (r"I didn't hear a command\. How can I help you\?", "Command kekkala. Enna pannanum?"),
+]
+_CONFIRMATIONS = [(re.compile(p, re.I), r) for p, r in _CONFIRMATIONS]
+
+
+def in_thanglish(message: str) -> str:
+    """Thanglish version of a known short confirmation; other text (already a model answer, details) unchanged."""
+    msg = (message or "").strip()
+    for pattern, template in _CONFIRMATIONS:
+        m = pattern.fullmatch(msg)
+        if m:
+            return template.format(**m.groupdict())
+    return message
+
+
+# ------------------------------------------------------------------ Tamil script -> Latin (Thanglish spelling)
+_TA_VOWELS = {"அ": "a", "ஆ": "aa", "இ": "i", "ஈ": "ee", "உ": "u", "ஊ": "oo", "எ": "e", "ஏ": "ae", "ஐ": "ai", "ஒ": "o",
+              "ஓ": "o", "ஔ": "au", "ஃ": "h"}
+_TA_CONS = {"க": "k", "ங": "ng", "ச": "s", "ஞ": "nj", "ட": "d", "ண": "n", "த": "th", "ந": "n", "ப": "p", "ம": "m",
+            "ய": "y", "ர": "r", "ல": "l", "வ": "v", "ழ": "zh", "ள": "l", "ற": "r", "ன": "n", "ஜ": "j", "ஷ": "sh",
+            "ஸ": "s", "ஹ": "h"}
+_TA_SIGNS = {"ா": "aa", "ி": "i", "ீ": "ee", "ு": "u", "ூ": "oo", "ெ": "e", "ே": "ae", "ை": "ai", "ொ": "o", "ோ": "o",
+             "ௌ": "au", "்": ""}
+
+
+def has_tamil_script(text: str) -> bool:
+    return any("஀" <= ch <= "௿" for ch in text or "")
+
+
+def tamil_to_latin(text: str) -> str:
+    out: list[str] = []
+    chars = list(text or "")
+    for i, ch in enumerate(chars):
+        nxt = chars[i + 1] if i + 1 < len(chars) else ""
+        if ch in _TA_CONS:
+            out.append(_TA_CONS[ch] + ("" if nxt in _TA_SIGNS else "a"))
+        elif ch in _TA_SIGNS:
+            out.append(_TA_SIGNS[ch])
+        elif ch in _TA_VOWELS:
+            out.append(_TA_VOWELS[ch])
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+# Whisper prompt that nudges recognition toward Thanglish spelling (Latin letters, Tamil words kept as spoken).
+STT_PROMPT = ("Jarvis, chrome open pannu. Volume konjam kammi pannu. Amma ku late aagum nu message anuppu. "
+              "Seri da, naan varen. Enna time aachu?")

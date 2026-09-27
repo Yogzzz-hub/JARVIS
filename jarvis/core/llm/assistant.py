@@ -222,6 +222,13 @@ class Assistant:
             parts.append("This conversation happens over WhatsApp with the owner of this PC.")
         if caps:
             parts.append("Things JARVIS can do on request (tools):\n" + caps)
+        try:
+            from jarvis.core.multilingual import REPLY_LANGUAGE, prompt_instruction
+            language_rule = prompt_instruction(REPLY_LANGUAGE.get())
+        except Exception:
+            language_rule = ""
+        if language_rule:
+            parts.append(language_rule)
         # The clock goes last: everything above is identical between requests, so Ollama reuses
         # its evaluated prompt prefix (KV cache) and only the new tokens are processed.
         parts.append(f"Current local date and time: {now.strftime('%A, %d %B %Y, %I:%M %p %Z')}.")

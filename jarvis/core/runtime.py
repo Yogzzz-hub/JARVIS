@@ -385,7 +385,8 @@ class Runtime:
         from jarvis.core.stt.faster_whisper_engine import FasterWhisperEngine
         engine = FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model,
                                      device=cfg.stt_device, compute_type=cfg.compute_type,
-                                     initial_prompt=self._stt_vocabulary(), beam_size=cfg.stt_beam_size)
+                                     initial_prompt=self._stt_vocabulary(), beam_size=cfg.stt_beam_size,
+                                     thanglish=getattr(cfg, "language", "english") == "thanglish")
         engine.vocabulary = self._name_vocabulary()
         return engine
 

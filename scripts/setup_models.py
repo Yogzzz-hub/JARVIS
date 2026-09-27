@@ -50,7 +50,8 @@ def setup_whisper(config, check: bool) -> bool:
             gpu = ctranslate2.get_cuda_device_count() > 0
         except Exception:
             gpu = False
-        size = "large-v3-turbo" if gpu else "small.en"
+        thanglish = getattr(config.voice, "language", "english") == "thanglish"
+        size = "large-v3-turbo" if gpu else ("small" if thanglish else "small.en")  # Thanglish: multilingual model
         print(f"[whisper] auto -> '{size}' ({'NVIDIA GPU' if gpu else 'CPU'})")
         if check:
             return True

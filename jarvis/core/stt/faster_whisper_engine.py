@@ -74,6 +74,7 @@ class FasterWhisperEngine:
         step_size_ms: int = 400,
         initial_prompt: str = "",
         language: str = "en",
+        thanglish: bool = False,
         beam_size: int = 5,
     ):
         self.model_name_str = resolve_whisper_model(model)
@@ -82,6 +83,16 @@ class FasterWhisperEngine:
         self.compute_type = compute_type
         self.context_window_s = context_window_s
         self.step_size_ms = step_size_ms
+        # Thanglish: the multilingual model (English-only ".en" models cannot hear Tamil words) with language "en"
+        # and a Thanglish example prompt, so Tamil words come out in English letters ("volume kammi pannu").
+        self.thanglish = bool(thanglish)
+        if self.thanglish:
+            from jarvis.core.multilingual import STT_PROMPT
+            initial_prompt = f"{STT_PROMPT} {initial_prompt}".strip()
+            if str(model).endswith(".en"):
+                logger.info("Thanglish speech needs a multilingual model: using '%s' instead of '%s'", str(model)[:-3], model)
+                model = str(model)[:-3]
+                self.model_name_str = resolve_whisper_model(model)
         self.initial_prompt = initial_prompt
         self.language = language
         self.vocabulary = None  # jarvis.core.stt.names.NameVocabulary: hotwords + name correction
@@ -135,15 +146,17 @@ class FasterWhisperEngine:
                 if not is_large_cached:
                     is_large_cached = Path("models/whisper/large-v3-turbo/model.bin").exists()
 
-                gpu_model = "large-v3-turbo" if is_large_cached else "small.en"
-                cpu_model = "small.en"
+                small = "small" if self.thanglish else "small.en"  # Thanglish needs the multilingual model
+                gpu_model = "large-v3-turbo" if is_large_cached else small
+                cpu_model = small
             else:
                 gpu_model = self.model_name_str
                 cpu_model = self.model_name_str
 
             # Try CUDA first ("auto" uses the GPU when CUDA libraries are present)
             if device in ("cuda", "auto"):
-                for candidate_model in ([gpu_model] if gpu_model == "small.en" else [gpu_model, "small.en"]):
+                fallback = "small" if self.thanglish else "small.en"
+                for candidate_model in ([gpu_model] if gpu_model == fallback else [gpu_model, fallback]):
                     try:
                         model = WhisperModel(
                             candidate_model,
@@ -249,6 +262,10 @@ class FasterWhisperEngine:
         )
 
     def _fix_names(self, text: str) -> str:
+        if text and getattr(self, "thanglish", False):
+            from jarvis.core.multilingual import has_tamil_script, tamil_to_latin
+            if has_tamil_script(text):  # the model sometimes writes Tamil letters: keep everything in English letters
+                text = tamil_to_latin(text)
         if not text or self.vocabulary is None:
             return text
         try:
