@@ -32,6 +32,11 @@ CASES = [
     ("whatsapp boss saying the report is ready", "send_whatsapp_message", {"recipient": "boss", "message": "the report is ready"}),
     ("reply to rahul", "reply_whatsapp_message", {"recipient": "rahul"}),
     ("reply to the last message saying on my way", "reply_whatsapp_message", {"instruction": "on my way"}),
+    ("tell me the total unread msg in whatsapp", "read_whatsapp_messages", {"filter": "unread"}),
+    ("how many unread messages in whatsapp", "read_whatsapp_messages", {"filter": "unread"}),
+    ("what is the total unread msg in whatsapp", "read_whatsapp_messages", {"filter": "unread"}),
+    ("summarize my whatsapp", "summarize_whatsapp_messages", {}),
+    ("to whom u have sent", "quick_answer", {"query": "to whom u have sent"}),
     # knowledge
     ("learn my documents folder", "knowledge_ingest", {"path": "documents"}),
     ("what do my documents say about the refund policy", "knowledge_search", {"question": "the refund policy"}),

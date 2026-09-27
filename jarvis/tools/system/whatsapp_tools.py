@@ -49,6 +49,15 @@ def phone_to_jid(raw: str, country_code: str | None = None) -> str | None:
     return f"{digits}@s.whatsapp.net"
 
 
+_last_sent: dict[str, Any] = {}
+
+
+def get_last_sent() -> dict[str, Any]:
+    """Return info about the most recently sent WhatsApp message."""
+    return dict(_last_sent)
+
+
+
 class SendWhatsAppMessageInput(Contract):
     recipient: str = Field(min_length=1, max_length=256, description="Contact name, phone number, or WhatsApp JID")
     message: str = Field(min_length=1, max_length=4096, description="Message text to send")
@@ -258,6 +267,15 @@ class SendWhatsAppMessageTool(Tool):
             WhatsAppInbox.get_default().mark_as_replied(target_jid)
         except Exception:
             pass
+
+        # Record last sent for follow-up questions ("to whom did you send", "who did you message")
+        _last_sent.clear()
+        _last_sent.update({
+            "recipient": resolved_name,
+            "recipient_jid": target_jid,
+            "message": msg_text,
+            "timestamp": time.time(),
+        })
 
         # Only report verified sent when transport ACK is confirmed
         return {
