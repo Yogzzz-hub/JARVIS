@@ -257,15 +257,6 @@ class AppResolver:
         if norm in WEB_SERVICES:
             return LaunchTarget(WEB_SERVICES[norm], ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"), True)
 
-        # Fallback: check individual tokens against known aliases / web services
-        for token in cleaned.split():
-            if token in ALIASES and token in self.cache:
-                return self.cache[token]
-            if token in SYNONYMS and SYNONYMS[token] in self.cache:
-                return self.cache[SYNONYMS[token]]
-            if token in WEB_SERVICES:
-                return LaunchTarget(WEB_SERVICES[token], ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"), True)
-
         # Check if direct URL or domain
         if norm.startswith(("http://", "https://", "www.")) or (len(norm.split()) == 1 and any(norm.endswith(tld) for tld in (".com", ".org", ".net", ".io", ".ai", ".dev", ".edu", ".in"))):
             url = norm if norm.startswith(("http://", "https://")) else f"https://{norm}"
@@ -299,8 +290,6 @@ class AppResolver:
                 continue
             for key, target in self.cache.items():
                 if len(term) >= 3 and term in key:
-                    return target
-                if len(key) >= 3 and re.search(rf"\b{re.escape(key)}\b", term):
                     return target
 
         raise ValueError(f"Application is not indexed: {name}") from None

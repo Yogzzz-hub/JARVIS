@@ -30,6 +30,13 @@ def test_best_match_prefers_the_real_app_from_winget():
     assert winget.best_match("android studio", pkgs).package_id == "Google.AndroidStudio"
 
 
+def test_search_does_not_install_an_unrelated_tag_match():
+    pkgs = winget.parse_table(SEARCH_OUT)
+    assert winget.best_match("cisco packet tracer", pkgs) is None
+    assert winget.best_match("", pkgs) is None
+    assert winget.best_match("vlc", pkgs[2:]) is None
+
+
 @pytest.mark.parametrize("code,text,status,ok", [
     (0, "Successfully installed", "INSTALLED", True),
     (-1978335189, "No available upgrade found.", "ALREADY_INSTALLED", True),

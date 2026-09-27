@@ -56,6 +56,12 @@ async def test_everyone_who_messaged_gets_a_personal_reply_but_groups_are_skippe
         assert "devi" not in res.message.lower() and "nisha" not in res.message.lower() and "Arun" not in res.message
         assert "2 group chats" in res.message
         assert not h.transport.sent_messages, "nothing is sent before the owner says yes"
+        pending_ticket = h.service._pending_execution["ticket_id"]
+        followup = await h.say("in whatsapp")
+        assert followup.state == "WAITING_CONFIRMATION", followup.message
+        assert "this reply is for WhatsApp" in followup.message
+        assert h.service._pending_execution["ticket_id"] == pending_ticket
+        assert not h.transport.sent_messages
         prompts = [p["messages"][-1]["content"] for p in h.chat_payloads(PERSONAL)]
         assert prompts and all("I am busy, I will be available in one hour" in p for p in prompts)
 

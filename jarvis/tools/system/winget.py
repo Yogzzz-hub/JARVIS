@@ -110,6 +110,17 @@ def best_match(query: str, packages: list[WingetPackage]) -> Optional[WingetPack
     if not packages:
         return None
     q = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
+    if not q:
+        return None
+    # Search results can match descriptions or tags; never install an unrelated
+    # package merely because it is the best of a set of poor matches.
+    wanted = set(q.split())
+    packages = [p for p in packages if
+                wanted <= set(re.sub(r"[^a-z0-9]+", " ", p.name.lower()).split())
+                or wanted <= set(re.sub(r"[^a-z0-9]+", " ", p.package_id.lower()).split())
+                or re.sub(r"[^a-z0-9]", "", q) == re.sub(r"[^a-z0-9]", "", p.package_id.split(".")[-1].lower())]
+    if not packages:
+        return None
 
     def score(p: WingetPackage) -> tuple:
         n = re.sub(r"[^a-z0-9]+", " ", p.name.lower()).strip()

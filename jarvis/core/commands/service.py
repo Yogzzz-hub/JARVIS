@@ -41,6 +41,14 @@ class CommandService:
 
     _last_volume = 50
 
+    @staticmethod
+    def _compound_result(tool_name, data):
+        from jarvis.core.response.formatter import ResponseFormatter
+        result = dict(data or {})
+        result["summary"] = (result.get("summary") or result.get("message")
+                             or ResponseFormatter.format_verified_tool(tool_name, result))
+        return result
+
     def _translate_intent(self, name: str, slots: dict | None) -> tuple[str, dict]:
         """Router intents that are phrasings of an existing tool call (relative volume, mute, restore, status)."""
         slots = dict(slots or {})
@@ -97,6 +105,10 @@ class CommandService:
     def _expand_fragment(self, request):
         """'in whatsapp' right after a request = that request, done in WhatsApp (not an app called 'in whatsapp')."""
         text = (request.text or "").strip()
+        pending = getattr(self, "_pending_execution", None)
+        if pending and getattr(getattr(pending.get("tool"), "definition", None), "name", "") in ("send_whatsapp_message", "send_whatsapp_bulk"):
+            if re.fullmatch(r"(?:in|on|via|using)\s+whats\s*app[.!?]*", text, re.I):
+                return request
         last, at = getattr(self, "_last_user_text", ""), getattr(self, "_last_user_at", 0.0)
         if last and time.monotonic() - at < 180 and self._FRAGMENT.match(text) and not self._FRAGMENT.match(last):
             combined = f"{last.rstrip(' ?.!')} {text.rstrip(' ?.!')}"
@@ -301,7 +313,9 @@ class CommandService:
                                         return self._finalize(task, State.WAITING_CONFIRMATION, message, sub_res, None, clock, current, is_voice=is_voice, predicted_ms=pending.get("predicted_ms", 400.0))
                                     raise ValueError(f"Compound action stopped after {len(compound_results)} action(s): {sub_res.error}")
                                 sub_verification = await self.verifier.verify(sub_tool.definition.name, sub_res, sub_args, task.cancellation)
-                                compound_results.append(sub_res.data)
+                                if not sub_verification.verified:
+                                    raise ValueError(f"Compound action could not be verified: {sub_verification.error}")
+                                compound_results.append(self._compound_result(sub_tool.definition.name, sub_res.data))
 
                             self.tasks.transition(task, State.VERIFYING)
                             if self.pulse:
@@ -314,7 +328,7 @@ class CommandService:
                                 if isinstance(r, dict):
                                     if "summary" in r and r["summary"]:
                                         summaries.append(r["summary"])
-                                    elif "message" in r and r.get("status") == "SENT":
+                                    elif r.get("message"):
                                         summaries.append(r["message"])
                             if summaries:
                                 message = "Confirmed. " + " ".join(summaries)
@@ -422,6 +436,20 @@ class CommandService:
 
             # Handle CLARIFY (ambiguous app, missing slots, low confidence)
             if decision.lane == RouteLane.CLARIFY:
+                pending = self._pending_execution
+                if (re.fullmatch(r"(?:in|on|via|using)\s+whats\s*app[.!?]*", request.text.strip(), re.I)
+                        and getattr(request, "source", "") != "whatsapp" and pending
+                        and pending.get("type") == "single"
+                        and getattr(pending.get("task"), "source", "whatsapp") != "whatsapp"
+                        and getattr(getattr(pending.get("tool"), "definition", None), "name", "")
+                        in ("send_whatsapp_message", "send_whatsapp_bulk")):
+                    previous = getattr(pending["task"], "result", None)
+                    if previous is not None:
+                        self.tasks.transition(task, State.EXECUTING)
+                        self.tasks.transition(task, State.WAITING_CONFIRMATION)
+                        message = "Yes, this reply is for WhatsApp. " + previous.message
+                        return self._finalize(task, State.WAITING_CONFIRMATION, message,
+                                              previous.tool_result, None, clock, current, is_voice=is_voice)
                 if self.working_memory and hasattr(self.working_memory, "set_pending_clarification"):
                     from jarvis.core.context.models import PendingClarification
                     cands = list(decision.slots.get("candidates", [])) if decision.slots else []
@@ -573,7 +601,7 @@ class CommandService:
                     sub_verification = await self.verifier.verify(sub_tool.definition.name, sub_res, sub_args, task.cancellation)
                     if not sub_verification.verified:
                         raise ValueError(f"Compound action could not be verified: {sub_verification.error}")
-                    compound_results.append(sub_res.data)
+                    compound_results.append(self._compound_result(sub_tool.definition.name, sub_res.data))
                 self.tasks.transition(task, State.VERIFYING)
                 if self.pulse:
                     self.pulse.on_execution_finished(task.request_id, 100.0, "compound")
@@ -584,7 +612,7 @@ class CommandService:
                     if isinstance(r, dict):
                         if "summary" in r and r["summary"]:
                             summaries.append(r["summary"])
-                        elif "message" in r and r.get("status") == "SENT":
+                        elif r.get("message"):
                             summaries.append(r["message"])
                 if summaries:
                     message = " ".join(summaries)

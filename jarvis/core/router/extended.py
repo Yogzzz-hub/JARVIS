@@ -630,6 +630,9 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     login = match_login(t, request_id)
     if login:
         return login
+    if re.fullmatch(r"(?:in|on|via|using)\s+whats\s*app", t):
+        return _decision(request_id, t, "clarify", {}, lane=RouteLane.CLARIFY,
+                         clarification="What would you like me to do in WhatsApp? If a reply is awaiting confirmation, confirm that request.")
     quick = match_quick_actions(t, request_id)
     if quick:
         return quick

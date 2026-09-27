@@ -198,7 +198,7 @@ def check_deterministic_compound(
     m_app = re.match(r"^(?:open|start|launch)\s+(.+)$", cleaned, re.I)
     if m_app:
         apps_clause = m_app.group(1)
-        action_verb_prefix = re.compile(r"^(?:open|start|launch|message|send|tell|check|search|google|look up|find|set|close|show|bring up|play|pause|next|prev|mute|maximize|minimize)\b", re.I)
+        action_verb_prefix = re.compile(r"^(?:open|start|launch|message|send|tell|check|search|google|look up|find|set|close|show|bring up|play|pause|next|prev|mute|maximize|minimize|log\s*in(?:to)?|sign\s*in|install|download|configure|reply|type|click)\b", re.I)
         app_names = re.split(r",\s*(?:and\s+)?|\s+and\s+", apps_clause)
         app_names = [a.strip() for a in app_names if a.strip()]
         if len(app_names) >= 2 and not any(action_verb_prefix.match(a) for a in app_names[1:]):
@@ -228,7 +228,7 @@ def check_deterministic_compound(
 
     # Case B: Heterogeneous multi-action compound sentence
     # Split on commas or conjunctions followed by action keywords
-    action_verbs = r"(?:open|start|launch|message|send|tell|check|search|google|look up|find|set|close|show|bring up|play|pause|next|prev|mute|maximize|minimize|summarize|extract|organize|draft|read|save|list|transfer|take|paste|copy|move|record|convert|inspect|review|audit|scan|compare|compose)"
+    action_verbs = r"(?:open|start|launch|message|send|tell|check|search|google|look up|find|set|close|show|bring up|play|pause|next|prev|mute|maximize|minimize|summarize|extract|organize|draft|read|save|list|transfer|take|paste|copy|move|record|convert|inspect|review|audit|scan|compare|compose|log\s*in(?:to)?|sign\s*in|install|download|configure|reply|type|click)"
     normalized = re.sub(r",\s*(?:and\s+)?then\s+", " ; ", cleaned, flags=re.I)
     normalized = re.sub(r"\s+(?:and\s+)?then\s+", " ; ", normalized, flags=re.I)
     normalized = re.sub(rf",\s*(?={action_verbs}\b)", " ; ", normalized, flags=re.I)
