@@ -7,6 +7,7 @@ Privacy scopes are enforced on every candidate *before* ranking, for both retrie
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -84,13 +85,18 @@ class KnowledgeEngine:
         self._stats_cache: Optional[tuple[int, float, tuple[int, tuple[str, ...]]]] = None
         self._ensure_tables()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _get_connection(self):
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=5000")
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _ensure_tables(self):
         with self._get_connection() as conn:
@@ -284,7 +290,7 @@ class KnowledgeEngine:
             skip_parts = {".git", "node_modules", ".venv", "venv", "__pycache__", "AppData", "$Recycle.Bin"}
             candidates = (
                 p for p in root.glob(pattern)
-                if p.is_file() and p.suffix.lower() in INDEXABLE_EXTENSIONS and not (set(p.parts) & skip_parts)
+                if p.is_file() and p.suffix.lower() in INDEXABLE_EXTENSIONS and not (set(p.relative_to(root).parts) & skip_parts)
             )
         stats = {"collection": collection_name, "files_indexed": 0, "chunks": 0, "skipped": 0, "errors": []}
         for idx, file in enumerate(candidates):

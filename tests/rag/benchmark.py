@@ -91,7 +91,7 @@ UNANSWERABLE = [
 
 def run(baseline: bool = False, limit: int = 3) -> dict:
     from jarvis.core.knowledge import engine as eng
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         docs = Path(td) / "docs"
         docs.mkdir()
         for name, text in DOCS.items():
