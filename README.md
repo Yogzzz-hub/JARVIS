@@ -605,13 +605,31 @@ The route families and their tools:
 `jarvis/core/llm/client.py` (`OllamaClient`) is the only code that talks to Ollama. Features use it through roles
 set in `[models]`:
 
-| Role | Used by | Default |
-|---|---|---|
-| `fast` | Lane-1 intent classifier | `qwen3:1.7b` |
-| `planner` | DAG planner, tool agent, web agent | `llama3.2:latest` |
-| `chat` | answers, document Q&A, WhatsApp composing / replies / summaries | `llama3.2:latest` |
-| `vision` | screen description, visual clicking, computer-use agent | `qwen2.5vl:3b` |
-| `embed` | knowledge-base embeddings (optional) | `nomic-embed-text` |
+| JARVIS task | Engine | Role / setting | Default (best first) |
+|---|---|---|---|
+| Exact commands | no model (deterministic router, ~1 ms) | - | - |
+| Routing | JDE decision engine (+ MiniLM / BGE-small sentence encoder) | `[decision]` | `read_only` stage |
+| Slightly uncertain intent | tiny fast model (Lane-1 classifier) | `fast` | `qwen3.5:2b, qwen3.5:0.8b, qwen3:1.7b` |
+| Normal planning, agent, web agent | planner | `planner` | `qwen3.5:4b, llama3.2:latest` |
+| Answers, document Q&A, WhatsApp text | chat | `chat` | `qwen3.5:4b, llama3.2:latest` |
+| Hard planning / reasoning | deep fallback only | `deep` | `qwen3.6:35b-a3b` (optional) |
+| Screen understanding | multimodal, on demand | `vision` | `qwen3.5:4b, qwen2.5vl:3b` |
+| Knowledge-base embeddings | embed (optional) | `embed` | `nomic-embed-text` |
+| Speech to text | faster-whisper | `[voice] stt_model` | `auto` (large-v3-turbo on GPU, small.en on CPU) |
+| Text to speech | Piper | `config/response.toml` | local Piper voice |
+
+- **Best first.** Each role lists models in order of preference; the first one you have pulled is used, so
+  JARVIS keeps working with older models until you pull the new ones. `python -m jarvis.diagnostics` shows the
+  model chosen for each role.
+- **When "deep" is used.** The tool agent starts on the 4B planner. It switches to the deep model only for hard
+  goals (three or more chained steps, very long requests, or "compare / analyse / plan / debug …") or after the
+  planner stumbles twice. This happens only when the deep model is installed and differs from the planner.
+- **Setup.**
+  - `python scripts\setup_models.py` pulls the everyday models.
+  - `--deep` also pulls the large deep model (about 20 GB).
+  - `--jde-semantic` downloads BGE-small (or MiniLM) and retrains the decision engine on it. The new model
+    replaces the current one only if it is more accurate on the held-out suites, with zero wrong consequential
+    actions.
 
 How the client behaves:
 - **Model fallback.** A role whose model isn't pulled falls back to the best installed model.

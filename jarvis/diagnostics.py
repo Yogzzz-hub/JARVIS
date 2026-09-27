@@ -104,9 +104,14 @@ def _ollama_checks(config, add):
                               'when installed; deterministic commands work without it.')
         return
     add('Ollama', 'PASS', f'{settings.base_url}: {", ".join(models) or "no models installed"}')
-    for role in ('fast', 'planner', 'chat', 'embed'):
-        wanted = settings.model_for(role)
-        exact = match_installed(wanted, models)
+    from jarvis.core.llm.client import model_candidates
+    for role in ('fast', 'planner', 'chat', 'vision', 'deep', 'embed'):
+        options = model_candidates(settings.model_for(role))
+        wanted = options[0] if options else ''
+        exact = next((m for m in (match_installed(o, models) for o in options) if m), None)
+        if role == 'deep' and not exact:
+            add('AI role: deep', 'PASS', f'not installed - hard plans use the planner (optional: ollama pull {wanted or "qwen3.6:35b-a3b"})')
+            continue
         if exact:
             add(f'AI role: {role}', 'PASS', exact)
             continue

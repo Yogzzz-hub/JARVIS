@@ -139,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--encoder", default="hash")
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--promote", action="store_true", help="make this version CURRENT (only after the benchmark says so)")
+    ap.add_argument("--auto-promote", action="store_true",
+                    help="make it CURRENT only if it beats the current model on the held-out suites with zero wrong "
+                         "consequential executions")
     args = ap.parse_args(argv)
     engine, stats = train(args.encoder, epochs=args.epochs)
     path = MODEL_ROOT / engine.meta.decision_model_version
@@ -147,7 +150,39 @@ def main(argv: list[str] | None = None) -> int:
     if args.promote:
         (MODEL_ROOT / "CURRENT").write_text(engine.meta.decision_model_version, encoding="utf-8")
         print("promoted to CURRENT")
+    elif args.auto_promote:
+        better, why = beats_current(engine)
+        print(why)
+        if better:
+            (MODEL_ROOT / "CURRENT").write_text(engine.meta.decision_model_version, encoding="utf-8")
+            print("promoted to CURRENT")
     return 0
+
+
+def beats_current(candidate: LocalJDE) -> tuple[bool, str]:
+    """Candidate vs CURRENT on dev / holdout / adversarial (never trained on). Safety first, then accuracy."""
+    from jarvis.decision.catalog import default_catalog
+    from jarvis.decision.dataset import load_suite
+    from jarvis.decision.engine import latest_model_dir
+    from jarvis.decision.evaluation.evaluate import evaluate_split
+
+    def score(engine: LocalJDE) -> tuple[float, int]:
+        accs, wrong = [], 0
+        for split in ("dev", "holdout", "adversarial"):
+            r = evaluate_split(engine, load_suite(split))
+            accs.append(r["route_acc"])
+            wrong += len(r["wrong_consequential_executions"])
+        return sum(accs) / len(accs), wrong
+
+    new_acc, new_wrong = score(candidate)
+    try:
+        current = LocalJDE.load(latest_model_dir(), catalog=default_catalog())
+        cur_acc, cur_wrong = score(current)
+    except Exception as exc:  # no usable CURRENT model: the candidate only has to be safe
+        return new_wrong == 0, f"no current model ({exc}); candidate route accuracy {new_acc:.3f}, wrong consequential {new_wrong}"
+    ok = new_wrong == 0 and new_wrong <= cur_wrong and new_acc > cur_acc
+    return ok, (f"candidate {candidate.meta.encoder_version}: route accuracy {new_acc:.3f} (current {cur_acc:.3f}), "
+                f"wrong consequential {new_wrong} (current {cur_wrong}) -> {'promote' if ok else 'keep current'}")
 
 
 if __name__ == "__main__":

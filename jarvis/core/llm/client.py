@@ -40,20 +40,22 @@ logger = logging.getLogger("jarvis.llm")
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 
-ROLES = ("fast", "planner", "chat", "vision", "embed")
+ROLES = ("fast", "planner", "chat", "vision", "embed", "deep")
 
 # Fallback order used when a role has no installed model configured.
 ROLE_FALLBACKS: dict[str, tuple[str, ...]] = {
     "fast": ("fast", "chat", "planner"),
     "planner": ("planner", "chat", "fast"),
     "chat": ("chat", "planner", "fast"),
+    # hard multi-step planning/reasoning: the big model when it is installed, otherwise the normal planner
+    "deep": ("deep", "planner", "chat"),
     "vision": ("vision",),
     "embed": ("embed",),
 }
 
 # Preferred general-purpose families, best first. Used only when nothing configured is installed.
 TEXT_FAMILY_PREFERENCE = (
-    "qwen3", "qwen2.5", "llama3.2", "llama3.1", "llama3", "gemma3", "gemma2",
+    "qwen3.6", "qwen3.5", "qwen3", "qwen2.5", "llama3.2", "llama3.1", "llama3", "gemma3", "gemma2",
     "phi4", "phi3", "mistral", "granite3", "smollm2",
 )
 EMBED_MARKERS = ("embed", "minilm", "bge-", "bge:", "e5-", "gte-", "snowflake-arctic", "paraphrase")
@@ -81,6 +83,7 @@ class LLMSettings:
     chat_model: str = ""
     vision_model: str = ""
     embed_model: str = "nomic-embed-text"
+    deep_model: str = ""
     keep_alive: str = "30m"
     timeout_s: float = 60.0
     connect_timeout_s: float = 2.5
@@ -96,6 +99,7 @@ class LLMSettings:
             "chat": self.chat_model,
             "vision": self.vision_model,
             "embed": self.embed_model,
+            "deep": self.deep_model,
         }.get(role, "")
 
     @classmethod
@@ -123,6 +127,7 @@ class LLMSettings:
             chat_model=getattr(models, "chat", "") or "",
             vision_model=getattr(models, "vision", "") or "",
             embed_model=getattr(models, "embed", "nomic-embed-text") or "",
+            deep_model=getattr(models, "deep", "") or "",
             keep_alive=getattr(models, "keep_alive", "30m") or "30m",
             timeout_s=float(getattr(models, "timeout_s", 60.0) or 60.0),
             num_ctx=int(getattr(models, "num_ctx", 4096) or 4096),
@@ -201,6 +206,11 @@ def extract_json(text: str) -> Any:
                             break
             start = cleaned.find(opener, start + 1)
     raise LLMError(f"Model did not return valid JSON: {cleaned[:160]!r}")
+
+
+def model_candidates(spec: str) -> list[str]:
+    """'qwen3.5:4b, llama3.2' -> ['qwen3.5:4b', 'llama3.2'] (a role's models in order of preference)."""
+    return [m.strip() for m in (spec or "").split(",") if m.strip()]
 
 
 def model_size_billions(name: str) -> float | None:
@@ -432,7 +442,11 @@ class OllamaClient:
             return self._resolved[role]
         chosen: str | None = None
         for alias in ROLE_FALLBACKS.get(role, (role,)):
-            chosen = match_installed(self.settings.model_for(alias), installed)
+            # a role may list several models, best first: "qwen3.5:4b, llama3.2"
+            for candidate in model_candidates(self.settings.model_for(alias)):
+                chosen = match_installed(candidate, installed)
+                if chosen:
+                    break
             if chosen:
                 break
         if not chosen:
@@ -446,14 +460,14 @@ class OllamaClient:
         installed = await self.list_models()
         chosen = self._resolve_from(role, installed)
         if not chosen:
-            raise LLMUnavailable(f"No installed Ollama model suits role '{role}'. Run: ollama pull {self.settings.model_for(role) or 'llama3.2'}")
+            raise LLMUnavailable(f"No installed Ollama model suits role '{role}'. Run: ollama pull {(model_candidates(self.settings.model_for(role)) or ['llama3.2'])[0]}")
         return chosen
 
     def resolve_sync(self, role: str = "chat") -> str:
         installed = self.list_models_sync()
         chosen = self._resolve_from(role, installed)
         if not chosen:
-            raise LLMUnavailable(f"No installed Ollama model suits role '{role}'. Run: ollama pull {self.settings.model_for(role) or 'llama3.2'}")
+            raise LLMUnavailable(f"No installed Ollama model suits role '{role}'. Run: ollama pull {(model_candidates(self.settings.model_for(role)) or ['llama3.2'])[0]}")
         return chosen
 
     def cached_model(self, role: str) -> str | None:

@@ -14,6 +14,7 @@ pause for the user's confirmation first.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import time
 from dataclasses import dataclass, field
@@ -38,6 +39,18 @@ Rules:
 - Keep "message" to one or two short sentences suitable for speech. Always fill "thought" with a brief reason."""
 
 MAX_OBSERVATION_CHARS = 900
+
+
+_HARD_HINTS = re.compile(r"\b(?:step by step|think (?:carefully|hard)|plan (?:out|my)|compare|analy[sz]e|research|figure out|"
+                         r"work out|debug|optimi[sz]e|strategy|schedule (?:my|a) (?:week|day|trip))\b", re.I)
+
+
+def is_hard_goal(goal: str) -> bool:
+    """Hard planning: many chained actions, a long request, or explicit reasoning words. Everything else stays on
+    the fast 4B planner."""
+    g = goal or ""
+    chained = len(re.findall(r"\b(?:and then|then|after that|and also|finally|next)\b|[;,]\s*(?:and\s+)?(?:then\s+)?\w+", g, re.I))
+    return chained >= 3 or len(g.split()) > 40 or bool(_HARD_HINTS.search(g))
 
 
 @dataclass
@@ -191,10 +204,13 @@ class AgentRunner:
                 return outcome
 
         schema = _decision_schema(tool_names)
+        if "role" not in state:
+            state["role"] = "deep" if is_hard_goal(goal) and await self._deep_available() else "planner"
         while len(steps) < self.max_steps:
             try:
                 decision = await self.client.chat_json(
-                    messages, schema, role="planner", max_tokens=400, num_ctx=8192, timeout=90.0,
+                    messages, schema, role=state["role"], max_tokens=400, num_ctx=8192,
+                    timeout=180.0 if state["role"] == "deep" else 90.0,
                 )
                 model_used = decision.pop("_model", model_used)
                 state["model"] = model_used
@@ -202,6 +218,8 @@ class AgentRunner:
                 return AgentOutcome("unavailable", "I can't reach my local AI (Ollama) right now. I'm starting it - ask me again in a few seconds.", steps, state=state)
             except LLMError as exc:
                 logger.warning("Agent decision failed: %s", exc)
+                if await self._escalate(state):
+                    continue
                 if steps:
                     return AgentOutcome("done", self._summary(steps), steps, state=state, model=model_used)
                 return AgentOutcome("failed", "I couldn't work out how to do that. Could you rephrase it?", steps, state=state, model=model_used)
@@ -219,6 +237,9 @@ class AgentRunner:
             if tool_name not in tool_names or not self.registry.contains(tool_name):
                 messages.append({"role": "user", "content": f"Observation: '{tool_name}' is not an available tool. Choose from the list or give a final_answer."})
                 steps.append(AgentStep(tool_name or "none", {}, False, "unknown tool"))
+                state["stumbles"] = state.get("stumbles", 0) + 1
+                if state["stumbles"] >= 2:
+                    await self._escalate(state)
                 continue
 
             tool = self.registry.get(tool_name)
@@ -226,6 +247,9 @@ class AgentRunner:
             if missing:
                 messages.append({"role": "user", "content": f"Observation: {tool_name} needs {', '.join(missing)}. Find the value with a tool or ask_user."})
                 steps.append(AgentStep(tool_name, args, False, f"missing {missing}"))
+                state["stumbles"] = state.get("stumbles", 0) + 1
+                if state["stumbles"] >= 2:
+                    await self._escalate(state)
                 continue
 
             signature = (tool_name, json.dumps(args, sort_keys=True, default=str))
@@ -250,6 +274,24 @@ class AgentRunner:
                 return outcome
 
         return AgentOutcome("done", self._summary(steps), steps, state=state, model=model_used)
+
+    async def _deep_available(self) -> bool:
+        """True when a separate, bigger model is installed for the "deep" role (never the same as the planner)."""
+        try:
+            return (await self.client.resolve("deep")) != (await self.client.resolve("planner"))
+        except Exception:
+            return False
+
+    async def _escalate(self, state: dict[str, Any]) -> bool:
+        """Switch this task to the deep model once, when the normal planner is struggling."""
+        if state.get("role") == "deep" or state.get("escalated"):
+            return False
+        state["escalated"] = True
+        if await self._deep_available():
+            logger.info("Agent escalating to the deep model")
+            state["role"] = "deep"
+            return True
+        return False
 
     async def _execute(
         self,

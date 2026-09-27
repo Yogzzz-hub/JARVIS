@@ -51,6 +51,7 @@ class Models(Frozen):
     chat: str = ""
     vision: str = ""
     embed: str = "nomic-embed-text"
+    deep: str = ""
     base_url: str = "http://127.0.0.1:11434"
     keep_alive: str = "30m"
     timeout_s: float = Field(default=60.0, gt=0, le=600)

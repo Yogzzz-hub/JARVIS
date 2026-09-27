@@ -37,10 +37,14 @@ vision = true
 [models]
 # Ollama model roles. If a configured model is not pulled, JARVIS automatically
 # uses the best installed alternative (see `python -m jarvis.diagnostics`).
-fast = "qwen3:1.7b"        # intent classification / slot extraction (small = fast)
-planner = "llama3.2:latest" # multi-step plans and the tool-using agent
-chat = "llama3.2:latest"    # conversation, RAG answers, WhatsApp replies
-vision = "qwen2.5vl:3b"
+# Each role lists models best-first; the first one that is pulled is used.
+# Engine plan: exact commands -> no model; routing -> JDE (+ MiniLM/BGE-small); slightly uncertain intent -> fast;
+# normal planning / chat -> planner/chat; hard planning -> deep (only when installed); screen -> vision (on demand).
+fast = "qwen3.5:2b, qwen3.5:0.8b, qwen3:1.7b"        # uncertain-intent fallback: tiny and quick
+planner = "qwen3.5:4b, llama3.2:latest"             # normal multi-step planning and the tool-using agent
+chat = "qwen3.5:4b, llama3.2:latest"                # conversation, RAG answers, WhatsApp replies
+vision = "qwen3.5:4b, qwen2.5vl:3b"                 # screen understanding (multimodal), loaded only on demand
+deep = "qwen3.6:35b-a3b"                            # hard planning/reasoning only; never pulled automatically
 embed = "nomic-embed-text"  # RAG embeddings (optional; lexical search works without it)
 base_url = "http://127.0.0.1:11434"
 keep_alive = "30m"

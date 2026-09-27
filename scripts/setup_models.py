@@ -126,14 +126,20 @@ def setup_wake(config, check: bool) -> bool:
         return False
 
 
-def setup_ollama(config, check: bool) -> bool:
+def setup_ollama(config, check: bool, want_deep: bool = False) -> bool:
     from jarvis.core.llm.client import find_ollama_executable
 
     exe = find_ollama_executable()
     if not exe:
         print("[ollama]  not installed - get it from https://ollama.com/download (AI answers, planning and the agent need it)")
         return False
-    wanted = [m for m in dict.fromkeys((config.models.fast, config.models.planner, config.models.chat, config.models.embed)) if m]
+    from jarvis.core.llm.client import model_candidates
+    # the first (preferred) model of each everyday role; the ~20 GB deep model only with --deep
+    roles = [config.models.fast, config.models.planner, config.models.chat, config.models.vision, config.models.embed]
+    if want_deep:
+        roles.append(config.models.deep)
+    wanted = [c[0] for c in (model_candidates(r) for r in roles) if c]
+    wanted = list(dict.fromkeys(wanted))
     try:
         listing = subprocess.run([exe, "list"], capture_output=True, text=True, timeout=20).stdout
     except Exception as exc:
@@ -183,11 +189,34 @@ def setup_jde(check: bool, want_glove: bool) -> bool:
     return True
 
 
+def setup_jde_semantic() -> bool:
+    """Retrain the decision engine on a real sentence encoder (BGE-small, else MiniLM), keep it only if better."""
+    from jarvis.decision.encoder import FastEmbedEncoder
+    from jarvis.decision import train as jde_train
+    for name in ("bge-small", "minilm"):
+        try:
+            print(f"[jde]     downloading {name} (FastEmbed ONNX, CPU, ~70-130 MB once) ...")
+            FastEmbedEncoder(name).encode(["probe"])
+        except Exception as exc:
+            print(f"[jde]     {name} unavailable ({exc})")
+            continue
+        print(f"[jde]     training on {name}+hash (a few minutes) ...")
+        jde_train.main(["--encoder", f"{name}+hash", "--auto-promote"])
+        return True
+    print("[jde]     no sentence encoder could be downloaded; the current JDE model stays in use")
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="only report what is missing")
     parser.add_argument("--no-ollama", action="store_true", help="skip pulling Ollama models")
     parser.add_argument("--jde", action="store_true", help="download GloVe vectors for the decision engine")
+    parser.add_argument("--deep", action="store_true",
+                        help="also pull the large deep-reasoning model ([models] deep, e.g. qwen3.6:35b-a3b, ~20 GB)")
+    parser.add_argument("--jde-semantic", action="store_true",
+                        help="download BGE-small / MiniLM (FastEmbed, CPU) and retrain the decision engine on it; "
+                             "the new model is used only if it beats the current one")
     args = parser.parse_args()
 
     from jarvis.config import load
@@ -198,8 +227,10 @@ def main() -> int:
         setup_wake(config, args.check),
         setup_jde(args.check, args.jde),
     ]
+    if args.jde_semantic and not args.check:
+        results.append(setup_jde_semantic())
     if not args.no_ollama:
-        results.append(setup_ollama(config, args.check))
+        results.append(setup_ollama(config, args.check, args.deep))
     print("\nAll models ready." if all(results) else "\nSome items need attention (see above). Voice still starts with fallbacks where possible.")
     return 0 if all(results) else 1
 
