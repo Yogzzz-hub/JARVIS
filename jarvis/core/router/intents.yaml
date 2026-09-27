@@ -1020,12 +1020,21 @@ intents:
       - "^(?:read|check|get|show)(?: the)? (?:messages?|unread messages?)(?: (?:in|on|to|from) whatsapp)?$"
       - "^(?:what are the )?messages (?:i need to respond to|needing reply)$"
       - "^check messages$"
-    keywords: ["whatsapp", "messages", "read whatsapp", "check whatsapp", "messages to respond to", "whatsapp messages", "unread whatsapp", "unread message in whatsapp"]
+      - "^(?:tell me|show me|what is|what's|check)(?: the)? (?:total )?(?:number of )?(?:unread |new |recent )?(?:messages?|msgs?)(?: (?:in|on|from|via) whatsapp)?$"
+      - "^(?:how many|count of)(?: total)? (?:unread |new |recent )?(?:messages?|msgs?)(?: (?:do i have|are there))?(?: (?:in|on|from|via) whatsapp)?$"
+      - "^(?:how many|count of)(?: total)? (?:messages?|msgs?)(?: (?:do i have|are there))? (?:in|on|from|via) whatsapp$"
+      - "^(?:the )?(?:total )?unread (?:messages?|msgs?)(?: (?:in|on|from|via) whatsapp)?$"
+      - "^tell me (?:my |the )?whatsapp (?:messages?|msgs?)$"
+      - "^(?:any|do i have any|are there any) (?:unread |new )?(?:messages?|msgs?)(?: (?:in|on|from|via) whatsapp)?$"
+      - "^what (?:messages?|msgs?) do i have(?: (?:in|on|from|via) whatsapp)?$"
+    keywords: ["whatsapp", "messages", "read whatsapp", "check whatsapp", "messages to respond to", "whatsapp messages", "unread whatsapp", "unread message in whatsapp", "total unread", "unread msg", "how many unread", "unread messages"]
     examples:
       - "read my whatsapp messages"
       - "check whatsapp"
       - "whatsapp messages"
       - "what are the messages i need to respond to"
+      - "tell me the total unread msg in whatsapp"
+      - "how many unread messages in whatsapp"
     negative_examples:
       - "what is whatsapp"
     aliases: {}
@@ -1071,13 +1080,13 @@ intents:
     required_slots: ["recipient", "message"]
     optional_slots: ["confirmation_ticket"]
     patterns:
-      - "^(?:say|tell|send)\\s+(?P<message>(?!whatsapp|message|this|the|a\\s+message).+?)\\s+to\\s+(?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?$"
-      - "^(?:tell|text|message)\\s+(?P<recipient>[a-zA-Z0-9_\\-]+)(?:\\s+(?:in|on)\\s+whatsapp)?\\s+(?:saying\\s+|that\\s+|:\\s*)?(?P<message>.+?)(?:\\s+(?:in|on)\\s+whatsapp)?$"
-      - "^(?:send(?: a)? )?whatsapp (?:message )?to (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
-      - "^(?:send(?: a)? )?message (?:to )?(?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
-      - "^message (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
-      - "^whatsapp (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)\\s+(?P<message>.+)$"
-      - "^tell (?P<recipient>[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?\\s+(?P<message>.+)$"
+      - "^(?:say|tell|send)\\s+(?P<message>(?!whatsapp|message|this|the|a\\s+message).+?)\\s+to\\s+(?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?$"
+      - "^(?:tell|text|message)\\s+(?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-]+)(?:\\s+(?:in|on)\\s+whatsapp)?\\s+(?:saying\\s+|that\\s+|:\\s*)?(?P<message>.+?)(?:\\s+(?:in|on)\\s+whatsapp)?$"
+      - "^(?:send(?: a)? )?whatsapp (?:message )?to (?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
+      - "^(?:send(?: a)? )?message (?:to )?(?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
+      - "^message (?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?(?:\\s+(?:saying|that|:))?\\s+(?P<message>.+)$"
+      - "^whatsapp (?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-\\s]+?)\\s+(?P<message>.+)$"
+      - "^tell (?P<recipient>(?!(?:me|us|myself|jarvis|you|yourself)\\b)[a-zA-Z0-9_\\-\\s]+?)(?:\\s+(?:in|on)\\s+whatsapp)?\\s+(?P<message>.+)$"
     keywords: ["whatsapp", "send whatsapp", "message", "send message", "tell on whatsapp", "say hi", "say hello", "say", "tell", "text", "hi"]
     examples:
       - "send whatsapp message to Mom: I will be home soon"
@@ -1089,6 +1098,9 @@ intents:
       - "tell yoga hi"
     negative_examples:
       - "can i send messages"
+      - "tell me the total unread msg in whatsapp"
+      - "tell me a joke"
+      - "tell me the time"
     aliases: {}
     fuzzy_allowed: true
     fuzzy_threshold: 82.0

@@ -302,7 +302,18 @@ def quick_answer(text: str, now: Optional[datetime] = None) -> Optional[str]:
             out = None
         if out:
             return out
-    low = re.sub(r"\s+", " ", t.lower().rstrip("?.! "))
+    low_raw = re.sub(r"\s+", " ", t.lower().rstrip("?.! "))
+    if re.match(r"^(?:to whom\s+(?:have you|did you|u have|u did|have u|did u)\s+sent?|who\s+(?:did you|have you|did u|have u)\s+(?:just\s+)?send\s+(?:that|it|a message|the message)?(?:\s+to)?|who\s+was\s+(?:that|the)\s+message\s+sent\s+to|what\s+message\s+(?:did you|have you|did u)\s+send|what\s+(?:did you|did u)\s+send)$", low_raw):
+        try:
+            from jarvis.tools.system.whatsapp_tools import get_last_sent
+            last = get_last_sent()
+            if last:
+                return f"The last WhatsApp message was sent to {last['recipient']}: \"{last['message']}\"."
+            return "I haven't sent any WhatsApp messages recently."
+        except Exception:
+            return "I haven't sent any WhatsApp messages recently."
+
+    low = low_raw
     low = re.sub(r"^(?:what(?:'s| is)|whats|calculate|how much is)\s+", "", low)
     m = _TIP.match(low)
     if m:

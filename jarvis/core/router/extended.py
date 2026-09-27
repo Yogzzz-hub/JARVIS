@@ -292,6 +292,59 @@ def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     return _decision(request_id, t, "reply_whatsapp_all", slots, context_trace={"bulk_reply": True})
 
 
+_WA_IN_ON = r"(?:\s+(?:in|on|from|via|to|of)\s+(?:my\s+)?whats\s*app)"
+_MSG_WORDS = r"(?:messages?|msgs?|texts?|chats?)"
+_UNREAD_WORDS = r"(?:unread|new|recent|pending|latest)"
+_GROUP_WORD = re.compile(r"\b(?:groups?|grps?)\b", re.I)
+
+
+def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    """Instant deterministic routing for reading/counting/summarising WhatsApp messages."""
+    if _GROUP_WORD.search(t):
+        return None
+
+    # 1. Summaries: "summarize whatsapp", "summarize my whatsapp messages", "whatsapp summary", "who messaged me on whatsapp"
+    if re.match(rf"^(?:summari[sz]e|summary of)\s+(?:my\s+|the\s+)?(?:whats\s*app(?:\s+{_MSG_WORDS})?|{_MSG_WORDS}{_WA_IN_ON})$", t) \
+            or re.match(r"^whats\s*app\s+summary$", t) \
+            or re.match(rf"^(?:who\s+messaged\s+me|who\s+sent\s+me\s+{_MSG_WORDS}){_WA_IN_ON}$", t):
+        return _decision(request_id, t, "summarize_whatsapp_messages", {})
+
+    # 2. Count or read WhatsApp messages
+    is_wa_read = (
+        # "tell me the total unread msg in whatsapp", "tell me my unread messages in whatsapp", "what is the total unread msg in whatsapp"
+        re.match(rf"^(?:tell me|show me|what(?:'s| is| are)|check|get|read)(?:\s+(?:the|all|my|any))?(?:\s+(?:total|count of|number of))?(?:\s+{_UNREAD_WORDS})?\s+{_MSG_WORDS}{_WA_IN_ON}$", t)
+        # "how many unread messages in whatsapp", "how many unread messages do i have in whatsapp"
+        or re.match(rf"^how many(?:\s+total)?(?:\s+{_UNREAD_WORDS})?\s+{_MSG_WORDS}(?:\s+(?:do i have|are there))?{_WA_IN_ON}$", t)
+        # "total unread messages in whatsapp", "the total unread msg in whatsapp"
+        or re.match(rf"^(?:the\s+)?(?:total\s+)?{_UNREAD_WORDS}\s+{_MSG_WORDS}{_WA_IN_ON}$", t)
+        # "any unread messages in whatsapp", "do i have any unread messages in whatsapp"
+        or re.match(rf"^(?:do i have\s+|are there\s+)?any\s+{_UNREAD_WORDS}\s+{_MSG_WORDS}{_WA_IN_ON}$", t)
+        # "read my whatsapp messages", "check whatsapp messages", "show whatsapp messages"
+        or re.match(rf"^(?:read|check|show|get)\s+(?:my\s+|the\s+)?(?:{_UNREAD_WORDS}\s+)?whats\s*app(?:\s+{_MSG_WORDS})?$", t)
+        # "whatsapp unread messages", "whatsapp messages"
+        or re.match(rf"^whats\s*app(?:\s+{_UNREAD_WORDS})?\s+{_MSG_WORDS}$", t)
+        # "tell me my whatsapp messages", "tell me whatsapp messages"
+        or re.match(rf"^(?:tell me|what are)\s+(?:my\s+|the\s+)?whats\s*app(?:\s+{_MSG_WORDS})?$", t)
+    )
+    if is_wa_read:
+        filt = "unread"
+        if "urgent" in t:
+            filt = "urgent"
+        elif " all " in f" {t} ":
+            filt = "all"
+        return _decision(request_id, t, "read_whatsapp_messages", {"filter": filt})
+
+    # 3. Reading / counting unread messages without explicitly saying "in whatsapp"
+    # "tell me the total unread messages", "how many unread messages", "how many unread messages do i have"
+    if re.match(rf"^(?:tell me\s+)?(?:the\s+)?(?:total\s+)?unread\s+{_MSG_WORDS}$", t) \
+            or re.match(rf"^how many\s+(?:total\s+)?unread\s+{_MSG_WORDS}(?:\s+(?:do i have|are there))?$", t) \
+            or re.match(rf"^(?:what(?:'s| is| are)\s+)?(?:the\s+)?total\s+unread\s+{_MSG_WORDS}$", t):
+        return _decision(request_id, t, "read_whatsapp_messages", {"filter": "unread"})
+
+    return None
+
+
+
 _ON_PC = r"(?:\s+(?:for me|please|now|right now|quickly))?(?:\s+(?:on|in|to|from)\s+(?:my|this|the)\s+(?:pc|laptop|computer|system|machine|desktop))?(?:\s+(?:for me|please|now))?"
 _APP = r"(?P<app>[a-z0-9][a-z0-9 .+#&'-]{0,48}?)"
 
@@ -634,6 +687,9 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     t = re.sub(r"^(?:please|kindly)\s+", "", t)
     if not t:
         return None
+    wa_read = match_whatsapp_read(t, raw, request_id)
+    if wa_read:
+        return wa_read
     software = match_software(re.sub(r"^(?:please|kindly|jarvis|hey jarvis|can you|could you|would you|just)\s+", "", t), request_id)
     if software:
         return software
