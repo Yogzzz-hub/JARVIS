@@ -120,28 +120,45 @@ class FasterWhisperEngine:
             device = self.device_preference
             compute = self.compute_type
             auto = self.model_name_str in ("auto", "best")
-            # "auto": the most accurate model the hardware runs in real time -
-            # large-v3-turbo on an NVIDIA GPU (near large-v3 accuracy, ~8x faster), small.en on the CPU.
-            gpu_model = "large-v3-turbo" if auto else self.model_name_str
-            cpu_model = "small.en" if auto else self.model_name_str
+            if auto:
+                from pathlib import Path
+                is_large_cached = False
+                try:
+                    from huggingface_hub import try_to_load_from_cache
+                    cached = (
+                        try_to_load_from_cache("mobiuslabsgmbh/faster-whisper-large-v3-turbo", "model.bin")
+                        or try_to_load_from_cache("deepdml/faster-whisper-large-v3-turbo", "model.bin")
+                    )
+                    is_large_cached = bool(cached)
+                except Exception:
+                    pass
+                if not is_large_cached:
+                    is_large_cached = Path("models/whisper/large-v3-turbo/model.bin").exists()
+
+                gpu_model = "large-v3-turbo" if is_large_cached else "small.en"
+                cpu_model = "small.en"
+            else:
+                gpu_model = self.model_name_str
+                cpu_model = self.model_name_str
 
             # Try CUDA first ("auto" uses the GPU when CUDA libraries are present)
             if device in ("cuda", "auto"):
-                try:
-                    model = WhisperModel(
-                        gpu_model,
-                        device="cuda",
-                        compute_type=("float16" if auto else "int8_float16") if compute == "int8" else compute,
-                    )
-                    # Verify CUDA DLLs are present by running a tiny test slice
-                    dummy = np.zeros(1600, dtype=np.float32)
-                    _ = list(model.transcribe(dummy, beam_size=1, without_timestamps=True)[0])
-                    self._device_actual = "cuda"
-                    self.model_name_str = gpu_model
-                    logger.info("Whisper loaded on CUDA: model=%s, compute=%s", gpu_model, compute)
-                    return model
-                except Exception as exc:
-                    logger.warning("CUDA load/warmup failed, falling back to CPU: %s", exc)
+                for candidate_model in ([gpu_model] if gpu_model == "small.en" else [gpu_model, "small.en"]):
+                    try:
+                        model = WhisperModel(
+                            candidate_model,
+                            device="cuda",
+                            compute_type=("float16" if candidate_model == "large-v3-turbo" else "int8_float16") if compute == "int8" else compute,
+                        )
+                        # Verify CUDA DLLs are present by running a tiny test slice
+                        dummy = np.zeros(1600, dtype=np.float32)
+                        _ = list(model.transcribe(dummy, beam_size=1, without_timestamps=True)[0])
+                        self._device_actual = "cuda"
+                        self.model_name_str = candidate_model
+                        logger.info("Whisper loaded on CUDA: model=%s, compute=%s", candidate_model, compute)
+                        return model
+                    except Exception as exc:
+                        logger.warning("CUDA load/warmup failed for %s: %s", candidate_model, exc)
 
             # CPU fallback
             import os
