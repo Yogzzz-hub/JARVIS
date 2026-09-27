@@ -89,7 +89,80 @@ class SmartRouter:
         finally:
             _NO_MODEL.reset(token)
 
+    _SEND_INTENTS = ("send_whatsapp_message", "reply_whatsapp_message", "reply_whatsapp_all", "send_whatsapp_bulk",
+                     "whatsapp_action", "send_email", "localsend_text")
+    _NOT_A_CONTACT = frozenset({"me", "myself", "i", "you", "u", "yourself", "us", "we", "him", "her", "them", "it", "this",
+                                "that", "someone", "anyone", "somebody", "everyone", "jarvis", "the", "my", "total", "all",
+                                "to", "a", "an", "whatsapp", "message", "msg"})
+    _TELL_ME = re.compile(r"^(?:(?:hey\s+)?jarvis\s*,?\s+)?(?:(?:can|could|would)\s+(?:you|u)\s+)?(?:please\s+)?"
+                          r"(?:tell\s+me|show\s+me|let\s+me\s+know|give\s+me|find\s+out)\s+(?P<rest>.+)$", re.I)
+
     async def route(self, request: CommandRequest | str) -> RouteDecision:
+        """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
+        if isinstance(request, str):
+            request = CommandRequest(text=request)
+        decision = await self._route(request)
+        decision = await self._tell_me(request, decision)
+        return self._check_recipient(decision)
+
+    async def _tell_me(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """'tell me how many unread messages I have' asks for information: route what comes after 'tell me'.
+        Used when the whole sentence found nothing better (chat / planner / clarify) or found a message send."""
+        m = self._TELL_ME.match((request.text or "").strip())
+        if not m or _IN_CLAUSE.get():
+            return decision
+        weak = decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY) or decision.intent in (None, "chat", "quick_answer") \
+            or decision.intent in self._SEND_INTENTS
+        if not weak:
+            return decision
+        rest = m.group("rest").strip()
+        if len(rest.split()) < 2 or re.match(r"^(?:about|a\s+(?:joke|story|fact)|something)\b", rest, re.I):
+            return decision  # "tell me about X" / "tell me a joke" are conversation
+        token = _NO_MODEL.set(True)
+        try:
+            inner = await self._route(request.model_copy(update={"text": rest}))
+        finally:
+            _NO_MODEL.reset(token)
+        # only information comes back from "tell me ...": a read-only answer, never an action on the PC, and never
+        # a definition question ("tell me what notepad is used for" is conversation, not close/open notepad)
+        definitional = re.search(r"\b(?:mean|means|meaning|used\s+for|use\s+of|is\s+for|stands?\s+for|difference|"
+                                 r"how\s+(?:does|do|to)|why)\b", rest, re.I)
+        if (inner.lane == RouteLane.LANE_0 and inner.intent and inner.intent not in self._SEND_INTENTS
+                and not definitional and self._is_read_only(inner.intent)):
+            inner.request_id = request.request_id
+            return inner
+        if decision.intent in self._SEND_INTENTS:  # "tell me <something>" is never a message to someone called "me"
+            return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.6,
+                                 source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
+        return decision
+
+    _READ_ONLY_CACHE: frozenset[str] | None = None
+
+    def _is_read_only(self, intent: str) -> bool:
+        if self._READ_ONLY_CACHE is None:
+            try:
+                ro = {c.target_tool for c in self.capability_registry.list_all()
+                      if str(getattr(c.risk_level, "value", c.risk_level)).upper() == "READ_ONLY"}
+            except Exception:
+                ro = set()
+            type(self)._READ_ONLY_CACHE = frozenset(ro | {"read_whatsapp_messages", "summarize_whatsapp_messages", "get_time",
+                                                         "battery_status", "network_info", "recent_actions", "quick_answer"})
+        return intent in self._READ_ONLY_CACHE
+
+    def _check_recipient(self, decision: RouteDecision) -> RouteDecision:
+        if decision.intent not in self._SEND_INTENTS:
+            return decision
+        who = str((decision.slots or {}).get("recipient") or (decision.slots or {}).get("to") or "").strip().lower()
+        if who and who.strip(" .'\"") in self._NOT_A_CONTACT:
+            return RouteDecision(request_id=decision.request_id, lane=RouteLane.CLARIFY, intent=decision.intent,
+                                 slots={k: v for k, v in decision.slots.items() if k not in ("recipient", "to")}, confidence=0.4,
+                                 source=decision.source, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text, clarification="Who should I send it to?",
+                                 reason_code=ReasonCode.LOW_CONFIDENCE, missing_slots=["recipient"])
+        return decision
+
+    async def _route(self, request: CommandRequest | str) -> RouteDecision:
         t0 = perf_counter_ns()
         if isinstance(request, str):
             request = CommandRequest(text=request)
@@ -145,6 +218,17 @@ class SmartRouter:
             )
             self._record(decision)
             return decision
+
+        # 3a-0. Follow-ups about what JARVIS just did ("who did you send that to?") come from the action record,
+        # never from a messaging pattern that would treat "you" / "me" as a contact.
+        from jarvis.core.action_log import is_followup
+        if is_followup(original_text):
+            follow = RouteDecision(
+                request_id=request_id, lane=RouteLane.LANE_0, intent="recent_actions", slots={"question": original_text.strip()},
+                confidence=1.0, source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE, normalized_text=routing_text,
+                reason_code=ReasonCode.EXACT_PATTERN, routing_ms=(perf_counter_ns() - t0) / 1e6, breakdown_ms=breakdown)
+            self._record(follow)
+            return follow
 
         # 3a. "Reply to everyone who messaged me ... don't reply in groups": the constraint is part of the
         # request, not a negation of it, so this is decided before the negation guard.

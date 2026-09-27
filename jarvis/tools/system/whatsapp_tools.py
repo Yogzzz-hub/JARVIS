@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 import time
 from typing import Any, Optional
 from pydantic import Field
@@ -356,6 +357,8 @@ class ReadWhatsAppMessagesInput(Contract):
     limit: int = Field(default=5, ge=1, le=50, description="Max messages to retrieve")
     include_groups: bool = Field(default=False, description="Also read group chats (only when the owner asks about groups)")
     group: str = Field(default="", max_length=80, description="Read only this named group (only when the owner names it)")
+    sender: str = Field(default="", max_length=80, description="Only messages from this person (name or number)")
+    count_only: bool = Field(default=False, description="Answer 'how many' questions: the exact total, per person")
 
 
 class ReadWhatsAppMessagesOutput(Contract):
@@ -394,7 +397,7 @@ class ReadWhatsAppMessagesTool(Tool):
             arguments = ReadWhatsAppMessagesInput(**arguments)
 
         filt = arguments.filter.lower().strip()
-        lim = arguments.limit
+        lim = 1000 if (arguments.count_only or arguments.sender.strip()) else arguments.limit
         group_id, label = None, ""
         if arguments.group.strip():
             group_id, label = _resolve_group(self.inbox, arguments.group)
@@ -415,9 +418,21 @@ class ReadWhatsAppMessagesTool(Tool):
         msg_dicts = [m.to_dict() for m in raw_msgs
                      if not m.is_from_me and not _COMMAND_ECHO.search(m.text or "")
                      and (m.sender_display_name or "").strip().casefold() not in ("owner", "me", "jarvis")]
+        who_filter = arguments.sender.strip().casefold()
+        if who_filter:
+            digits = re.sub(r"\D", "", who_filter)
+            msg_dicts = [m for m in msg_dicts if who_filter in (m.get("sender") or "").casefold()
+                         or (len(digits) >= 6 and digits in re.sub(r"\D", "", m.get("chat_id") or ""))]
         count = len(msg_dicts)
 
         where = f" in {label}" if group_id else ("" if arguments.include_groups else " in your personal chats")
+        if arguments.count_only:
+            return {"status": "SUCCESS", "count": count, "filter": filt, "messages": msg_dicts[:arguments.limit],
+                    "spoken_summary": self._count_summary(msg_dicts, filt, where, arguments)}
+        if who_filter and count == 0:
+            spoken = f"No {filt.replace('_', ' ')} WhatsApp messages from {arguments.sender.strip()}."
+            return {"status": "SUCCESS", "count": 0, "filter": filt, "messages": [], "spoken_summary": spoken}
+        msg_dicts = msg_dicts[:max(arguments.limit, 5)] if who_filter else msg_dicts
         if count == 0:
             spoken = f"You have no {filt.replace('_', ' ')} WhatsApp messages{where}."
         else:
@@ -436,6 +451,29 @@ class ReadWhatsAppMessagesTool(Tool):
             "messages": msg_dicts,
             "spoken_summary": spoken,
         }
+
+    def _count_summary(self, msgs: list[dict], filt: str, where: str, arguments: Any) -> str:
+        """'You have 12 unread WhatsApp messages in your personal chats: Sushmitaa 5, Scooby 4, Arun 3.' (exact)"""
+        kind = {"unread": "unread", "needs_reply": "waiting", "urgent": "urgent", "all": "recent"}.get(filt, filt)
+        n = len(msgs)
+        if n == 0:
+            text = f"You have no {kind} WhatsApp messages{where}."
+        else:
+            per = Counter(m.get("sender") or "someone" for m in msgs)
+            people = ", ".join(f"{name} {c}" for name, c in per.most_common(5))
+            more = f" and {len(per) - 5} more people" if len(per) > 5 else ""
+            text = (f"You have {n} {kind} WhatsApp message{'s' if n != 1 else ''}{where}"
+                    + (f" from {len(per)} people: {people}{more}." if len(per) > 1 else f", all from {people.rsplit(' ', 1)[0]}."))
+        if not arguments.include_groups and not arguments.group.strip():
+            try:
+                groups = [m for m in (self.inbox.get_unread(limit=1000, include_groups=True) if filt == "unread" else [])
+                          if getattr(m, "is_group", False) and not m.is_from_me]
+                if groups:
+                    chats = len({m.chat_id for m in groups})
+                    text += f" Group chats have {len(groups)} more in {chats} group{'s' if chats != 1 else ''}."
+            except Exception:
+                pass
+        return text
 
 
 # =====================================================================

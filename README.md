@@ -746,6 +746,13 @@ intelligence stays in Python.
   - **Faster:** a greeting or quick "ok" that you have answered the same way before ("gm" → "gm da ☀️") gets your own
     usual reply instantly, without the language model; everything else still goes through the model and the
     quality checks. Your own new messages keep teaching the profile; JARVIS's messages never do.
+- **Questions about your WhatsApp** are answered, never sent: "tell me the total unread messages" gives the exact
+  count per person (plus how many group messages wait, without reading them), "what did Arun say" / "messages from
+  Priya" read that person's messages, "who messaged me" summarises. "Me", "you", "him", "it" are never treated as
+  contacts - JARVIS asks who you mean.
+- **JARVIS remembers what it did.** Every finished action is recorded (what, to whom, result, when). "Who did you
+  send that to?", "what did you just do?", "did it send?", "what did you say?" are answered from that record, and
+  the chat model sees the last few actions, so follow-ups are never guessed (`jarvis/core/action_log.py`).
 - **Diagnostics:** `python -m jarvis.integrations.whatsapp.doctor`.
 
 ### English and Thanglish

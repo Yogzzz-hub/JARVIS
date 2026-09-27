@@ -783,6 +783,28 @@ class CommandService:
             raise
         return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=locals().get("predicted_ms", 400.0))
 
+    def _log_action(self, task, state, message, tool_result) -> None:
+        """Remember what was actually done, for follow-ups ("who did you send that to?") and the chat model."""
+        try:
+            from jarvis.core.action_log import CHAT, get_action_log
+            decision = getattr(self, "_last_decisions", {}).get(task.request_id)
+            tool = getattr(tool_result, "tool_name", "") or (decision.intent if decision else "") or ""
+            lane = decision.lane if decision is not None else None
+            if lane in (RouteLane.CONTROL, RouteLane.REJECT, RouteLane.CLARIFY) or state == State.WAITING_CONFIRMATION:
+                return
+            args = dict(decision.slots or {}) if decision is not None else {}
+            data = getattr(tool_result, "data", None) or {}
+            if isinstance(data, dict):  # what really happened beats what was asked (resolved contact, final text)
+                for key in ("recipient", "resolved_name", "message", "path", "url", "name"):
+                    if data.get(key) and isinstance(data[key], str):
+                        args["recipient" if key == "resolved_name" else key] = data[key]
+            if tool in ("chat", "general_chat", "assistant_chat", "quick_answer") or (not tool and message):
+                tool = CHAT
+            get_action_log().record(tool, args, getattr(state, "value", str(state)), message or "",
+                                    request=getattr(getattr(task, "request", None), "text", "") or "")
+        except Exception:
+            pass
+
     def _finalize(self, task, state, message, tool_result, verification, clock, current, is_voice: bool = False, predicted_ms: float = 400.0):
         try:
             from jarvis.core.multilingual import REPLY_LANGUAGE, THANGLISH, in_thanglish
@@ -810,6 +832,7 @@ class CommandService:
             elif getattr(self.response, "enabled", False):
                 self.response.schedule_final(task.request_id, message)
 
+            self._log_action(task, state, message, tool_result)
             result = CommandResult(request_id=task.request_id, state=state.value, message=message,
                                    tool_result=tool_result, verification=verification, metrics=clock.metrics())
             task.result = result

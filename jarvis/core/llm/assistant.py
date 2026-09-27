@@ -229,6 +229,14 @@ class Assistant:
             language_rule = ""
         if language_rule:
             parts.append(language_rule)
+        try:
+            from jarvis.core.action_log import get_action_log
+            done = get_action_log().context_lines(5)
+        except Exception:
+            done = []
+        if done:
+            parts.append("What JARVIS actually did for the owner recently (use this to answer follow-up questions such as "
+                         "'who did you send that to' - never guess):\n- " + "\n- ".join(done))
         # The clock goes last: everything above is identical between requests, so Ollama reuses
         # its evaluated prompt prefix (KV cache) and only the new tokens are processed.
         parts.append(f"Current local date and time: {now.strftime('%A, %d %B %Y, %I:%M %p %Z')}.")

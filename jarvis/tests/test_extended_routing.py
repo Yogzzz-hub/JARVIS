@@ -36,7 +36,7 @@ CASES = [
     ("how many unread messages in whatsapp", "read_whatsapp_messages", {"filter": "unread"}),
     ("what is the total unread msg in whatsapp", "read_whatsapp_messages", {"filter": "unread"}),
     ("summarize my whatsapp", "summarize_whatsapp_messages", {}),
-    ("to whom u have sent", "quick_answer", {"query": "to whom u have sent"}),
+    ("to whom u have sent", "recent_actions", {"question": "to whom u have sent"}),  # answered from the action record
     # knowledge
     ("learn my documents folder", "knowledge_ingest", {"path": "documents"}),
     ("what do my documents say about the refund policy", "knowledge_search", {"question": "the refund policy"}),

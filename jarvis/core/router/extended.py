@@ -296,6 +296,7 @@ _WA_IN_ON = r"(?:\s+(?:in|on|from|via|to|of)\s+(?:my\s+)?whats\s*app)"
 _MSG_WORDS = r"(?:messages?|msgs?|texts?|chats?)"
 _UNREAD_WORDS = r"(?:unread|new|recent|pending|latest)"
 _GROUP_WORD = re.compile(r"\b(?:groups?|grps?)\b", re.I)
+_COUNT_WORDS = re.compile(r"\b(?:total|how many|count|number of)\b")
 
 
 def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
@@ -332,14 +333,38 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
             filt = "urgent"
         elif " all " in f" {t} ":
             filt = "all"
-        return _decision(request_id, t, "read_whatsapp_messages", {"filter": filt})
+        slots = {"filter": filt}
+        if _COUNT_WORDS.search(t):
+            slots["count_only"] = True  # "total" / "how many": the exact number, per person
+        return _decision(request_id, t, "read_whatsapp_messages", slots)
 
     # 3. Reading / counting unread messages without explicitly saying "in whatsapp"
     # "tell me the total unread messages", "how many unread messages", "how many unread messages do i have"
     if re.match(rf"^(?:tell me\s+)?(?:the\s+)?(?:total\s+)?unread\s+{_MSG_WORDS}$", t) \
-            or re.match(rf"^how many\s+(?:total\s+)?unread\s+{_MSG_WORDS}(?:\s+(?:do i have|are there))?$", t) \
-            or re.match(rf"^(?:what(?:'s| is| are)\s+)?(?:the\s+)?total\s+unread\s+{_MSG_WORDS}$", t):
-        return _decision(request_id, t, "read_whatsapp_messages", {"filter": "unread"})
+            or re.match(rf"^how many\s+(?:total\s+)?(?:unread\s+|new\s+)?{_MSG_WORDS}(?:\s+(?:do i have|have i got|are there|did i get|i have|i got))?(?:\s+(?:today|now))?$", t) \
+            or re.match(rf"^(?:what(?:'s| is| are)\s+)?(?:the\s+)?(?:total\s+|number\s+of\s+|count\s+of\s+)(?:unread\s+|new\s+)?{_MSG_WORDS}$", t):
+        slots = {"filter": "unread"}
+        if _COUNT_WORDS.search(t):
+            slots["count_only"] = True
+        return _decision(request_id, t, "read_whatsapp_messages", slots)
+
+    # 4. "who messaged me", "who texted me today", "anyone messaged me?"
+    if re.fullmatch(r"(?:who(?:\s+all)?|anyone|anybody|did anyone|has anyone)\s+(?:has\s+|have\s+)?(?:messaged|texted|pinged|msged|"
+                    r"sent\s+(?:me\s+)?(?:a\s+)?(?:message|msg|text))(?:\s+me)?(?:\s+(?:today|now|recently|just now))?", t):
+        return _decision(request_id, t, "summarize_whatsapp_messages", {})
+
+    # 5. One person's messages: "what did arun say", "what did amma send", "messages from priya", "what is arun saying"
+    m = (re.fullmatch(r"what\s+(?:did|has)\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:say|said|send|sent|text|texted|message|messaged|write|wrote)"
+                      r"(?:\s+(?:me|to me))?(?:\s+(?:today|now|recently|just now|on whatsapp|in whatsapp))?", t)
+         or re.fullmatch(r"what\s+(?:is|'s)\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:saying|asking|telling me)", t)
+         or re.fullmatch(r"what\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:said|sent|texted|wrote|asked|messaged)(?:\s+(?:me|to me))?"
+                         r"(?:\s+(?:today|now|recently|on whatsapp|in whatsapp))?", t)
+         or re.fullmatch(rf"(?:read\s+|show\s+|check\s+)?(?:the\s+|my\s+)?(?:latest\s+|last\s+|new\s+|unread\s+)?{_MSG_WORDS}\s+from\s+"
+                         r"(?P<who>[a-z0-9][a-z0-9 .'+-]{0,30}?)(?:\s+(?:on|in)\s+whats\s*app)?", t))
+    if m:
+        who = m.group("who").strip()
+        if who not in ("you", "u", "it", "they", "that", "this", "he", "she", "we", "someone", "anyone", "everyone", "jarvis"):
+            return _decision(request_id, t, "read_whatsapp_messages", {"filter": "all", "sender": raw_body(raw, who), "limit": 5})
 
     return None
 
