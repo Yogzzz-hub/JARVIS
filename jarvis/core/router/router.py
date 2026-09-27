@@ -1,4 +1,5 @@
 import re
+from contextvars import ContextVar
 from time import perf_counter_ns
 from typing import Any
 from jarvis.core.commands.contracts import CommandRequest
@@ -36,6 +37,11 @@ def _llm_down(decision) -> bool:
     trace = getattr(decision, "context_trace", None) or {}
     return bool(trace.get("llm_unavailable")) or "AI model unavailable" in (getattr(decision, "clarification", "") or "")
 
+# Per-request flags (context variables, so concurrent requests never see each other's):
+_IN_CLAUSE: ContextVar[bool] = ContextVar("router_in_clause", default=False)  # routing one step of a multi-step request
+_NO_MODEL: ContextVar[bool] = ContextVar("router_no_model", default=False)    # deterministic lanes only (live preview)
+
+
 class SmartRouter:
     def __init__(
         self,
@@ -57,7 +63,6 @@ class SmartRouter:
         self.app_resolver = app_resolver
         self.registry_version = registry_version
         self.trace_debug = trace_debug
-        self._in_clause = False
         self.total_routed = 0
         self.lane_counts: dict[str, int] = {lane.value: 0 for lane in RouteLane}
         self.tool_registry = tool_registry
@@ -75,6 +80,14 @@ class SmartRouter:
             self.llm_provider.tool_registry = tool_registry
         self.last_clarification_candidates: list[str] = []
         self.last_clarification_intent: str = "open_app"
+
+    async def preview(self, text: str) -> RouteDecision:
+        """Route without any model call: for live previews of a transcript that is still being spoken."""
+        token = _NO_MODEL.set(True)
+        try:
+            return await self.route(text)
+        finally:
+            _NO_MODEL.reset(token)
 
     async def route(self, request: CommandRequest | str) -> RouteDecision:
         t0 = perf_counter_ns()
@@ -440,7 +453,7 @@ class SmartRouter:
 
         # 3b-multi. "open notepad and type hello", "play X on youtube then set volume to 30": split into steps and route
         # each one, so a single-intent matcher never swallows the rest of the sentence as its argument.
-        if not self._in_clause:
+        if not _IN_CLAUSE.get():
             multi = await self._route_multi_step(routing_text if positive_override else original_text, request_id)
             if multi:
                 multi.routing_ms = (perf_counter_ns() - t0) / 1e6
@@ -1423,7 +1436,9 @@ class SmartRouter:
                         return clarify_dec
 
         # 11. LANE 1: TINY LOCAL MODEL (Ollama)
-        if self._in_clause:  # one step of a multi-step request: no model call here, the planner handles the whole request
+        # One step of a multi-step request (the planner handles the whole request), or a live preview while the user
+        # is still speaking: never wait for (or load) a model here.
+        if _IN_CLAUSE.get() or _NO_MODEL.get():
             return RouteDecision(request_id=request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.5,
                                  source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.COMPLEX, needs_planner=True,
                                  normalized_text=routing_text, reason_code=ReasonCode.MULTI_STEP, candidate_count=0)
@@ -1570,7 +1585,7 @@ class SmartRouter:
             return None
         subs: list[SubCommand] = []
         risks: list[str] = []
-        self._in_clause = True
+        token = _IN_CLAUSE.set(True)
         try:
             for step in steps:
                 d = await self.route(CommandRequest(text=step))
@@ -1581,7 +1596,7 @@ class SmartRouter:
                 subs.append(SubCommand(intent=d.intent, tool=d.intent, arguments=dict(d.slots or {})))
                 risks.append(str(d.risk or "REVERSIBLE"))
         finally:
-            self._in_clause = False
+            _IN_CLAUSE.reset(token)
         if not subs:
             # at least one step needs thinking (research, find, decide): the planner/agent does the whole request
             return RouteDecision(

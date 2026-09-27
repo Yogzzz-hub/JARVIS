@@ -23,6 +23,12 @@ except ImportError:
 
 
 VERB_MAPPING: dict[str, tuple[str, ...]] = {
+    # messaging verbs ("ping mum on whatsapp that ...", "text arun", "tell priya ...")
+    "ping": ("send_whatsapp_message",),
+    "text": ("send_whatsapp_message",),
+    "message": ("send_whatsapp_message",),
+    "tell": ("send_whatsapp_message",),
+    "reply": ("reply_whatsapp_message",),
     "find": ("find_file", "list_directory"),
     "search": ("find_file", "list_directory"),
     "locate": ("find_file",),
@@ -189,10 +195,11 @@ class ToolRetriever:
                 scores[fallback_tool] += 0.5
 
         # Rank tools
+        # Ties broken by name: the same request must always offer the model the same tools (set iteration order
+        # changes between runs, which made the tool list - and the chosen intent - vary from one start to the next).
         ranked_names = sorted(
             [name for name in scores if self.registry.contains(name)],
-            key=lambda name: scores[name],
-            reverse=True,
+            key=lambda name: (-scores[name], name),
         )
 
         # If fewer than k, backfill with remaining registered tools

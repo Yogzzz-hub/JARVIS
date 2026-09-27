@@ -261,7 +261,8 @@ class EndpointDetector:
         # People pause mid-sentence for 0.4-1 s while thinking; ending the turn on a 0.3 s gap cut
         # requests in half. Everything scales from the configured default pause.
         self.default_silence_ms = default_silence_ms
-        self.short_command_silence_ms = short_command_silence_ms or max(300, int(default_silence_ms * 0.55))
+        # A complete command the router already understands ("mute", "open chrome") ends after a short pause.
+        self.short_command_silence_ms = short_command_silence_ms or max(280, int(default_silence_ms * 0.4))
         self.long_utterance_silence_ms = long_utterance_silence_ms or int(default_silence_ms * 1.3)
         self.incomplete_silence_ms = incomplete_silence_ms or int(default_silence_ms * 2.0)
 

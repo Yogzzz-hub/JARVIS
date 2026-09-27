@@ -852,6 +852,38 @@ What makes it fast:
   stream, RAG is skipped while the knowledge base is empty, and query embeddings are cached.
 - **Nothing blocks a command.** SQLite writes are batched on a background thread, and JDE runs off the hot path.
 
+### The low-latency voice workflow
+
+The whole path is built from the same idea used by the fastest voice assistants: **stream every stage, start work
+before it is certainly needed (only when it is safe), and use the cheapest engine that can answer.**
+
+```
+mic ─► wake word / push-to-talk ─► VAD (Silero) ─┬─► partial STT every 200 ms (greedy, sliding window)
+                                                 │      └─► live preview: deterministic router only, no model
+                                                 │            "command complete?" ─► short end-of-turn pause
+                                                 └─► pause starts (200 ms) ─► speculative FINAL STT pass
+                                                        user speaks again ─► discarded
+                                                        pause ends the turn ─► transcript already ready
+transcript ─► router cascade: control ─► exact/extended matchers (~1 ms) ─► JDE ─► fast LLM ─► planner/agent
+          ─► tool (multi-step commands run step by step) ─► reply streamed sentence by sentence into TTS
+```
+
+- **Semantic end of turn.** A pause ends your turn after 0.8 s normally, but after only ~0.32 s when the router has
+  already understood *everything* you said as a complete command ("mute", "open chrome"). The verdict is
+  re-checked on every partial, so "open chrome ..." followed by "and type hello" is never cut off, and a trailing
+  "and" / "then" waits longer.
+- **Speculative final transcription.** The accurate final STT pass starts as soon as a pause begins instead of
+  after the end-of-turn timeout. If the pause turns out to be the end of the turn, the transcript is ready at (or
+  shortly after) the endpoint; if you keep talking, it is thrown away. It only produces text, never actions.
+- **Model-free preview.** The live preview while you speak uses only the deterministic router; it never calls
+  (or loads) an AI model, so the CPU/GPU stays free for speech recognition.
+- **Deterministic tool choice.** When a model is needed, the tools offered to it are ranked with a fixed
+  tie-break, so the same request always gets the same choices.
+
+Voice timings (`speech_end_to_final_transcript`, `route`, `first audio`) are logged per request, and a warning
+`VOICE_LATENCY_REGRESSION` is logged when a simple command takes more than 1.5 s from end of speech to response.
+For the biggest single speed-up on a PC with an NVIDIA GPU, keep `stt_device = "auto"` (Whisper runs on the GPU).
+
 ---
 
 ## 11. Configuration reference

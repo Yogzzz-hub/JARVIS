@@ -134,6 +134,13 @@ WEB_SERVICES = {
     "linkedin": "https://www.linkedin.com",
 }
 
+_FILLER_WORDS = frozenset("""
+on up onto the a an my to screen display monitor please now software program programme application app apps tool
+presentation spreadsheet document editor word-processor browser player media initialize initialise run start launch open
+fire boot load get bring pull show me for us window desktop pc computer quickly kindly
+""".split())
+
+
 class AppResolver:
     def __init__(self, aliases=(), auto_build: bool = True):
         self.user_aliases = aliases
@@ -256,6 +263,20 @@ class AppResolver:
             return LaunchTarget(WEB_SERVICES[cleaned], ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"), True)
         if norm in WEB_SERVICES:
             return LaunchTarget(WEB_SERVICES[norm], ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"), True)
+
+        # One app name among filler words ("chrome on screen please", "initialize powerpoint presentation software").
+        # Only when every other word is filler: "login linkedin in chrome" or "in whatsapp" never resolve this way.
+        tokens = cleaned.split()
+        if 1 < len(tokens) <= 6:
+            names = [t for t in tokens if t not in _FILLER_WORDS]
+            if len(names) == 1:
+                token = names[0]
+                if token in ALIASES and token in self.cache:
+                    return self.cache[token]
+                if token in SYNONYMS and SYNONYMS[token] in self.cache:
+                    return self.cache[SYNONYMS[token]]
+                if token in WEB_SERVICES:
+                    return LaunchTarget(WEB_SERVICES[token], ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"), True)
 
         # Check if direct URL or domain
         if norm.startswith(("http://", "https://", "www.")) or (len(norm.split()) == 1 and any(norm.endswith(tld) for tld in (".com", ".org", ".net", ".io", ".ai", ".dev", ".edu", ".in"))):

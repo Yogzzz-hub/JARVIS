@@ -108,7 +108,9 @@ class EarlyRoutePreview:
             if not normalized:
                 return None
 
-            decision = await self._router.route(stable.text)
+            # deterministic lanes only: a half-spoken sentence must never wait for (or load) an AI model
+            preview = getattr(self._router, "preview", None)
+            decision = await (preview(stable.text) if preview else self._router.route(stable.text))
 
             prediction = PredictedRoute(
                 prefetch_id="",

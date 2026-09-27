@@ -293,6 +293,23 @@ class FasterWhisperEngine:
                 segments=[],
             )
 
+        return await self._final_pass(self._audio_buffer, t0)
+
+    async def speculative_finalize(self) -> TranscriptFinal:
+        """The final (accurate) pass on the audio heard so far, started while the user is pausing.
+
+        The voice pipeline starts this as soon as a pause begins. If the pause becomes the end of the turn (no
+        more speech), its result *is* the final transcript and is ready at, or soon after, the endpoint instead
+        of starting there. If the user speaks again the pipeline discards it. Nothing is executed from it.
+        """
+        return await self._final_pass(self._audio_buffer.copy(), perf_counter_ns())
+
+    async def _final_pass(self, audio, t0: int) -> TranscriptFinal:
+        if not self._loaded or self._model is None or len(audio) == 0:
+            return TranscriptFinal(session_id=self._session_id, text=self._last_partial_text or "",
+                                   stt_model=self.model_name_str, backend="faster_whisper", device=self._device_actual)
+        session_id = self._session_id
+
         def _transcribe_final():
             try:
                 return _run_final(hotwords=self.vocabulary.hotwords() if self.vocabulary else None)
@@ -303,7 +320,7 @@ class FasterWhisperEngine:
             # Accuracy pass: rumble removed and level normalised, Whisper's own Silero VAD cuts out the non-speech
             # parts (noise, music, TV), and segments Whisper is not confident about are dropped.
             segments, info = self._model.transcribe(
-                prepare_audio(self._audio_buffer),
+                prepare_audio(audio),
                 language=self.language,
                 beam_size=self._final_beam(),
                 best_of=1,
@@ -325,10 +342,10 @@ class FasterWhisperEngine:
 
         text, language, segments = await asyncio.to_thread(_transcribe_final)
         finalization_ms = (perf_counter_ns() - t0) / 1e6
-        duration_ms = len(self._audio_buffer) / 16.0
+        duration_ms = len(audio) / 16.0
 
         return TranscriptFinal(
-            session_id=self._session_id,
+            session_id=session_id,
             text=text,
             language=language or "en",
             duration_ms=duration_ms,

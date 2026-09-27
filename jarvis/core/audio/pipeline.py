@@ -40,6 +40,10 @@ WAKE_ACTIVATION_PHRASES = frozenset({
 })
 
 
+def _words(text: str) -> list[str]:
+    return "".join(c.lower() if c.isalnum() or c.isspace() or c == "'" else " " for c in (text or "")).split()
+
+
 class VoicePipeline:
     """Orchestrates the complete voice input pipeline.
 
@@ -49,6 +53,7 @@ class VoicePipeline:
     """
 
     MIN_VOICED_MS = 220  # less real speech than this is noise, not a command
+    SPECULATE_AFTER_MS = 200  # pause length that starts the speculative final STT pass
 
     def __init__(
         self,
@@ -379,6 +384,8 @@ class VoicePipeline:
         # Concurrency & early routing state
         router_complete = False
         partial_task: asyncio.Task | None = None
+        spec_task: asyncio.Task | None = None  # final STT pass started during the pause (see speculative_finalize)
+        can_speculate = bool(self.stt and hasattr(self.stt, "speculative_finalize"))
 
         async def _run_partial() -> None:
             nonlocal router_complete
@@ -394,6 +401,10 @@ class VoicePipeline:
 
                     self._emit("voice.partial", text=p.text, session_id=session.session_id)
 
+                    # A "complete command" verdict is only valid for exactly what was heard so far: new words
+                    # ("open chrome" ... "and type hello") withdraw it until the router judges the longer text.
+                    if _words(p.text) != _words(self._stabilizer.stable_prefix if self._stabilizer else ""):
+                        router_complete = False
                     # Update stabilizer
                     stable = self._stabilizer.update(p)
                     if stable and stable.text:
@@ -408,8 +419,8 @@ class VoicePipeline:
                         # Check early route preview for deterministic intent
                         if self.early_router:
                             pred = await self.early_router.preview(stable)
-                            if pred and pred.is_deterministic and pred.is_complete:
-                                router_complete = True
+                            router_complete = bool(pred and pred.is_deterministic and pred.is_complete
+                                                   and _words(stable.text) == _words(p.text))
             except Exception as exc:
                 logger.debug("Background partial failed: %s", exc)
 
@@ -472,6 +483,10 @@ class VoicePipeline:
 
             # Track speech start and update canonical last_speech_frame_ns
             if vad_result.state == VADState.SPEECH:
+                if spec_task is not None:  # the user kept talking: that pause was not the end of the turn
+                    spec_task.cancel()
+                    spec_task = None
+                    session.speculative_discarded += 1
                 session.last_speech_frame_ns = perf_counter_ns()
                 if trace:
                     trace.mark("last_confirmed_speech_frame", session.last_speech_frame_ns)
@@ -487,11 +502,27 @@ class VoicePipeline:
                     if self.barge_in and getattr(session, "trigger_source", "") != "followup":
                         self.barge_in.on_user_speech_started(session.speech_start_ns)
 
-            # Trigger non-blocking partial background task
+            # A pause has begun: start the accurate final pass now, so the transcript is ready when the pause
+            # turns out to be the end of the turn (it is thrown away if the user speaks again).
+            if (
+                can_speculate
+                and spec_task is None
+                and self.stt.is_loaded
+                and session.speech_start_ns > 0
+                and vad_result.state in (VADState.SILENCE, VADState.TRAILING_SILENCE)
+                and self.vad.silence_duration_ms >= self.SPECULATE_AFTER_MS
+                and self.vad.speech_duration_ms >= self.MIN_VOICED_MS
+            ):
+                spec_task = asyncio.create_task(self.stt.speculative_finalize())
+                session.speculative_started += 1
+
+            # Trigger non-blocking partial background task (not while the speculative final pass is running:
+            # both would compete for the same CPU/GPU)
             now = perf_counter_ns()
             if (
                 self.stt
                 and self.stt.is_loaded
+                and spec_task is None
                 and session.speech_start_ns > 0
                 and (partial_task is None or partial_task.done())
                 and (now - self._last_partial_ns) / 1e6 >= self.partial_interval_ms
@@ -533,7 +564,16 @@ class VoicePipeline:
         if session.speech_start_ns and 0 < voiced_ms < self.MIN_VOICED_MS:
             # A click, cough or noise burst: too little real speech to be a command (Whisper would invent words).
             logger.info("Ignoring %.0f ms of voiced audio (below %d ms)", voiced_ms, self.MIN_VOICED_MS)
+        elif spec_task is not None and session.endpoint_reason not in ("max_utterance_timeout", "ptt_release", "timeout"):
+            try:
+                final = await spec_task  # usually finished already: no speech after the pause began
+                session.speculative_used = True
+            except (asyncio.CancelledError, Exception) as exc:
+                logger.debug("Speculative final pass failed (%s); running the normal one", exc)
+                final = await self.stt.finalize()
         elif self.stt and self.stt.is_loaded and (session.speech_start_ns or session.audio_frames > 15):
+            if spec_task is not None:
+                spec_task.cancel()
             final = await self.stt.finalize()
 
         if final and final.text:

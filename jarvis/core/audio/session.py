@@ -84,6 +84,10 @@ class VoiceSession:
     partial_count: int = 0
     revision_count: int = 0
     endpoint_reason: str = ""
+    # speculative final STT pass (started during a pause, used when that pause ended the turn)
+    speculative_started: int = 0
+    speculative_discarded: int = 0
+    speculative_used: bool = False
     stt_model: str = ""
 
     # Transcript content
@@ -187,6 +191,7 @@ class VoiceSession:
             "partial_count": self.partial_count,
             "revision_count": self.revision_count,
             "endpoint_reason": self.endpoint_reason,
+            "speculative_final_used": self.speculative_used,
             "stt_model": self.stt_model,
             "audio_frames": self.audio_frames,
             "dropped_frames": self.dropped_frames,
