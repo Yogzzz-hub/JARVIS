@@ -147,15 +147,21 @@ class FasterWhisperEngine:
                     is_large_cached = Path("models/whisper/large-v3-turbo/model.bin").exists()
 
                 small = "small" if self.thanglish else "small.en"  # Thanglish needs the multilingual model
-                gpu_model = "large-v3-turbo" if is_large_cached else small
-                cpu_model = small
+                local_ready = None
+                for candidate in (small, "base" if self.thanglish else "base.en", "base"):
+                    if Path(f"models/whisper/{candidate}/model.bin").exists():
+                        local_ready = f"models/whisper/{candidate}"
+                        break
+                small_target = local_ready or small
+                gpu_model = "large-v3-turbo" if is_large_cached else small_target
+                cpu_model = small_target
             else:
                 gpu_model = self.model_name_str
                 cpu_model = self.model_name_str
 
             # Try CUDA first ("auto" uses the GPU when CUDA libraries are present)
             if device in ("cuda", "auto"):
-                fallback = "small" if self.thanglish else "small.en"
+                fallback = cpu_model
                 for candidate_model in ([gpu_model] if gpu_model == fallback else [gpu_model, fallback]):
                     try:
                         model = WhisperModel(
