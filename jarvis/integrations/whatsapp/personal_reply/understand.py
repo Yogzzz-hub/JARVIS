@@ -10,16 +10,25 @@ import re
 from dataclasses import dataclass
 
 from jarvis.integrations.whatsapp.personal_reply import language as lang
+from jarvis.integrations.whatsapp.personal_reply.tanglish_gloss import GLOSS
 
 _ACTION_FAMILIES = {"FILE", "TRANSFER", "APP", "SYSTEM", "DESKTOP", "PACKAGE", "DEVELOPMENT", "BROWSER", "GOOGLE", "PHONE", "MEDIA"}
 _PC_ACTION = re.compile(r"\b(?:send|share|forward|mail|upload|open|install|delete|remove|run|execute|download|screenshot|"
                         r"switch on|turn on|turn off|shut ?down|restart)\b[^.?!]{0,40}\b(?:your|the|my|that|this|a)?\s*"
                         r"(?:pdf|file|files|document|doc|photo|pic|pics|screenshot|resume|report|app|laptop|pc|computer|folder|"
                         r"system|password|otp|code)\b", re.I)
-_GREETING = re.compile(r"^(?:hi+|hey+|hello|hlo|good (?:morning|night|evening|afternoon)|gm|gn|vanakkam|dei|machan|bro)\b", re.I)
-_ACK = re.compile(r"^(?:ok(?:ay)?|k+|seri|sari|thanks?|thank you|ty|cool|nice|super|haa+|hmm+|done|got it)[\s!.👍🙂😊]*$", re.I)
+_PC_ACTION_TA = re.compile(r"\b(?:pdf|file|files|photo|photos|pic|pics|document|doc|resume|notes|screenshot|ss|password|otp|code|"
+                           r"report|video)\s+(?:ah\s+|a\s+|ai\s+)?(?:anuppu|anupu|anuppi\s*vidu|send\s+pannu|kudu|share\s+pannu|"
+                           r"forward\s+pannu)\b", re.I)
+_GREETING = re.compile(r"^(?:hi+|hey+|hello|hlo|hai|good (?:morning|night|evening|afternoon)|gm|gn|vanakkam|dei|machan|machi|"
+                       r"bro|enna da|enna di|hi da|hey da)\b", re.I)
+_ACK = re.compile(r"^(?:ok(?:ay)?|k+|seri|sari|thanks?|thank you|ty|tq|cool|nice|super|semma|haa+|hmm+|done|got it|aama|amam|"
+                  r"ok da|seri da|sari da|ok di|seri di|paravala|kandippa)(?:\s+(?:da|di|bro|machan|pa|ma))?[\s!.👍🙂😊🙏]*$", re.I)
 _QUESTION = re.compile(r"\?\s*$|\b(?:what|when|where|why|how|who|which|can you|could you|will you|are you|did you|do you|"
-                       r"enna|epdi|eppadi|eppo|enga|yen|yaaru)\b|\b\w+(?:ya|la|aa)\s*[?!.]*$", re.I)
+                       r"enna|ena|epdi|eppadi|eppo|epo|enga|yen|yaaru|yaar|evlo|ethana|edhuku|ethuku)\b"
+                       r"|\b\w+(?:ya|la|aa|ah|ngala|uma|ma)(?:\s+(?:da|di|dei|bro|machan|machi|pa|ma|anna|akka))?\s*[?!.]*$", re.I)
+_TANGLISH_REQUEST = re.compile(r"\b(?:anuppu|anupu|sollu|sollunga|kudu|kudunga|vaa|vaanga|vanga|call pannu|paaru|pannu|"
+                               r"pannunga|eduthutu vaa|vaangitu vaa)\b(?:\s+(?:da|di|dei|bro|machan|pa|ma|please|pls))?\s*[!.]*$", re.I)
 _FILLER = re.compile(r"^(?:h+m+|m+h*m+|k+|ok+|okay|oh+|ah+|uh+|ha(?:ha)+|lol+|hm+)$")
 _TOKENS = re.compile(r"[a-z\u0B80-\u0BFF']+")
 
@@ -39,6 +48,8 @@ def is_unclear(text: str) -> bool:
     if not toks:
         return True
     content = [x for x in toks if not _FILLER.match(x)]
+    if any(x in GLOSS for x in content):
+        return False  # a known Tanglish word: a real message
     if not content:
         return "?" in t
     if len("".join(content)) <= 1:
@@ -65,15 +76,16 @@ def understand(text: str, use_jde: bool = True) -> Understanding:
         return Understanding("UNCLEAR", False, mix.label, confidence=0.2)
     if _ACK.match(t):
         intent = "ACK"
-    elif _GREETING.match(t) and len(t.split()) <= 4:
+    elif (_GREETING.match(t) and len(t.split()) <= 4 and "?" not in t
+          and not _QUESTION.search(_GREETING.sub("", t, count=1).strip())):  # "dei tomorrow varuviya?" is a question
         intent = "GREETING"
     elif _QUESTION.search(t):
         intent = "QUESTION"
-    elif re.match(r"^(?:please|pls|plz|can you|send|call|come|bring|tell|share)\b", t, re.I):
+    elif re.match(r"^(?:please|pls|plz|can you|send|call|come|bring|tell|share)\b", t, re.I) or _TANGLISH_REQUEST.search(t):
         intent = "REQUEST"
     else:
         intent = "STATEMENT"
-    pc = bool(_PC_ACTION.search(t))
+    pc = bool(_PC_ACTION.search(t) or _PC_ACTION_TA.search(t))
     route, is_action = "", 0.0
     if use_jde:
         try:

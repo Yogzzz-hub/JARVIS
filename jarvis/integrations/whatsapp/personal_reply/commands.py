@@ -226,3 +226,42 @@ class WhatsAppAutoReplyTool(Tool):
                 return {"status": "REFUSED", "message": str(exc)}
             return {"status": "ENABLED", "message": res["message"], "expires_at": res["expires_at"]}
         return {"status": "UNKNOWN", "message": "Say, for example: reply to Yoga for the next hour."}
+
+
+class LearnChatsInput(Contract):
+    folder: str = Field(default="", max_length=400, description="Optional folder; default data/whatsapp_feed")
+
+
+class LearnChatsOutput(Contract):
+    status: str
+    message: str
+
+
+class WhatsAppLearnChatsTool(Tool):
+    definition = ToolDefinition(
+        name="whatsapp_learn_chats",
+        description="Learns the owner's texting style for each person from chat files dropped into data/whatsapp_feed "
+                    "(WhatsApp export .txt/.zip, WhatsApp Web copy, Telegram/Instagram/Chat Exporter JSON, CSV, "
+                    "'Name: message' transcripts). One-to-one chats only; each file is imported once.",
+        input_model=LearnChatsInput, output_model=LearnChatsOutput, read_only=False, risk=RiskLevel.REVERSIBLE,
+        timeout_s=120.0, tags=("whatsapp", "style", "import", "learn"), execution_method=ExecutionMethod.NATIVE,
+    )
+
+    def __init__(self, agent: Any = None) -> None:
+        self._agent = agent
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = LearnChatsInput(**arguments)
+        agent = self._agent
+        if agent is None:
+            from jarvis.integrations.whatsapp.personal_reply.agent import get_personal_reply_agent
+            agent = get_personal_reply_agent()
+        from pathlib import Path
+        res = agent.import_feed_folder(Path(arguments.folder) if arguments.folder else None)
+        status = "SUCCESS" if res["imported"] else ("NEEDS_INPUT" if res["pending"] else "NOTHING")
+        msg = res["message"]
+        if not res["imported"] and not res["pending"] and not res["failed"]:
+            msg = (f"No new chat files. Put your exports in {res['folder']} (one file per person, or a folder named "
+                   "after the contact), then say 'learn my WhatsApp chats' again.")
+        return {"status": status, "message": msg}

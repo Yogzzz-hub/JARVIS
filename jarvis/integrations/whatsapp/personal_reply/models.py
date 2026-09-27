@@ -99,6 +99,18 @@ class ContactStyleProfile:
     typical_reply_length: str = "1 sentence"
     question_style: str = "rare"
     acknowledgement_style: list[str] = field(default_factory=list)
+    # texting habits with this person (all learned from the owner's own messages)
+    emoji_vocab: list[str] = field(default_factory=list)      # every emoji the owner used with them, most used first
+    emoji_position: str = ""                # end / start / inline / alone (where emojis usually go)
+    emoji_end_rate: float = 0.0             # share of messages that end with an emoji
+    emoji_only_rate: float = 0.0            # share of messages that are only emojis
+    emoji_run: int = 1                      # usual repeat count ("😂😂😂" = 3)
+    laugh_style: str = ""                   # "hahaha", "😂", "lol", ...
+    elongation_rate: float = 0.0            # "sooo", "okkk", "daaa"
+    elongation_examples: list[str] = field(default_factory=list)
+    burst_rate: float = 0.0                 # share of replies sent as several short messages in a row
+    address_terms: list[str] = field(default_factory=list)   # what the owner calls them: da, bro, machan, akka...
+    shorthand: dict[str, str] = field(default_factory=dict)  # {"you": "u", "tomorrow": "tmrw"} when the owner prefers it
     response_patterns: list[str] = field(default_factory=list)
     example_message_ids: list[str] = field(default_factory=list)
     messages_analyzed: int = 0

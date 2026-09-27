@@ -116,6 +116,7 @@ def analyze(contact_id: str, display_name: str, lines: Iterable[ChatLine],
     prof.question_style = "often asks questions" if questions >= 0.3 else "sometimes asks" if questions >= 0.1 else "rarely asks"
     prof.directness = "HIGH" if med <= 5 else "MEDIUM" if med <= 15 else "LOW"
     prof.example_message_ids = [ln.message_id for ln in user[-10:] if ln.message_id]
+    habits(prof, user, texts)
 
     # confidence: enough samples AND a consistent style
     n_factor = min(1.0, len(texts) / 40.0)
@@ -131,3 +132,81 @@ def default_profile(contact_profiles: list[ContactStyleProfile], owner_lines: li
     prof = analyze("__default__", "Default (you)", owner_lines)
     prof.confidence = round(min(prof.confidence, 0.6), 3)  # never as trusted as a person-specific profile
     return prof
+
+
+# ------------------------------------------------------------------ texting habits
+ADDRESS_TERMS = ("da", "di", "dei", "bro", "bruh", "machan", "machi", "macha", "mama", "maams", "akka", "anna", "thambi",
+                 "thangachi", "ma", "pa", "sis", "dude", "buddy", "nanba", "nanbaa", "sir", "madam", "maam", "darling",
+                 "dear", "chellam", "kanna", "boss", "thala", "baby", "babe", "chief", "ji")
+SHORTHAND = {"you": ("u",), "your": ("ur",), "are": ("r",), "okay": ("ok", "k", "kk"), "please": ("pls", "plz", "plss"),
+             "tomorrow": ("tmrw", "tmr", "tmrow", "tomo"), "message": ("msg",), "thanks": ("thx", "tq", "ty", "tnx"),
+             "because": ("coz", "bcoz", "cuz", "bcz"), "what": ("wat", "wht"), "good night": ("gn",),
+             "good morning": ("gm",), "brother": ("bro",), "people": ("ppl",), "really": ("rly",)}
+_LAUGH = re.compile(r"\b(?:a?ha(?:ha)+h?|he(?:he)+|hi(?:hi)+|lol+|lmao+|rofl)\b|😂+|🤣+|😆+", re.I)
+_ELONG = re.compile(r"\b[a-z]*([a-z])\1{2,}[a-z]*\b", re.I)
+
+
+def _emoji_runs(text: str) -> int:
+    best, run, prev = 0, 0, ""
+    for ch in text:
+        if lang.is_emoji(ch) and ch not in "\ufe0f\u200d":
+            run = run + 1 if ch == prev else 1
+            prev = ch
+            best = max(best, run)
+        elif ch not in "\ufe0f\u200d":
+            prev, run = "", 0
+    return best
+
+
+def habits(prof: ContactStyleProfile, user: list[ChatLine], texts: list[str]) -> None:
+    n = len(texts)
+    all_emojis = [e for t in texts for e in lang.emojis(t)]
+    prof.emoji_vocab = [e for e, _ in Counter(all_emojis).most_common(20)]
+    with_emoji = [t for t in texts if lang.emojis(t)]
+    if with_emoji:
+        pos = Counter()
+        for t in with_emoji:
+            plain = "".join(ch for ch in t if not lang.is_emoji(ch) and ch not in "\ufe0f\u200d").strip(" .!?,")
+            stripped = t.rstrip(" .!?,")
+            if not plain:
+                pos["alone"] += 1
+            elif lang.is_emoji(stripped[-1]) or stripped[-1] in "\ufe0f":
+                pos["end"] += 1
+            elif lang.is_emoji(t.lstrip()[0]):
+                pos["start"] += 1
+            else:
+                pos["inline"] += 1
+        prof.emoji_position = pos.most_common(1)[0][0]
+        prof.emoji_end_rate = round(sum(1 for t in texts if (t.rstrip(" .!?,") or " ")[-1:] and
+                                        (lang.is_emoji(t.rstrip(" .!?,")[-1]) or t.rstrip(" .!?,")[-1] == "\ufe0f")) / n, 3)
+        prof.emoji_only_rate = round(pos["alone"] / n, 3)
+        runs = sorted(_emoji_runs(t) for t in with_emoji)
+        prof.emoji_run = max(1, runs[len(runs) // 2])
+    # written laughs ("hahaha", "lol") first: laughing emojis are already covered by the emoji habits
+    laughs = Counter(m.group(0).lower() for t in texts for m in _LAUGH.finditer(t) if not lang.emojis(m.group(0)))
+    prof.laugh_style = laughs.most_common(1)[0][0] if laughs and laughs.most_common(1)[0][1] >= 2 else ""
+    elongated = [m.group(0).lower() for t in texts for m in _ELONG.finditer(t) if not m.group(0).isdigit()
+                 and not m.group(0).lower().startswith("www") and not _LAUGH.fullmatch(m.group(0))]
+    prof.elongation_rate = round(sum(1 for t in texts if any(not _LAUGH.fullmatch(m.group(0)) for m in _ELONG.finditer(t))) / n, 3)
+    prof.elongation_examples = [w for w, _ in Counter(elongated).most_common(4)]
+    # bursts: several owner messages within 90 s form one reply turn
+    turns, size = [], 0
+    ordered = sorted(user, key=lambda ln: ln.timestamp)
+    for i, ln in enumerate(ordered):
+        size += 1
+        nxt = ordered[i + 1] if i + 1 < len(ordered) else None
+        if nxt is None or nxt.timestamp - ln.timestamp > 90:
+            turns.append(size)
+            size = 0
+    prof.burst_rate = round(sum(1 for s in turns if s >= 2) / len(turns), 3) if turns else 0.0
+    words = Counter(w for t in texts for w in _words(t))
+    prof.address_terms = [w for w, c in sorted(((w, words[w]) for w in ADDRESS_TERMS), key=lambda x: -x[1]) if c >= 2][:4]
+    short: dict[str, str] = {}
+    joined = " ".join(t.lower() for t in texts)
+    for full, variants in SHORTHAND.items():
+        full_n = len(re.findall(rf"\b{re.escape(full)}\b", joined))
+        best = max(variants, key=lambda v: len(re.findall(rf"\b{re.escape(v)}\b", joined)))
+        best_n = len(re.findall(rf"\b{re.escape(best)}\b", joined))
+        if best_n >= 2 and best_n > full_n:
+            short[full] = best
+    prof.shorthand = short

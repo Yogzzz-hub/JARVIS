@@ -126,9 +126,9 @@ class StandInLLM:
         self.calls.append({"prompt": prompt, "kwargs": kwargs})
         if self.fail:
             raise LLMError("model offline")
-        current = prompt.split("CURRENT_MESSAGE:\n", 1)[1].split("\n\nREPLY_POLICY", 1)[0].strip()
+        current = re.split(r"\n\n(?:MEANING_HINTS|REPLY_POLICY)", prompt.split("CURRENT_MESSAGE:\n", 1)[1], maxsplit=1)[0].strip()
         target = re.search(r"language for this reply: (\w+)", prompt).group(1)
-        you = re.findall(r"^\s+You: (.+)$", prompt, re.M)
+        you = [y.replace("\n        ", "\n") for y in re.findall(r"^\s+You: (.+(?:\n {8}\S.*)*)", prompt, re.M)]
         if re.fullmatch(r"[\W\d_]*|(?:[bcdfghjklmnpqrstvwxz]{5,}\s*)+", current.lower()):
             return {"reply": "?", "understood": False, "confidence": 0.1, "intent": "unclear"}
         if you:

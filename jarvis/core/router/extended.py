@@ -240,12 +240,35 @@ def match_group_whatsapp(text: str, request_id: str) -> Optional[RouteDecision]:
     return None
 
 
+_LEARN_CHATS = re.compile(
+    r"^(?:please\s+)?(?:learn|train|study|import|feed)\s+(?:on\s+|from\s+)?(?:all\s+)?(?:my\s+|the\s+)?"
+    r"(?:whats\s?app\s+|chat\s+)?(?:chats?|chat\s+(?:exports?|files?|history)|exports?|feed(?:\s+folder)?|conversations?|"
+    r"texting\s+style|style)(?:\s+(?:from|in)\s+(?:the\s+)?(?:feed(?:\s+folder)?|folder))?"
+    r"|^(?:my\s+)?(?:whats\s?app\s+)?chats?\s+(?:ellam\s+)?(?:learn|train|import)\s+(?:pannu|panu)")
+
+
+def match_learn_chats(text: str, request_id: str) -> Optional[RouteDecision]:
+    """'Learn my WhatsApp chats' -> import every chat file in data/whatsapp_feed (all supported formats)."""
+    t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
+    t = re.sub(r"^(?:hey |ok )?jarvis,? ", "", t)
+    if _LEARN_CHATS.search(t) and "group" not in t:
+        return _decision(request_id, t, "whatsapp_learn_chats", {})
+    return None
+
+
 def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     """'Send all the guys who are messaging me that I'm busy' -> reply_whatsapp_all (personal chats only)."""
     raw = (text or "").strip()
     auto = match_auto_reply(raw, request_id)  # time-boxed auto-reply grants come first ("reply to everyone until 10")
     if auto:
         return auto
+    learn = match_learn_chats(raw, request_id)
+    if learn:
+        return learn
+    t0 = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
+    if re.fullmatch(r"(?:(?:do i have|have i got|got|are there|is there)\s+)?any\s+(?:new\s+|unread\s+)?(?:whats\s?app\s+)?"
+                    r"(?:chats?|messages?|msgs?|texts?)(?:\s+(?:on|in)\s+whats\s?app)?(?:\s+for\s+me)?", t0):
+        return _decision(request_id, t0, "summarize_whatsapp_messages", {})
     group = match_group_whatsapp(raw, request_id)  # a group only when the owner names it
     if group:
         return group

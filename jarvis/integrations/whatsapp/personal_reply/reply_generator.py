@@ -34,7 +34,74 @@ def postprocess(text: str, profile: ContactStyleProfile, owner_uses_ai_phrases: 
         out = out[:1].lower() + out[1:]
     if profile.punctuation_style == "none":
         out = out.rstrip(".")
-    return re.sub(r"[ \t]+", " ", out).strip()
+    out = apply_habits(out, profile)
+    return "\n".join(re.sub(r"[ \t]+", " ", ln).strip() for ln in out.split("\n") if ln.strip())
+
+
+# Emoji mood groups: a model emoji the owner never uses with this person is swapped for the owner's own emoji with the
+# same feeling (😆 -> their 😂), or dropped when they have none (never a laughing emoji on sad news).
+EMOJI_MOODS = {
+    "laugh": "😂🤣😆😹😁😄😅😝😜🙈",
+    "love": "❤️❤😍🥰😘💕💖💗💙💚💛💜🤍🖤♥️😻🫶",
+    "smile": "🙂😊☺️☺😇🤗😌😀😃",
+    "sad": "😢😭😞😔🥺😟☹️🙁💔😿",
+    "ok": "👍👌✅🙏🤝👏💯✌️",
+    "wow": "😮😯😲🤯😱😳",
+    "angry": "😡😠🤬😤",
+    "cool": "😎🔥✨🎉🥳💪",
+    "sleep": "😴🥱💤",
+    "think": "🤔🧐",
+    "food": "😋🍕🍔🍛☕🍫",
+}
+
+
+def _mood(emoji: str) -> str:
+    return next((m for m, chars in EMOJI_MOODS.items() if emoji in chars), "")
+
+
+def _swap_emojis(text: str, profile: ContactStyleProfile) -> str:
+    vocab = profile.emoji_vocab
+    if not vocab or profile.messages_analyzed < 10:
+        return text
+    by_mood: dict[str, str] = {}
+    for e in vocab:  # most used first
+        by_mood.setdefault(_mood(e), e)
+    out = []
+    for ch in text:
+        if lang.is_emoji(ch) and ch not in "\ufe0f\u200d" and ch not in vocab:
+            out.append(by_mood.get(_mood(ch), "") if _mood(ch) else "")
+        elif ch == "\ufe0f" and out and out[-1] == "":
+            continue
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _repeat_emojis(text: str, run: int) -> str:
+    if run < 2:
+        return text
+    def widen(m: re.Match) -> str:
+        return m.group(1) * max(run, len(m.group(0)) // max(1, len(m.group(1))))
+    laughing = "".join(re.escape(c) for c in "😂🤣")
+    return re.sub(rf"([{laughing}])\1*", widen, text)
+
+
+def apply_habits(text: str, profile: ContactStyleProfile) -> str:
+    """Make a draft read like the owner's own texting with this person (shorthand, laugh, emojis, bursts)."""
+    out = text
+    for full, short in (profile.shorthand or {}).items():
+        out = re.sub(rf"\b{re.escape(full)}\b", short, out, flags=re.I)
+    if profile.laugh_style and not lang.emojis(profile.laugh_style):
+        out = re.sub(r"\b(?:a?ha(?:ha)+h?|he(?:he)+|lol+|lmao+)\b", profile.laugh_style, out, flags=re.I)
+    out = _swap_emojis(out, profile)
+    out = _repeat_emojis(out, profile.emoji_run)
+    if profile.burst_rate < 0.3:
+        out = " ".join(p.strip() for p in out.split("\n") if p.strip())
+    elif profile.burst_rate >= 0.5 and "\n" not in out:
+        parts = [p for p in re.split(r"(?<=[.!?])\s+", out) if p.strip()]
+        if 2 <= len(parts) <= 3:
+            out = "\n".join(parts)
+    return out
 
 
 class ReplyGenerator:

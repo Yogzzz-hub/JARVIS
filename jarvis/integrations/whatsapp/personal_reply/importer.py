@@ -113,21 +113,48 @@ def parse_export(text: str, owner_names: Iterable[str] = (), contact_name: str =
             skipped += 1
             continue
         entries.append((_to_ts(d, t, ap, order), sender.strip().lstrip("‎"), body))
-    participants = list(dict.fromkeys(s for _, s, _ in entries))
-    if len(participants) > 2:
+    return chat_from_entries([(ts, s, b, None) for ts, s, b in entries], owner_names, contact_name, skipped)
+
+
+def chat_from_entries(entries: list[tuple[float, str, str, Optional[bool]]], owner_names: Iterable[str] = (),
+                      contact_name: str = "", skipped: int = 0) -> ParsedChat:
+    """(timestamp, sender, text, from_me or None) rows from any source -> one-to-one ParsedChat.
+
+    When the source says which messages are the owner's (``from_me``), that is used; otherwise the owner is
+    recognised by name. Group chats (more than two people) are refused."""
+    kept = []
+    for ts, sender, body, mine in entries:
+        body = _EDITED.sub("", (body or "").strip())
+        if not body or SKIP_TEXT.match(body):
+            skipped += 1
+            continue
+        kept.append((ts, (sender or "").strip().lstrip("\u200e") or ("You" if mine else contact_name or "Contact"), body, mine))
+    if not kept:
+        raise ImportError_("No messages with text were found in this file.")
+    participants = list(dict.fromkeys(s for _, s, _, _ in kept))
+    others = {s for _, s, _, mine in kept if mine is False}
+    if len(participants) > 2 and not (all(m is not None for *_, m in kept) and len(others) <= 1):
         raise ImportError_(f"This export has {len(participants)} participants, so it's a group chat. "
                            "Personal reply learning uses one-to-one chats only.")
-    owner = _pick_owner(participants, owner_names, contact_name)
-    contact = next((p for p in participants if p != owner), contact_name or "")
-    lines = [ChatLine(timestamp=ts, sender=s, direction=Direction.USER if s == owner else Direction.CONTACT, text=b,
+    if all(m is not None for *_, m in kept):
+        if not any(m for *_, m in kept):
+            raise ImportError_("None of these messages are yours, so there are no replies of yours to learn from.")
+        owner = next(s for _, s, _, m in kept if m)
+        contact = next((s for _, s, _, m in kept if not m), contact_name or "")
+        mine_of = lambda s, m: m  # noqa: E731
+    else:
+        owner = _pick_owner(participants, owner_names, contact_name)
+        contact = next((p for p in participants if p != owner), contact_name or "")
+        mine_of = lambda s, m: s == owner  # noqa: E731
+    lines = [ChatLine(timestamp=ts, sender=s, direction=Direction.USER if mine_of(s, m) else Direction.CONTACT, text=b,
                       message_id=f"imp_{hashlib.sha1(f'{ts}|{s}|{b}'.encode()).hexdigest()[:16]}")
-             for ts, s, b in entries]
+             for ts, s, b, m in kept]
     return ParsedChat(lines=lines, participants=participants, owner_name=owner, contact_name=contact, skipped_system=skipped)
 
 
 def _pick_owner(participants: list[str], owner_names: Iterable[str], contact_name: str) -> str:
     owners = {_norm_name(n) for n in owner_names if n}
-    owners |= {"you"}
+    owners |= {"you", "me"}
     if len(participants) == 1:
         p = participants[0]
         if _norm_name(p) in owners:

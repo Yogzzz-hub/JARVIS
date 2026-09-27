@@ -724,8 +724,28 @@ intelligence stays in Python.
     automatically for the next hour", "for the next two hours, respond to everyone"). "Stop WhatsApp auto reply" ends
     everything at once.
   - **Never:** groups, "Waiting for this message" placeholders, a resend of an uncertain send, or PC actions.
-  - **Held for you:** sensitive, unclear or low-confidence messages. Full guide:
+  - **Held for you:** sensitive, unclear or low-confidence messages, and any request for files, photos, codes or
+    passwords (English or Tanglish: "resume ah anuppu da"). Full guide:
     [docs/WHATSAPP_PERSONAL_REPLY_AGENT.md](docs/WHATSAPP_PERSONAL_REPLY_AGENT.md).
+  - **Feed it your chats, any format.** Drop files into `data/whatsapp_feed` (git-ignored) and say "learn my
+    WhatsApp chats" (or `POST /whatsapp/personal/feed/import`). One file per person, or a folder named after the
+    contact. Accepted: WhatsApp "Export chat" `.txt` or the `.zip` the phone shares (Android / iPhone, 12 or 24 hour
+    clock), WhatsApp Web copy-paste (`[9:41 pm, 12/05/2024] Name: text`), WhatsApp Chat Exporter JSON (many chats at
+    once, matched by number), Telegram `result.json`, Instagram / Messenger `message_1.json`, CSV (sender / text /
+    time / from_me columns), any JSON list of messages, or plain `Name: text` lines (`Me:` for yours). Each file is
+    imported once; group chats are refused in every format; a person JARVIS can't identify is asked about, never
+    guessed. Single files can also be sent from the dashboard (`POST /whatsapp/personal/import-file`).
+  - **Your texting habits, per person:** which emojis you use with them and where (end of message, alone, repeated
+    like 😂😂), your laugh ("hahaha" vs "lol"), stretched words ("sooo"), what you call them ("da", "machan",
+    "akka"), your shorthand ("u", "tmrw", "pls"), and whether you send one message or 2-3 short ones in a row. Drafts
+    are rewritten to match: an emoji you never use with that person is swapped for your own emoji with the same
+    feeling (😆 → your 😂) or dropped (never a laughing emoji on sad news), and a burst texter's reply is sent as
+    separate messages.
+  - **Understands Tanglish.** Tamil words in the incoming message get meaning hints for the model ("varuviya = will
+    you come?"), and questions, requests and greetings are recognised in Tanglish ("saptiya da", "pdf anuppu").
+  - **Faster:** a greeting or quick "ok" that you have answered the same way before ("gm" → "gm da ☀️") gets your own
+    usual reply instantly, without the language model; everything else still goes through the model and the
+    quality checks. Your own new messages keep teaching the profile; JARVIS's messages never do.
 - **Diagnostics:** `python -m jarvis.integrations.whatsapp.doctor`.
 
 ### English and Thanglish

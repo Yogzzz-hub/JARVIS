@@ -17,11 +17,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from jarvis.integrations.whatsapp.personal_reply import feed
 from jarvis.integrations.whatsapp.personal_reply import importer as imp
 from jarvis.integrations.whatsapp.personal_reply import style_analyzer
 from jarvis.integrations.whatsapp.personal_reply.auto_reply_policy import AutoReplyPolicy, PolicyDecision
@@ -88,6 +91,7 @@ class PersonalReplyAgent:
         self._flush_tasks: dict[str, asyncio.Task] = {}
         self._owner_replied_at: dict[str, float] = {}
         self._last_contact: str = ""
+        self._sent_parts: dict[str, list[tuple[str, str, float]]] = {}
         self._background: Optional[asyncio.Task] = None
 
     # ------------------------------------------------------------------ helpers
@@ -220,7 +224,7 @@ class PersonalReplyAgent:
             await self._notify(f"New WhatsApp message from {name} needs your reply.")
             return {"status": Outcome.NEEDS_USER_REVIEW.value, "reply_id": reply_id, "reason": "model unavailable"}
         self.store.update_reply(reply_id, text=cand.text, draft_hash=text_hash(cand.text), quality=quality.to_dict())
-        self._activity(cid, name, "Draft generated")
+        self._activity(cid, name, "Draft generated", "instant (your own usual reply)" if cand.generator == "instant" else "")
         reasons = list(quality.reasons)
         if und.requests_pc_action:
             reasons.append("asks for files or actions - conversation reply only")
@@ -266,7 +270,9 @@ class PersonalReplyAgent:
         examples = self.index.retrieve(contact_id, current, k=6) if has_profile else []
         ctx = build_context(contact_id, name or self.store.display_name(contact_id), profile, thread, examples, texts)
         owner_ai = any(has_ai_phrases(e.example.reply) for e in examples)
-        cand = await self.generator.generate(ctx, profile, owner_uses_ai_phrases=owner_ai)
+        cand = self._instant_reply(und, current, examples, profile, ctx, owner_ai) if has_profile else None
+        if cand is None:
+            cand = await self.generator.generate(ctx, profile, owner_uses_ai_phrases=owner_ai)
         quality = None
         if cand is not None:
             copied = self.index.copied_reply_similarity(contact_id, cand.text, current) if has_profile else None
@@ -274,6 +280,24 @@ class PersonalReplyAgent:
                                owner_uses_ai_phrases=owner_ai, copied_example_similarity=copied)
         return {"candidate": cand, "quality": quality, "profile": profile, "context": ctx, "understanding": und,
                 "has_profile": has_profile, "examples": examples}
+
+    INSTANT_SIMILARITY = 0.88
+
+    def _instant_reply(self, und, current: str, examples: list, profile, ctx, owner_ai: bool):
+        """Greetings and acknowledgements the owner has answered before ("gm" -> "gm da ☀️"): the owner's own reply,
+        in milliseconds, without the language model. Anything longer or new still goes to the model."""
+        if und.intent not in ("GREETING", "ACK") or len(current.split()) > 5 or "\n" in current.strip():
+            return None
+        good = [e for e in examples if e.similarity >= self.INSTANT_SIMILARITY and len(e.example.context.split()) <= 6
+                and "\n" not in e.example.context.strip() and 0 < len(e.example.reply.split()) <= 8]
+        if not good:
+            return None
+        best = max(good, key=lambda e: e.score)
+        from jarvis.integrations.whatsapp.personal_reply.models import ReplyCandidate
+        from jarvis.integrations.whatsapp.personal_reply.reply_generator import postprocess
+        return ReplyCandidate(text=postprocess(best.example.reply, profile, owner_ai), understood=True, model_confidence=0.9,
+                              language_mode=ctx.target_language, examples_used=[best.example.example_id], prompt_chars=0,
+                              generator="instant")
 
     def _thread(self, chat_id: str, exclude: set[str], limit: int = 10) -> list[tuple[bool, str]]:
         try:
@@ -322,13 +346,26 @@ class PersonalReplyAgent:
         started = self.clock()
         self.store.update_reply(reply_id, status="SENDING", final_hash=text_hash(text.strip()), text=text,
                                 ledger_action_id=action_id if ledger is not None else None, send_started=started)
+        parts = self._message_parts(contact_id, text)
+        for part in parts:
+            self._remember_sent_part(chat_id, part)
         try:
-            ack = await asyncio.wait_for(self.transport.send_text(to=chat_id, text=text), timeout=30.0)
+            ack = await asyncio.wait_for(self.transport.send_text(to=chat_id, text=parts[0]), timeout=30.0)
         except ConnectionError as exc:  # transport refused before anything left the PC
             return self._finish(reply_id, action_id, fingerprint, Outcome.FAILED, f"not connected: {exc}", contact_id, name)
         except Exception as exc:  # timeout / unknown: the message MAY have been sent - never resend blindly
             return self._finish(reply_id, action_id, fingerprint, Outcome.UNCERTAIN, f"{type(exc).__name__}: {exc}", contact_id, name)
         ack = ack or {}
+        for i, part in enumerate(parts[1:], 2):  # the owner texts this person in short bursts: same here
+            if ack.get("success") is False or ack.get("error"):
+                break
+            await asyncio.sleep(self.burst_gap_s)
+            try:
+                more = await asyncio.wait_for(self.transport.send_text(to=chat_id, text=part), timeout=30.0) or {}
+                self._remember_sent_part(chat_id, "", str(more.get("message_id") or (more.get("result") or {}).get("message_id") or ""))
+            except Exception as exc:
+                return self._finish(reply_id, action_id, fingerprint, Outcome.UNCERTAIN,
+                                    f"sent part {i - 1} of {len(parts)}, then {type(exc).__name__}: {exc}", contact_id, name)
         # fake transport: {"message_id": ...}; Baileys bridge: {"success": true, "result": {"message_id": ...}}
         sent_id = str(ack.get("message_id") or (ack.get("result") or {}).get("message_id") or "")
         if ack.get("success") is False or ack.get("error"):
@@ -344,6 +381,31 @@ class PersonalReplyAgent:
         except Exception:
             pass
         return self._finish(reply_id, action_id, fingerprint, Outcome.VERIFIED, "", contact_id, name, sent_id=sent_id, text=text)
+
+    burst_gap_s = 0.8
+
+    def _message_parts(self, contact_id: str, text: str) -> list[str]:
+        """One message, or 2-3 short ones when that is how the owner texts this person."""
+        lines = [ln.strip() for ln in (text or "").split("\n") if ln.strip()]
+        if len(lines) < 2:
+            return [text.strip()]
+        try:
+            burst = self.profile_for(contact_id)[0].burst_rate
+        except Exception:
+            burst = 0.0
+        if burst < 0.3 or len(lines) > 3:
+            return [text.strip()]
+        return lines
+
+    def _remember_sent_part(self, chat_id: str, text: str = "", message_id: str = "") -> None:
+        now = self.clock()
+        bucket = self._sent_parts.setdefault(chat_id, [])
+        bucket[:] = [(h, m, t) for h, m, t in bucket if now - t < 600][-20:]
+        bucket.append((text_hash(text.strip()) if text else "", message_id, now))
+
+    def _is_own_part(self, chat_id: str, message_id: str, text: str) -> bool:
+        h = text_hash(text.strip()) if text else ""
+        return any((h and h == ph) or (message_id and message_id == pm) for ph, pm, _ in self._sent_parts.get(chat_id, []))
 
     def _finish(self, reply_id: int, action_id: str, fingerprint: str, outcome: Outcome, reason: str, contact_id: str,
                 name: str, sent_id: str = "", text: str = "") -> dict[str, Any]:
@@ -412,7 +474,7 @@ class PersonalReplyAgent:
         mid = getattr(message, "message_id", "") or ""
         if is_group_chat(chat_id) or not text or is_placeholder(message):
             return {"status": Outcome.IGNORED_OWN.value}
-        if self.store.is_sent_reply(chat_id, sent_message_id=mid, text=text):
+        if self._is_own_part(chat_id, mid, text) or self.store.is_sent_reply(chat_id, sent_message_id=mid, text=text):
             # JARVIS's own reply echoed back from the phone: not the owner replying, never style training data
             return {"status": Outcome.IGNORED_OWN.value, "reason": "JARVIS's own reply is never style training data"}
         self._owner_replied_at[chat_id] = self.clock()
@@ -444,15 +506,104 @@ class PersonalReplyAgent:
             owner, contact = "you", display_name
         else:
             owners = [owner_name] if owner_name else self.owner_names
-            parsed = imp.parse_export(export_text, owner_names=owners, contact_name=display_name)
+            chats = feed.parse_any(export_text, owner_names=owners, contact_name=display_name)
+            if len(chats) != 1:
+                raise imp.ImportError_(f"That file has {len(chats)} chats; import it with 'learn my WhatsApp chats' "
+                                       "(the feed folder) so each chat goes to the right person.")
+            parsed = chats[0].chat
             lines, owner, contact = parsed.lines, parsed.owner_name, parsed.contact_name
-        self.store.upsert_contact(contact_id, display_name or contact)
+        return self._import_lines(contact_id, display_name or contact, lines, owner)
+
+    def _import_lines(self, contact_id: str, display_name: str, lines: list, owner: str) -> dict[str, Any]:
+        if is_group_chat(contact_id):
+            raise imp.ImportError_("Group chats are never used for personal reply learning.")
+        self.store.upsert_contact(contact_id, display_name)
         added = self.store.add_sources(contact_id, lines)
         result = self.rebuild_profile(contact_id)
         result.update({"lines_added": added, "owner_detected_as": owner,
                        "user_messages": sum(1 for ln in lines if ln.direction == Direction.USER),
                        "contact_messages": sum(1 for ln in lines if ln.direction == Direction.CONTACT)})
         return result
+
+    def import_file(self, data: bytes | str, filename: str = "", contact_id: str = "", display_name: str = "",
+                    owner_name: str = "") -> list[dict[str, Any]]:
+        """Import a chat file in any supported format (see ``feed``). Each one-to-one chat in it is saved for its
+        person: the JID in the file, the contact given, or the saved contact with that name (never a guess)."""
+        owners = [owner_name] if owner_name else self.owner_names
+        results = []
+        for fc in feed.parse_any(data, filename, owner_names=owners, contact_name=display_name):
+            cid = contact_id if contact_id and len(results) == 0 else self._contact_for(fc.contact_hint or fc.chat.contact_name)
+            name = display_name or fc.chat.contact_name or fc.contact_hint
+            if not cid:
+                results.append({"status": "NEEDS_CONTACT", "name": name, "format": fc.source_format,
+                                "message": f"Which WhatsApp contact is '{name}'? Import it from their Contacts page."})
+                continue
+            res = self._import_lines(cid, name, fc.chat.lines, fc.chat.owner_name)
+            res.update({"status": "IMPORTED", "format": fc.source_format, "name": name})
+            results.append(res)
+        return results
+
+    def _contact_for(self, hint: str) -> str:
+        hint = (hint or "").strip()
+        if not hint:
+            return ""
+        if "@" in hint:
+            return "" if is_group_chat(hint) else hint
+        digits = re.sub(r"\D", "", hint)
+        if len(digits) >= 10 and len(digits) >= len(hint.replace(" ", "").replace("+", "")) - 1:
+            return f"{digits}@s.whatsapp.net"
+        known = [c for c in self.store.contacts() if (c.get("display_name") or "").strip().lower() == hint.lower()]
+        if len(known) == 1:
+            return known[0]["contact_id"]
+        try:
+            from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
+            contact, ambiguous, _ = ContactResolver().resolve(hint)
+            if contact is not None and not ambiguous:
+                return contact.jid if "@" in contact.jid else f"{re.sub(r'[^0-9]', '', contact.jid)}@s.whatsapp.net"
+        except Exception:
+            pass
+        return ""
+
+    def import_feed_folder(self, folder: Optional[Path] = None) -> dict[str, Any]:
+        """Import every new chat file dropped into ``data/whatsapp_feed`` (each file once, by content)."""
+        folder = Path(folder or feed.FEED_DIR)
+        folder.mkdir(parents=True, exist_ok=True)
+        ledger_path = folder / ".imported.json"
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        except Exception:
+            ledger = {}
+        imported, pending, failed = [], [], []
+        for path in sorted(folder.rglob("*")):
+            if not path.is_file() or path.name.startswith(".") or path.suffix.lower() not in (".txt", ".zip", ".json", ".csv"):
+                continue
+            data = path.read_bytes()
+            digest = feed.file_hash(data)
+            if ledger.get(digest):
+                continue
+            hint = path.parent.name if path.parent != folder else ""
+            try:
+                results = self.import_file(data, path.name, display_name=hint)
+            except imp.ImportError_ as exc:
+                failed.append({"file": path.name, "reason": str(exc)})
+                continue
+            done = [r for r in results if r["status"] == "IMPORTED"]
+            imported += [{"file": path.name, **r} for r in done]
+            pending += [{"file": path.name, **r} for r in results if r["status"] != "IMPORTED"]
+            if done and len(done) == len(results):
+                ledger[digest] = path.name
+        try:
+            ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        except Exception:
+            pass
+        people = ", ".join(f"{r['name']} ({r['messages_analyzed']} of your messages)" for r in imported)
+        msg = f"Learned your style with {people}." if imported else "No new chat files in the feed folder."
+        if pending:
+            msg += " Couldn't tell who these are: " + ", ".join(p["name"] or p["file"] for p in pending) + \
+                   " - put each file in a folder named after the contact."
+        if failed:
+            msg += f" {len(failed)} file(s) couldn't be read."
+        return {"imported": imported, "pending": pending, "failed": failed, "folder": str(folder), "message": msg}
 
     def rebuild_profile(self, contact_id: str) -> dict[str, Any]:
         sources = self.store.sources(contact_id)

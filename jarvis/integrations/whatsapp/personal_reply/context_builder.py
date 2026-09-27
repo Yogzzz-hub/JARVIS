@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from jarvis.integrations.whatsapp.personal_reply import language as lang
 from jarvis.integrations.whatsapp.personal_reply.example_index import RetrievedExample
 from jarvis.integrations.whatsapp.personal_reply.models import ContactStyleProfile
+from jarvis.integrations.whatsapp.personal_reply.tanglish_gloss import gloss
 
 MAX_THREAD_LINES = 8
 MAX_LINE_CHARS = 220
@@ -74,6 +75,22 @@ def style_lines(profile: ContactStyleProfile, target_language: str) -> list[str]
         lines.append(f"usual acknowledgements: {', '.join(profile.acknowledgement_style[:4])}")
     if profile.greeting_patterns:
         lines.append(f"usual openers: {', '.join(profile.greeting_patterns[:3])}")
+    if profile.emoji_vocab and profile.emoji_frequency >= 0.1:
+        where = {"end": "at the end", "start": "at the start", "inline": "inside the sentence",
+                 "alone": "often as the whole reply"}.get(profile.emoji_position, "")
+        run = f", often repeated like {profile.emoji_vocab[0] * profile.emoji_run}" if profile.emoji_run >= 2 else ""
+        lines.append(f"emojis the owner uses with this person: {' '.join(profile.emoji_vocab[:8])} ({where}{run}); "
+                     "never use other emojis")
+    if profile.laugh_style:
+        lines.append(f"laughs as: {profile.laugh_style}")
+    if profile.address_terms:
+        lines.append(f"calls this person: {', '.join(profile.address_terms[:3])}")
+    if profile.elongation_rate >= 0.1 and profile.elongation_examples:
+        lines.append(f"sometimes stretches words, like: {', '.join(profile.elongation_examples[:3])}")
+    if profile.shorthand:
+        lines.append("writes " + ", ".join(f"'{v}' for '{k}'" for k, v in list(profile.shorthand.items())[:6]))
+    if profile.burst_rate >= 0.4:
+        lines.append("often sends 2-3 short messages in a row: put each short message on its own line")
     if profile.common_tanglish_phrases and target_language != "ENGLISH":
         # vocabulary learned from the owner's own messages to this person - nothing else
         lines.append(f"owner's own Tanglish words with this person: {', '.join(profile.common_tanglish_phrases[:10])}")
@@ -91,7 +108,9 @@ def build(contact_id: str, display_name: str, profile: ContactStyleProfile, thre
     target = choose_language(current, [t for _, t in thread], profile)
     example_lines = []
     for i, ex in enumerate(examples, 1):
-        example_lines.append(f"{i}. Them: {_clip(ex.example.context, MAX_EXAMPLE_CHARS)}\n   You: {_clip(ex.example.reply, MAX_EXAMPLE_CHARS)}")
+        # several short messages in a row stay on separate lines: that is part of how the owner texts
+        reply = "\n        ".join(_clip(part, MAX_EXAMPLE_CHARS) for part in ex.example.reply.split("\n") if part.strip())
+        example_lines.append(f"{i}. Them: {_clip(ex.example.context, MAX_EXAMPLE_CHARS)}\n   You: {reply}")
     example_text = "\n".join(example_lines)
     system = (
         "You write WhatsApp replies AS the account owner (first person), exactly how the owner normally texts this contact. "
@@ -111,6 +130,8 @@ def build(contact_id: str, display_name: str, profile: ContactStyleProfile, thre
         f"RECENT_THREAD (oldest first):\n{thread_text or '(no recent messages)'}",
         f"RELEVANT_USER_EXAMPLES (how the owner replied to this person before):\n{example_text or '(none)'}",
         f"CURRENT_MESSAGE:\n{current}",
+        *([("MEANING_HINTS (Tanglish words in the message, to understand it - do not copy these into the reply):\n- "
+            + "\n- ".join(hints))] if (hints := gloss(current)) else []),
         "REPLY_POLICY:\nReply as the owner would to this person right now. "
         f"Use {target.lower()} (Tanglish = Tamil in English letters, only as the owner naturally writes it)."
         + (f" {reply_policy_extra}" if reply_policy_extra else ""),

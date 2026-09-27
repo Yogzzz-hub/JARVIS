@@ -691,8 +691,9 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
         ReplyWhatsAppAllTool(),
         SendWhatsAppBulkTool(),
     ]
-    from jarvis.integrations.whatsapp.personal_reply.commands import WhatsAppAutoReplyTool
+    from jarvis.integrations.whatsapp.personal_reply.commands import WhatsAppAutoReplyTool, WhatsAppLearnChatsTool
     whatsapp_tools.append(WhatsAppAutoReplyTool())
+    whatsapp_tools.append(WhatsAppLearnChatsTool())
     from jarvis.tools.system.whatsapp_tools import ContactInfoTool
     whatsapp_tools.append(ContactInfoTool())
     web_tools = [WebSearchTool()]

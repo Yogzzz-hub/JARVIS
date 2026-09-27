@@ -19,6 +19,15 @@ class ImportBody(BaseModel):
     owner_name: str = ""
 
 
+class FileBody(BaseModel):
+    filename: str = ""
+    content_base64: str = ""    # a file (zip / txt / json / csv) from the dashboard's file picker
+    text: str = ""              # or pasted text in any supported format
+    contact_id: str = ""
+    display_name: str = ""
+    owner_name: str = ""
+
+
 class TextBody(BaseModel):
     text: str
 
@@ -103,6 +112,25 @@ def register(app: FastAPI, runtime: Any) -> None:
                                                from_inbox=body.from_inbox, owner_name=body.owner_name)
         except ImportError_ as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.post(base + "/import-file")
+    async def import_file(body: FileBody) -> dict[str, Any]:
+        import base64
+        try:
+            data: bytes | str = base64.b64decode(body.content_base64) if body.content_base64 else body.text
+        except ValueError as exc:
+            raise HTTPException(400, "content_base64 is not valid base64") from exc
+        if body.contact_id:
+            _cid(body.contact_id)
+        try:
+            return {"results": _agent(runtime).import_file(data, body.filename, contact_id=body.contact_id,
+                                                           display_name=body.display_name, owner_name=body.owner_name)}
+        except ImportError_ as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post(base + "/feed/import")
+    async def import_feed() -> dict[str, Any]:
+        return _agent(runtime).import_feed_folder()
 
     @app.post(base + "/contacts/{contact_id}/rebuild")
     async def rebuild(contact_id: str) -> dict[str, Any]:
