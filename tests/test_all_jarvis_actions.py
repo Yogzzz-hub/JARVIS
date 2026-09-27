@@ -303,7 +303,7 @@ async def test_router_lane0_coverage(router):
         ("open documents folder", "open_known_folder", {"folder": "Documents"}),
         ("open sound settings", "open_system_settings", {"page": "sound"}),
         ("open display settings", "open_system_settings", {"page": "display"}),
-        ("open task manager", "open_system_settings", {"page": "task manager"}),
+        ("open task manager", "pc_quick_action", {"action": "task_manager"}),
         ("lock the pc", "system_power_control", {"action": "lock"}),
         ("press enter", "keyboard_shortcut", {"key": "enter"}),
         ("press escape", "keyboard_shortcut", {"key": "escape"}),
@@ -315,7 +315,7 @@ async def test_router_lane0_coverage(router):
         ("open antigravity", "antigravity_ide_control", {"action": "open"}),
         ("focus coding prompt", "antigravity_ide_control", {"action": "focus"}),
         ("open terminal panel", "antigravity_ide_control", {"action": "open terminal"}),
-        ("explain visible error", "antigravity_ide_control", {"action": "explain visible error"}),
+        ("explain visible error", "describe_screen", {"device": "pc", "question": "explain visible error"}),
     ]
 
     for utterance, expected_intent, expected_slots in cases:

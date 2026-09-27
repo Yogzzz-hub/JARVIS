@@ -37,7 +37,8 @@ def test_config(tmp_path):
     assert config.server.host == "127.0.0.1" and config.server.workers == 1
     with pytest.raises(ValidationError):
         config.server.port = 99
-    for data in ({"server": {"host": "0.0.0.0"}}, {"features": {"phone": True}},
+    assert Config.model_validate({"features": {"phone": True}}).features.phone is True
+    for data in ({"server": {"host": "0.0.0.0"}}, {"features": {"phone": "invalid"}},
                  {"performance": {"event_queue_size": 0}}, {"surprise": True}):
         with pytest.raises(ValidationError):
             Config.model_validate(data)

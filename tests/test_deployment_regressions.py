@@ -97,6 +97,22 @@ def test_missing_capability_returns_failure():
     assert 'not available' in result.message
 
 
+def test_confirmed_compound_stops_when_verification_fails():
+    async def scenario():
+        service = make_service()
+        service.executor.execute.return_value = ToolResult(
+            success=False, tool_name='open_app', error='Confirmation required',
+            data={'confirmation_required': True, 'ticket_id': 'test_ticket', 'human_summary': 'Open apps'})
+        first = await service.handle(CommandRequest(text='open notepad and calculator'))
+        assert first.state == 'WAITING_CONFIRMATION'
+        service.executor.execute.return_value = ToolResult(success=True, tool_name='open_app', data={'name': 'notepad'})
+        service.verifier.verify.return_value = VerificationResult(verified=False, confidence=0., error='No process')
+        result = await service.handle(CommandRequest(text='confirm'))
+        assert result.state == 'FAILED'
+        assert service.executor.execute.await_count == 2  # failed verification prevents the next launch
+    asyncio.run(scenario())
+
+
 def test_disabled_planner_does_not_execute():
     service = make_service()
     result = asyncio.run(service.handle(CommandRequest(text='How do I open Chrome?')))
