@@ -693,6 +693,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     ]
     from jarvis.integrations.whatsapp.personal_reply.commands import WhatsAppAutoReplyTool
     whatsapp_tools.append(WhatsAppAutoReplyTool())
+    from jarvis.tools.system.whatsapp_tools import ContactInfoTool
+    whatsapp_tools.append(ContactInfoTool())
     web_tools = [WebSearchTool()]
     from jarvis.tools.system.connector_tools import create_connector_tools
     conn_tools = create_connector_tools(working_memory=working_memory)

@@ -294,6 +294,30 @@ class GetAppLocationTool(Tool):
 # 5. Install Software Tool
 # =====================================================================
 
+# Popular apps that are not in winget, or need an account first. JARVIS opens the official page instead of guessing.
+MANUAL_DOWNLOADS: dict[str, tuple[str, str, str]] = {
+    "cisco packet tracer": ("Cisco Packet Tracer", "https://www.netacad.com/resources/lab-downloads",
+                            "Cisco only offers it after you sign in with a free Cisco Networking Academy account."),
+    "packet tracer": ("Cisco Packet Tracer", "https://www.netacad.com/resources/lab-downloads",
+                      "Cisco only offers it after you sign in with a free Cisco Networking Academy account."),
+    "matlab": ("MATLAB", "https://www.mathworks.com/downloads/", "it needs a MathWorks account and licence."),
+    "autocad": ("AutoCAD", "https://www.autodesk.com/education/edu-software/overview",
+                "it needs an Autodesk account (free for students)."),
+    "photoshop": ("Adobe Photoshop", "https://www.adobe.com/products/photoshop.html", "it installs through Adobe Creative Cloud with your Adobe ID."),
+    "microsoft office": ("Microsoft Office", "https://www.office.com/", "it installs from your Microsoft account."),
+    "office": ("Microsoft Office", "https://www.office.com/", "it installs from your Microsoft account."),
+    "eclipse ide": ("Eclipse IDE", "https://www.eclipse.org/downloads/", "the official installer is not in winget."),
+    "gns3": ("GNS3", "https://www.gns3.com/software/download", "it needs a free GNS3 account."),
+}
+
+
+def manual_download(name: str) -> tuple[str, str, str] | None:
+    key = " ".join((name or "").lower().replace("-", " ").split())
+    if key in MANUAL_DOWNLOADS:
+        return MANUAL_DOWNLOADS[key]
+    return next((v for k, v in MANUAL_DOWNLOADS.items() if len(k) > 5 and k in key), None)
+
+
 class InstallSoftwareInput(Contract):
     name: str = Field(min_length=1, max_length=128, description="Name of the software or application to install")
     package_id: Optional[str] = Field(default=None, description="Optional explicit package ID")
@@ -354,12 +378,32 @@ class InstallSoftwareTool(Tool):
             pkg = self.package_catalog.resolve_package(raw_name)
 
         if not pkg:
+            manual = manual_download(raw_name)
+            if manual:
+                name, url, why = manual
+                opened = False
+                try:
+                    import webbrowser
+                    opened = webbrowser.open(url)
+                except Exception:
+                    pass
+                return {
+                    "status": "NEEDS_USER",
+                    "app_name": name,
+                    "package_id": "",
+                    "executable_path": None,
+                    "message": (f"{name} can't be installed automatically: {why} "
+                                f"{'I opened the official download page' if opened else 'Download it from ' + url}. "
+                                "Once the installer is downloaded, say 'open my downloads' and run it; I'll find the app "
+                                "after that."),
+                }
             return {
                 "status": "FAILED",
                 "app_name": raw_name,
                 "package_id": "",
                 "executable_path": None,
-                "message": f"Could not find a trusted installer package for '{raw_name}'.",
+                "message": (f"I couldn't find '{raw_name}' in the Windows package manager (winget). Check the spelling, "
+                            f"or say 'search the web for {raw_name} download' and install it from the official site."),
             }
 
         # Check if already installed

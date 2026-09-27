@@ -215,7 +215,12 @@ class VoicePipeline:
 
     def _assistant_speaking(self, tail_ms: float = 250.0) -> bool:
         """True while JARVIS's own voice may be on the microphone (playback, queued audio or its tail)."""
-        out = getattr(self.response_engine, "audio_output", None) if self.response_engine else None
+        engine = self.response_engine
+        # Still composing / synthesising the next sentence counts as speaking: the gap between two sentences
+        # must not open the follow-up window (the microphone would hear JARVIS itself and cut the answer off).
+        if engine is not None and (getattr(engine, "_active_requests", None) or getattr(engine, "_speech_tasks", None)):
+            return True
+        out = getattr(engine, "audio_output", None) if engine else None
         if out is None:
             return False
         if getattr(out, "is_playing", False):
@@ -316,6 +321,7 @@ class VoicePipeline:
     ) -> None:
         """Handle a complete speech session from wake to final transcript."""
         session = VoiceSession(source="mic")
+        session.trigger_source = trigger_source
         session.wake_timestamp_ns = perf_counter_ns()
         trace = LatencyTrace(session_id=session.session_id)
         trace.mark("wake_detected", session.wake_timestamp_ns)
@@ -476,7 +482,9 @@ class VoicePipeline:
                     session.transition(VoiceState.SPEECH_ACTIVE)
                     self._emit("voice.speech_started", session_id=session.session_id)
                     logger.info("speech_started %s", session.session_id)
-                    if self.barge_in:
+                    # Speaking after "Hey Jarvis" / push-to-talk may cut the wake acknowledgement short. In the
+                    # follow-up window, "speech" during a reply is most often JARVIS's own voice (echo): never cancel.
+                    if self.barge_in and getattr(session, "trigger_source", "") != "followup":
                         self.barge_in.on_user_speech_started(session.speech_start_ns)
 
             # Trigger non-blocking partial background task

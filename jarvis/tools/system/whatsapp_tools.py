@@ -726,3 +726,39 @@ class SendWhatsAppBulkTool(Tool):
         else:
             status, text = "FAILED", f"Couldn't send any of the messages ({failed[0]['error'] if failed else 'unknown error'})."
         return {"status": status, "sent": sent, "failed": failed, "message": text}
+
+
+# =====================================================================
+# Who is <contact>? (answered from the owner's contacts and chats)
+# =====================================================================
+
+class ContactInfoInput(Contract):
+    name: str = Field(min_length=1, max_length=80, description="Contact name to describe")
+
+
+class ContactInfoOutput(Contract):
+    status: str
+    message: str
+    name: str = ""
+    jid: str = ""
+
+
+class ContactInfoTool(Tool):
+    definition = ToolDefinition(
+        name="contact_info",
+        description="Tells who one of the owner's contacts is: number, last WhatsApp message, how often they chat and "
+                    "the owner's usual style with them. Read only.",
+        input_model=ContactInfoInput,
+        output_model=ContactInfoOutput,
+        read_only=True,
+        risk=RiskLevel.READ_ONLY,
+        timeout_s=10.0,
+        tags=("contacts", "whatsapp", "people"),
+        execution_method=ExecutionMethod.NATIVE,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = ContactInfoInput(**arguments)
+        from jarvis.integrations.whatsapp.people import describe_person
+        return describe_person(arguments.name)

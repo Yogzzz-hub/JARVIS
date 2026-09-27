@@ -190,7 +190,7 @@ _BULK_PEOPLE = re.compile(
     r"whoever|anyone|anybody|those(?:\s+(?:guys|people|persons|ones))?|these(?:\s+(?:guys|people|persons|ones))?|"
     r"the\s+(?:guys|people|persons|ones|contacts|folks)|people|guys)\s+"
     r"(?:who|that|which|whom)?\s*(?:are\s+|is\s+|have\s+|has\s+|were\s+|was\s+|had\s+|all\s+)?(?:been\s+|all\s+)?"
-    r"(?:messag|text|ping|whats\s?app|chat|writ|dm|contact|reach|wish)\w*\s+(?:to\s+|with\s+)?me\b(?:\s+(?:on|in|via)\s+whats\s?app)?"
+    r"(?:messag|text|ping|whats\s?app|chat|writ|dm|contact|reach|wish|typ|call|mail)\w*\s+(?:to\s+|with\s+)?me\b(?:\s+(?:on|in|via)\s+whats\s?app)?"
     r"(?:\s+(?:today|now|recently|so far|this morning|this evening|tonight|just now))?"
 )
 _BULK_ALL_MESSAGES = re.compile(
@@ -263,6 +263,7 @@ def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     tail = t[m.end():]
     tail = re.sub(r"^\s*(?:,|\.|;|:|-)?\s*(?:and\s+)?(?:please\s+)?(?:just\s+)?(?:(?:tell|say|saying|inform|let)\s+(?:them|those|everyone|all)?\s*(?:know)?\s*)?"
                   r"(?:know\s+)?(?:that|saying|with|:)?\s*", "", tail)
+    tail = re.sub(r"^(?:is|as|like|with|to)\s+", "", tail.strip())  # "... typing to me is i am at work"
     body = raw_body(raw, tail).strip(" ,.;:") if tail.strip() else ""
     slots = {"message": body, "request": raw}
     return _decision(request_id, t, "reply_whatsapp_all", slots, context_trace={"bulk_reply": True})
@@ -274,6 +275,10 @@ _APP = r"(?P<app>[a-z0-9][a-z0-9 .+#&'-]{0,48}?)"
 
 def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
     """install / uninstall / update applications (winget)."""
+    t = re.sub(r"^(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+|pls\s+|plz\s+)?", "", t)
+    # "install cisco packet tracer and set up and do all installation" - the extra words are not part of the name
+    t = re.sub(r"\s*(?:,|and|&|then)\s+(?:(?:please|also)\s+)?(?:set\s*(?:it\s+)?up|setup|configure|finish|complete|do\s+(?:all|the|every)\w*|"
+               r"make\s+it\s+work|run\s+it|open\s+it|get\s+it\s+(?:running|working|ready))\b.*$", "", t).strip(" ?.!")
     m = re.match(rf"^(?:install|set ?up|download and install|get and install)\s+(?:the\s+)?(?:app\s+|application\s+|software\s+)?{_APP}(?:\s+(?:app|application|software))?{_ON_PC}$", t)
     if m and m.group("app").strip() not in ("it", "that", "this", "them", "updates", "all updates"):
         return _decision(request_id, t, "install_software", {"name": m.group("app").strip()})
@@ -486,6 +491,41 @@ _PC_QUICK = [
 ]
 
 
+_BROWSERS = r"chrome|google chrome|edge|microsoft edge|firefox|brave|the browser|browser"
+_LOGIN = re.compile(
+    rf"^(?:(?:open|launch|start)\s+(?P<b1>{_BROWSERS})\s+(?:and|&|then)\s+)?(?:please\s+)?(?:log\s*into|sign\s*into|log\s*in|sign\s*in|login|signin)"
+    rf"\s+(?:to\s+|into\s+|in\s+to\s+|on\s+|at\s+)?(?:my\s+)?(?P<site>[a-z0-9][a-z0-9. ]{{0,24}}?)(?:\s+(?:account|site|website|page))?"
+    rf"(?:\s+(?:in|on|using|with|via)\s+(?P<b2>{_BROWSERS}))?$")
+
+
+def match_person(t: str, request_id: str) -> Optional[RouteDecision]:
+    """'who is yoga' -> the owner's contact, only when that name is really in their contacts or chats."""
+    m = re.match(r"^(?:who\s+is|who's|whos|tell\s+me\s+about|do\s+you\s+know|what\s+do\s+you\s+know\s+about)\s+"
+                 r"(?:my\s+(?:contact|friend)\s+)?(?P<n>[a-z][a-z .'-]{1,40}?)$", t)
+    if not m or m.group("n").split()[0] in ("the", "a", "an", "this", "that", "my", "your", "he", "she", "it", "you", "i"):
+        return None
+    try:
+        from jarvis.integrations.whatsapp.people import known_person
+        if not known_person(m.group("n")):
+            return None
+    except Exception:
+        return None
+    return _decision(request_id, t, "contact_info", {"name": m.group("n").strip()})
+
+
+def match_login(t: str, request_id: str) -> Optional[RouteDecision]:
+    """'open chrome and login linkedin', 'login linkedin in chrome' -> the site's sign-in page in that browser."""
+    m = _LOGIN.match(t)
+    if not m or m.group("site").strip() in ("", "it", "there", "here", "again", "now", "the browser"):
+        return None
+    from jarvis.tools.system.assistant_tools import login_url
+    site = m.group("site").strip()
+    browser = (m.group("b1") or m.group("b2") or "").replace("google ", "").replace("microsoft ", "")
+    browser = "" if browser in ("browser", "the browser") else browser
+    slots = {"url": login_url(site), "title": f"{site.title()} sign-in page", **({"browser": browser} if browser else {})}
+    return _decision(request_id, t, "open_website", slots)
+
+
 def match_quick_actions(t: str, request_id: str) -> Optional[RouteDecision]:
     """Browser and Windows shortcuts: instant, no model."""
     if PHONE_REF.search(t):
@@ -523,6 +563,12 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
                 r"|^(?:i(?:'ve| have)?|ok(?:ay)?,? i(?:'ve| have)?)\s+(?:logged|signed)\s+in(?:\s+now)?(?:,? continue)?$"
                 r"|^done logging in$", t) or (re.match(r"^(?:continue|carry on|go on|keep going|resume)$", t) and _web_task_pending()):
         return _decision(request_id, t, "web_task", {"resume": True})
+    person = match_person(t, request_id)
+    if person:
+        return person
+    login = match_login(t, request_id)
+    if login:
+        return login
     quick = match_quick_actions(t, request_id)
     if quick:
         return quick

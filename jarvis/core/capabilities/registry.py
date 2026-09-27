@@ -1712,6 +1712,11 @@ EXTENDED_CAPABILITY_DEFINITIONS: List[CapabilityDefinition] = [
     _cap("security.password", CapabilityCategory.SYSTEM, "Generates a strong random password and copies it to the clipboard.",
          ["generate password", "strong password", "random password"], ["Generate a strong password", "Create a password of 20 characters"],
          "generate_password", optional=["length"], risk=RiskLevel.READ_ONLY, cost=CostTier.FREE, family="SYSTEM"),
+    _cap("contacts.who", CapabilityCategory.WHATSAPP,
+         "Tells who one of your contacts is from your own data: their number, last WhatsApp message and how you chat.",
+         ["who is", "tell me about my contact", "do you know"], ["Who is Yoga?", "Tell me about Karthik"],
+         "contact_info", counter=["Who is the prime minister of India", "Message Yoga"], required=["name"],
+         risk=RiskLevel.READ_ONLY, cost=CostTier.LOW, family="WHATSAPP"),
     _cap("browser.quick", CapabilityCategory.BROWSER,
          "Instant browser controls: new, close or reopen a tab, next/previous tab, go to tab N, back, forward, reload, "
          "zoom, bookmark, history, downloads, incognito window, find on page, scroll, full screen.",

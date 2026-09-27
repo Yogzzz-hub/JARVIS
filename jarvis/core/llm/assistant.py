@@ -81,8 +81,31 @@ def is_personal_question(query: str) -> bool:
     return bool(_PERSONAL_Q.search(q)) and not _NOT_PERSONAL.search(q) and not needs_live_data(q)
 
 
+# Facts about people, companies and events: a small local model misremembers these, so they are grounded in live
+# web results (about a second) - "who is Sundar Pichai", "when did Chandrayaan 3 land", "what is Anthropic".
+FACT_PATTERN = re.compile(
+    r"^(?:who\s+(?:is|was|are|were|founded|invented|owns|made|created|wrote|directed)|when\s+(?:is|was|did|does|will)|"
+    r"where\s+(?:is|was)\s+(?!my\b)|what\s+(?:company|country|year|happened)|how\s+(?:old|tall|rich)\s+is)\b"
+    r"(?!.*\b(?:my|mine|you|your|i|me)\b)", re.I)
+
+# Chat cannot act: an answer that promises or claims an action it never performed misleads the user.
+_ACTION_CLAIM = re.compile(
+    r"\b(?:i'?ll|i\s+will|i'?m\s+going\s+to|i\s+am\s+going\s+to|let\s+me|i'?ve|i\s+have|i\s+just)\s+(?:now\s+|also\s+|go\s+ahead\s+and\s+)?"
+    r"(?:open(?:ed)?|launch(?:ed)?|log(?:ged)?\s*in|sign(?:ed)?\s*in|sen[dt]|install(?:ed)?|set\s+up|navigate[d]?|click(?:ed)?|"
+    r"type[d]?|repl(?:y|ied)|message[d]?|download(?:ed)?|delete[d]?|clos(?:e|ed)|turn(?:ed)?\s+(?:on|off))\b", re.I)
+
+
+def claims_action(text: str) -> bool:
+    return bool(_ACTION_CLAIM.search(text or ""))
+
+
+HONEST_NO_ACTION = ("I didn't do anything yet - in chat I can only talk. Say it as a command and I'll do it, for example "
+                    "\"reply to everyone who messaged me that I'm at work\", \"open LinkedIn login in Chrome\" or "
+                    "\"install VLC\".")
+
+
 def needs_live_data(query: str) -> bool:
-    return bool(LIVE_DATA_PATTERN.search(query or ""))
+    return bool(LIVE_DATA_PATTERN.search(query or "") or FACT_PATTERN.search((query or "").strip()))
 
 
 class ConversationMemory:
@@ -357,6 +380,10 @@ class Assistant:
             return AssistantReply(text="I couldn't come up with an answer just now. Please try again.", ok=False, error=str(exc))
 
         text = result.text.strip() or "I don't have an answer for that yet."
+        if claims_action(text):
+            # e.g. "I'll open a new tab, navigate to LinkedIn and log in" - nothing was done; never pretend.
+            logger.info("Chat answer claimed an action it cannot perform; replaced: %r", text[:120])
+            text = HONEST_NO_ACTION
         if speakable:
             text = to_speakable(text, max_chars=600)
         if record:

@@ -150,6 +150,7 @@ Tickets expire after 30 seconds.
 | **Phone (Android)** | `lock my phone`, `turn up the volume on my phone`, `open spotify on my phone`, `take a screenshot of my phone`, `read my phone notifications`, `tap Allow on my phone`, `turn off bluetooth on my phone`, `call 98765 43210 on my phone`, `mirror my phone` |
 | **Phone (instant)** | `set my phone brightness to 40`, `set phone volume to 8`, `open quick settings on my phone`, `open wifi settings on my phone`, `open the notification panel on my phone`, `what app is open on my phone`, `send sms to 98765 43210 saying I'm late` (you tap send) |
 | **Phone ⇄ PC files** | `get the latest photo from my phone`, `copy my last 3 screenshots from my phone`, `copy report.pdf to my phone`, `send this file to my phone` (LocalSend) |
+| **People & logins** | `who is Yoga?` (answered from your contacts and chats), `open chrome and login linkedin`, `sign in to my github account` (opens the real sign-in page; your browser's saved password fills in) |
 | **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting` (personal chats only; groups are skipped), `reply to Yoga automatically for the next hour`, `stop WhatsApp auto reply` |
 | **Google** | `check my emails`, `draft an email to priya about the report`, `what's on my calendar tomorrow`, `schedule a meeting with arun at 11 tomorrow` |
 | **Developer** | `git status`, `run the project tests`, `what's causing this stack trace` |

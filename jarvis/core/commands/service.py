@@ -77,6 +77,22 @@ class CommandService:
                 return request
         return request
 
+    _FRAGMENT = re.compile(r"^(?:(?:no|i mean|i meant|it's|its|do it)\s*,?\s+)?(?:in|on|via|using|through|with)\s+(?:the\s+|my\s+)?"
+                           r"(?:whats\s?app|chrome|edge|firefox|brave|browser|gmail|e-?mail|telegram|phone|mobile|youtube|spotify)"
+                           r"(?:\s+(?:app|please))?[.!?]?$", re.I)
+
+    def _expand_fragment(self, request):
+        """'in whatsapp' right after a request = that request, done in WhatsApp (not an app called 'in whatsapp')."""
+        text = (request.text or "").strip()
+        last, at = getattr(self, "_last_user_text", ""), getattr(self, "_last_user_at", 0.0)
+        if last and time.monotonic() - at < 180 and self._FRAGMENT.match(text) and not self._FRAGMENT.match(last):
+            combined = f"{last.rstrip(' ?.!')} {text.rstrip(' ?.!')}"
+            try:
+                return request.model_copy(update={"text": combined})
+            except Exception:
+                return request
+        return request
+
     async def _run_shortcut(self, request, clock=None):
         """Voice shortcuts: a saved phrase expands into its steps, each handled (routed + policy-checked) in order."""
         if not getattr(request, "is_owner", True) or (getattr(request, "metadata", None) or {}).get("shortcut_depth"):
@@ -181,6 +197,8 @@ class CommandService:
         if not self.accepting:
             raise RuntimeError("service shutting down")
         request = self._expand_repeat(request)
+        request = self._expand_fragment(request)
+        self._last_user_text, self._last_user_at = request.text, time.monotonic()
         shortcut = await self._run_shortcut(request, clock)
         if shortcut is not None:
             return shortcut

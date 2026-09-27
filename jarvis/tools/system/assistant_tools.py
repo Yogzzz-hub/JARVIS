@@ -33,6 +33,7 @@ logger = logging.getLogger("jarvis.tools.assistant")
 class OpenWebsiteInput(Contract):
     url: str = Field(min_length=3, max_length=2048, description="Web address or search URL to open")
     title: str = Field(default="", max_length=200, description="Optional human description of the page")
+    browser: str = Field(default="", max_length=20, description="Optional browser: chrome, edge, firefox or brave (default browser if empty)")
 
 
 class OpenWebsiteOutput(Contract):
@@ -40,6 +41,31 @@ class OpenWebsiteOutput(Contract):
     title: str
     opened: bool
     message: str
+
+
+BROWSER_EXES = {"chrome": "chrome", "google chrome": "chrome", "edge": "msedge", "microsoft edge": "msedge",
+                "firefox": "firefox", "brave": "brave"}
+
+# Sign-in pages of popular sites (JARVIS opens them; the browser's saved password fills in - it never types passwords).
+LOGIN_URLS = {
+    "linkedin": "https://www.linkedin.com/login", "gmail": "https://mail.google.com/", "google": "https://accounts.google.com/",
+    "youtube": "https://accounts.google.com/ServiceLogin?service=youtube", "instagram": "https://www.instagram.com/accounts/login/",
+    "facebook": "https://www.facebook.com/login", "github": "https://github.com/login", "twitter": "https://x.com/login",
+    "x": "https://x.com/login", "netflix": "https://www.netflix.com/login", "amazon": "https://www.amazon.in/ap/signin",
+    "flipkart": "https://www.flipkart.com/account/login", "outlook": "https://outlook.live.com/", "microsoft": "https://login.live.com/",
+    "whatsapp": "https://web.whatsapp.com/", "whatsapp web": "https://web.whatsapp.com/", "netacad": "https://www.netacad.com/",
+    "chatgpt": "https://chatgpt.com/auth/login", "claude": "https://claude.ai/login", "canva": "https://www.canva.com/login",
+    "spotify": "https://accounts.spotify.com/login", "reddit": "https://www.reddit.com/login", "leetcode": "https://leetcode.com/accounts/login/",
+    "naukri": "https://www.naukri.com/nlogin/login", "zoom": "https://zoom.us/signin", "notion": "https://www.notion.so/login",
+}
+
+
+def login_url(site: str) -> str:
+    key = " ".join((site or "").lower().replace(".com", "").split())
+    if key in LOGIN_URLS:
+        return LOGIN_URLS[key]
+    domain = key.replace(" ", "")
+    return f"https://{domain}" if "." in domain else f"https://www.{domain}.com/"
 
 
 def normalize_url(url: str) -> str:
@@ -71,15 +97,27 @@ class OpenWebsiteTool(Tool):
         if isinstance(arguments, dict):
             arguments = OpenWebsiteInput(**arguments)
         url = normalize_url(arguments.url)
+        exe = BROWSER_EXES.get((arguments.browser or "").lower().strip())
         if self.opener is not None:
             self.opener(url)
+        elif exe and sys.platform == "win32":
+            # "start chrome <url>" uses the browser's registered App Path - no hard-coded install folders
+            subprocess.Popen(["cmd", "/c", "start", "", exe, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         elif sys.platform == "win32":
             os.startfile(url)  # type: ignore[attr-defined]  # default browser, no console window
         else:
             if not webbrowser.open(url):
                 subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         label = arguments.title or re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
-        return {"url": url, "title": arguments.title, "opened": True, "message": f"Opened {label}."}
+        where = f" in {arguments.browser.title()}" if exe else ""
+        if arguments.title.endswith("sign-in page"):
+            # JARVIS never types passwords: the browser's saved login fills in, the user presses Sign in.
+            msg = (f"Opened the {label}{where}. If your browser has the password saved it fills in - just press "
+                   "Sign in. Tell me what to do once you're logged in.")
+        else:
+            msg = f"Opened {label}{where}."
+        return {"url": url, "title": arguments.title, "opened": True, "message": msg}
 
 
 # ============================================================================ reminders
