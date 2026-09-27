@@ -143,12 +143,18 @@ Tickets expire after 30 seconds.
 | **Knowledge (RAG)** | `learn my documents folder`, `what do my documents say about the refund policy`, `search my notes for the wifi setup`, `what did rahul say about the trip` |
 | **Ask anything** | `explain recursion`, `what's the weather in Chennai today`, `latest news about AI`, `write a birthday wish for my sister`, `tell me a joke` |
 | **Browser (instant)** | `open a new tab`, `close this tab`, `reopen the closed tab`, `next tab`, `go to tab 3`, `go back`, `refresh the page`, `zoom in`, `reset zoom`, `bookmark this page`, `open incognito window`, `find on page`, `scroll down`, `go to the top of the page`, `show browser history` |
+| **Typing & clipboard** | `type Hello World` (types into the window in front), `open notepad and type Dear Sir`, `select all`, `copy`, `cut`, `paste it`, `undo that`, `press enter`, `save`, `copy this and paste in notepad`, `paste in notepad` |
+| **Screenshot & paste** | `take a screenshot and paste it here`, `take a screenshot and paste it in whatsapp`, `copy screenshot to clipboard` |
+| **Live voice typing** | `start voice typing`, `type what I say in claude`, `dictate in notepad`, `open claude and start voice typing`. Everything you say is then typed into that box (commands are written, not run). Say `new line`, `delete that`, `select all`, `send it` or `stop typing`. |
+| **Several steps at once** | `open youtube and play lofi music then set volume to 30`, `open chrome then go to gmail.com`, `mute and open spotify`, `close chrome and edge`, `open notepad, type hello and save`. Each step runs in order; if one step needs thinking (research, find, decide), the planner does the whole request. |
 | **Windows (instant)** | `open task manager`, `show clipboard history`, `open the emoji panel`, `take a snip`, `open task view`, `new virtual desktop`, `switch to the next desktop`, `open windows settings`, `open the run box`, `project my screen` |
 | **Web & browser** | `search amazon for headphones`, `go to wikipedia.org`, `play lofi music on youtube`, `use the browser to find the price of a Pixel 9 on Flipkart`, `continue` after signing in to a site |
 | **Any desktop app (vision)** | `click the Save button`, `right click the desktop`, `what is this error on my screen`, `use my computer to turn on dark mode in Settings`, `in Excel make the first row bold` |
 | **Software** | `install vlc`, `uninstall zoom`, `update all my apps`, `is python installed` |
 | **Phone (Android)** | `lock my phone`, `turn up the volume on my phone`, `open spotify on my phone`, `take a screenshot of my phone`, `read my phone notifications`, `tap Allow on my phone`, `turn off bluetooth on my phone`, `call 98765 43210 on my phone`, `mirror my phone` |
 | **Phone (instant)** | `set my phone brightness to 40`, `set phone volume to 8`, `open quick settings on my phone`, `open wifi settings on my phone`, `open the notification panel on my phone`, `what app is open on my phone`, `send sms to 98765 43210 saying I'm late` (you tap send) |
+| **Connect the phone** | `connect my phone` (USB, or the last Wi-Fi address), `connect my phone at 192.168.1.23`, `pair my phone with code 123456 at 192.168.1.23:37123` (Android 11+ Wireless debugging > Pair device). If it can't connect, JARVIS says exactly what to turn on. |
+| **Form autofill** | `fill this form with my details`, `autofill this page` (JARVIS browser; details from `config/profile.toml`; never passwords/OTPs; you press Submit) |
 | **Phone ⇄ PC files** | `get the latest photo from my phone`, `copy my last 3 screenshots from my phone`, `copy report.pdf to my phone`, `send this file to my phone` (LocalSend) |
 | **People & logins** | `who is Yoga?` (answered from your contacts and chats), `open chrome and login linkedin`, `sign in to my github account` (opens the real sign-in page; your browser's saved password fills in) |
 | **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting` (personal chats only; groups are skipped), `reply to Yoga automatically for the next hour`, `stop WhatsApp auto reply` |
@@ -725,6 +731,13 @@ intelligence stays in Python.
 
 The phone is controlled over ADB using USB debugging or ADB over Wi-Fi.
 
+- **Connecting:** say "connect my phone". JARVIS finds `adb` even when it is not on PATH (next to scrcpy, the Android
+  SDK, `C:\platform-tools`, WinGet, Scoop, Chocolatey, Downloads). With USB: plug in a data cable, turn on
+  Developer options > USB debugging and tap "Allow" on the phone. Over Wi-Fi (Android 11+): Developer options >
+  Wireless debugging > Pair device with pairing code, then say "pair my phone with code 123456 at IP:port". The
+  address is saved in `data/phone.json`, so next time "connect my phone" is enough. No adb at all:
+  `winget install Google.PlatformTools` (or install scrcpy), restart JARVIS.
+
 - **Controls:** keys (volume, lock/wake, media, home/back), typing, tapping and swiping, opening apps by spoken name,
   URLs, the dialer (you tap call), screenshots, notifications, tapping elements by label, toggles (Wi-Fi, Bluetooth,
   mobile data, airplane mode, do not disturb, rotation), status, and scrcpy screen mirroring.
@@ -760,6 +773,10 @@ Playwright runs on one dedicated event-loop thread.
   "continue".
 - It **never** buys, pays, orders or deletes, and never types into password or OTP fields.
 - Site searches ("search amazon for…") open directly in your default browser.
+- **Form autofill** (`browser_autofill`): copy `config/profile.example.toml` to `config/profile.toml` (git-ignored)
+  and fill in your details. "Fill this form" then fills the empty fields of the page open in the JARVIS browser by
+  their labels (name, email, phone, address, college, ...). It never fills passwords, OTPs, card numbers or
+  captchas, never overwrites what is already typed, and never submits.
 
 ### Desktop apps and the screen
 

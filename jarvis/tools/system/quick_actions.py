@@ -76,8 +76,18 @@ _PC_KEYS: dict[str, tuple[tuple[str, ...], Any, str]] = {
     "windows_search": (("LWIN",), "S", "Opened Windows search."),
     "quick_link_menu": (("LWIN",), "X", "Opened the quick link menu."),
     "action_center": (("LWIN",), "A", "Opened quick settings."),
+    "select_all": (("CONTROL",), "A", "Selected everything."),
+    "copy": (("CONTROL",), "C", "Copied."),
+    "cut": (("CONTROL",), "X", "Cut."),
+    "paste": (("CONTROL",), "V", "Pasted."),
+    "undo": (("CONTROL",), "Z", "Undone."),
+    "redo": (("CONTROL",), "Y", "Redone."),
+    "press_enter": ((), "RETURN", "Pressed Enter."),
+    "save": (("CONTROL",), "S", "Saved."),
 }
-PCAction = Literal[tuple(sorted(_PC_KEYS))]  # type: ignore[valid-type]
+# Actions that need more than one key press (handled in PCQuickActionTool.run)
+_PC_SPECIAL = ("screenshot_to_clipboard", "screenshot_paste", "copy_paste_to_app", "paste_to_app")
+PCAction = Literal[tuple(sorted(list(_PC_KEYS) + list(_PC_SPECIAL)))]  # type: ignore[valid-type]
 
 PhoneQuickAction = Literal["quick_settings", "notifications_panel", "collapse_panels", "settings", "brightness",
                            "media_volume", "current_app", "screen_off", "screen_on", "sms_draft"]
@@ -191,10 +201,53 @@ class BrowserQuickActionTool(Tool):
         return {"status": "SUCCESS", "action": action, "message": msg}
 
 
+def screenshot_to_clipboard() -> bool:
+    """Whole screen -> clipboard as an image (works whatever the Print Screen key is set to)."""
+    import io
+
+    import win32clipboard
+    from PIL import ImageGrab
+    img = ImageGrab.grab(all_screens=True).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, "BMP")
+    dib = buf.getvalue()[14:]  # BMP file header off -> CF_DIB
+    win32clipboard.OpenClipboard()
+    try:
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32clipboard.CF_DIB, dib)
+    finally:
+        win32clipboard.CloseClipboard()
+    return True
+
+
+def focus_or_open(app: str, wait_s: float = 4.0) -> bool:
+    """Bring a window whose title mentions ``app`` to the front, launching the app first when none is open."""
+    from jarvis.tools.productivity.dictation import DictationSessionManager
+    import subprocess
+    hwnd = DictationSessionManager._find_window(app)
+    if not hwnd:
+        subprocess.Popen(["cmd", "/c", "start", "", app], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        deadline = time.time() + wait_s
+        while not hwnd and time.time() < deadline:
+            time.sleep(0.25)
+            hwnd = DictationSessionManager._find_window(app)
+    if not hwnd:
+        return False
+    import win32con
+    import win32gui
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    win32gui.SetForegroundWindow(hwnd)
+    time.sleep(0.2)
+    return True
+
+
 class PCQuickInput(Contract):
     action: PCAction = Field(description="Windows action: task_manager, settings, file_explorer, run_dialog, clipboard_history, "
                                          "emoji_panel, snip, task_view, new_desktop, next_desktop, previous_desktop, "
-                                         "close_desktop, project_display, notification_center, quick_settings, windows_search")
+                                         "close_desktop, project_display, notification_center, quick_settings, windows_search, "
+                                         "select_all, copy, cut, paste, undo, redo, press_enter, save, screenshot_to_clipboard, "
+                                         "screenshot_paste, copy_paste_to_app, paste_to_app")
+    app: str = Field(default="", max_length=60, description="Target app for copy_paste_to_app / paste_to_app / screenshot_paste, e.g. notepad")
 
 
 class PCQuickActionTool(Tool):
@@ -217,9 +270,34 @@ class PCQuickActionTool(Tool):
             arguments = PCQuickInput(**arguments)
         if os.name != "nt":
             return {"status": "FAILED", "action": arguments.action, "message": "This shortcut needs Windows."}
-        mods, key, said = _PC_KEYS[arguments.action]
+        action = arguments.action
+        if action in ("screenshot_to_clipboard", "screenshot_paste"):
+            screenshot_to_clipboard()
+            if action == "screenshot_to_clipboard":
+                return {"status": "SUCCESS", "action": action, "message": "Screenshot copied - paste it anywhere with Ctrl+V."}
+            time.sleep(0.15)
+            if arguments.app and not focus_or_open(arguments.app):
+                return {"status": "FAILED", "action": action,
+                        "message": f"Screenshot copied, but I couldn't open {arguments.app}. Paste it with Ctrl+V."}
+            _press(("CONTROL",), "V")
+            where = f" into {arguments.app}" if arguments.app else ""
+            return {"status": "SUCCESS", "action": action, "message": f"Took a screenshot and pasted it{where}."}
+        if action == "paste_to_app":
+            if not focus_or_open(arguments.app or "notepad"):
+                return {"status": "FAILED", "action": action, "message": f"I couldn't open {arguments.app}."}
+            _press(("CONTROL",), "V")
+            return {"status": "SUCCESS", "action": action, "message": f"Pasted into {arguments.app}."}
+        if action == "copy_paste_to_app":
+            _press(("CONTROL",), "C")
+            time.sleep(0.15)
+            target = arguments.app or "notepad"
+            if not focus_or_open(target):
+                return {"status": "FAILED", "action": action, "message": f"Copied, but I couldn't open {target}."}
+            _press(("CONTROL",), "V")
+            return {"status": "SUCCESS", "action": action, "message": f"Copied and pasted into {target}."}
+        mods, key, said = _PC_KEYS[action]
         _press(mods, key)
-        return {"status": "SUCCESS", "action": arguments.action, "message": said}
+        return {"status": "SUCCESS", "action": action, "message": said}
 
 
 class PhoneQuickInput(Contract):
@@ -261,5 +339,38 @@ class PhoneQuickActionTool(Tool):
         return {"status": "SUCCESS" if res["success"] else "FAILED", "action": arguments.action, "message": res["message"]}
 
 
+class PhoneConnectInput(Contract):
+    address: str = Field(default="", max_length=32, description="Phone Wi-Fi address, e.g. 192.168.1.23:5555 (optional)")
+    pairing_code: str = Field(default="", max_length=10, description="6-digit Wireless debugging pairing code (optional)")
+    pair_address: str = Field(default="", max_length=32, description="IP:port shown next to the pairing code (optional)")
+
+
+class PhoneConnectTool(Tool):
+    definition = ToolDefinition(
+        name="android_connect",
+        description="Connects the Android phone to the PC over USB or Wi-Fi (wireless debugging pairing), remembers the "
+                    "Wi-Fi address, and explains exactly what to do on the phone when it cannot connect.",
+        input_model=PhoneConnectInput,
+        output_model=QuickOutput,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=45.0,
+        tags=("phone", "android", "adb", "connect", "pair"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: Any) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = PhoneConnectInput(**arguments)
+        from jarvis.tools.system.phone_tools import _run
+        try:
+            res = _run("connect", address=arguments.address, pairing_code=arguments.pairing_code,
+                       pair_address=arguments.pair_address)
+        except Exception as exc:
+            return {"status": "FAILED", "action": "connect", "message": str(exc)}
+        return {"status": "SUCCESS" if res["success"] else "FAILED", "action": "connect", "message": res["message"]}
+
+
 def create_quick_action_tools() -> list[Tool]:
-    return [BrowserQuickActionTool(), PCQuickActionTool(), PhoneQuickActionTool()]
+    from jarvis.tools.system.autofill import BrowserAutofillTool
+    return [BrowserQuickActionTool(), PCQuickActionTool(), PhoneQuickActionTool(), PhoneConnectTool(), BrowserAutofillTool()]

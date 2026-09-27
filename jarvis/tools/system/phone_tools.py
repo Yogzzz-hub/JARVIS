@@ -36,7 +36,8 @@ def _android():
     if connector is None:
         raise RuntimeError("The Android connector is disabled. Enable [connectors.android] in config/connectors.toml.")
     if not getattr(connector, "adb_bin", None):
-        raise RuntimeError("ADB was not found. Install Android platform-tools and connect your phone with USB debugging.")
+        raise RuntimeError("ADB was not found on this PC (it's the Android bridge). Install it with 'winget install Google.PlatformTools' "
+                           "(or install scrcpy, which includes it), restart JARVIS, then say 'connect my phone'.")
     return connector
 
 

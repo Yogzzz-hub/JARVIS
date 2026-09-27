@@ -488,6 +488,17 @@ _PC_QUICK = [
     (r"^(?:open|show)\s+(?:the\s+)?(?:pc\s+|windows\s+)?(?:notification|action)\s+(?:center|centre|panel)$", "notification_center"),
     (r"^(?:open|show)\s+(?:the\s+)?(?:windows\s+|pc\s+)?quick\s+settings$", "quick_settings"),
     (r"^(?:open\s+)?windows\s+search$", "windows_search"),
+    (r"^select\s+(?:all|everything)(?:\s+(?:the\s+)?text)?$", "select_all"),
+    (r"^copy(?:\s+(?:this|that|it|the\s+text|the\s+selection|selected\s+text|selection))?$", "copy"),
+    (r"^cut(?:\s+(?:this|that|it|the\s+text|the\s+selection))?$", "cut"),
+    (r"^paste(?:\s+(?:it|this|that|here|the\s+text))?(?:\s+here)?$", "paste"),
+    (r"^undo(?:\s+(?:that|it|the\s+last\s+(?:change|action)))?$", "undo"),
+    (r"^redo(?:\s+(?:that|it))?$", "redo"),
+    (r"^(?:save|save\s+(?:it|this|the\s+file))$", "save"),
+    (r"^(?:take\s+a\s+|take\s+|capture\s+(?:a\s+)?)?screenshot\s+(?:and\s+)?(?:paste|put)(?:\s+it)?(?:\s+(?:here|in\s+(?:here|this|the\s+(?:chat|box|text\s*box))))?$",
+     "screenshot_paste"),
+    (r"^copy\s+(?:a\s+)?screenshot(?:\s+to\s+(?:the\s+)?clipboard)?$|^(?:take\s+a\s+)?screenshot\s+to\s+(?:the\s+)?clipboard$",
+     "screenshot_to_clipboard"),
 ]
 
 
@@ -496,6 +507,24 @@ _LOGIN = re.compile(
     rf"^(?:(?:open|launch|start)\s+(?P<b1>{_BROWSERS})\s+(?:and|&|then)\s+)?(?:please\s+)?(?:log\s*into|sign\s*into|log\s*in|sign\s*in|login|signin)"
     rf"\s+(?:to\s+|into\s+|in\s+to\s+|on\s+|at\s+)?(?:my\s+)?(?P<site>[a-z0-9][a-z0-9. ]{{0,24}}?)(?:\s+(?:account|site|website|page))?"
     rf"(?:\s+(?:in|on|using|with|via)\s+(?P<b2>{_BROWSERS}))?$")
+
+
+_DICTATION_START = re.compile(
+    r"^(?:(?:start|begin|turn on|enable|activate|switch on)\s+)?(?:voice typing|voice type|dictation|dictating|live typing|"
+    r"typing mode|speech to text|talk to type)(?:\s+(?:in|into|on)\s+(?P<a1>.+))?$"
+    r"|^type\s+(?:what|whatever|everything|all that|what ever)\s+i\s+(?:say|speak|tell)(?:\s+(?:in|into|on)\s+(?P<a2>.+))?$"
+    r"|^(?:dictate|voice type)(?:\s+(?:in|into|on)\s+(?P<a3>.+))?$"
+    r"|^start\s+(?:typing|dictating|writing)\s+(?:in|into|on)\s+(?P<a4>.+)$")
+
+
+def match_dictation(t: str, request_id: str) -> Optional[RouteDecision]:
+    """'start voice typing', 'type what I say in claude', 'dictate into notepad' -> live dictation into that box."""
+    m = _DICTATION_START.match(t)
+    if not m:
+        return None
+    app = next((g for g in (m.group("a1"), m.group("a2"), m.group("a3"), m.group("a4")) if g), "")
+    app = re.sub(r"^(?:the|my)\s+|\s+(?:text\s*box|box|chat|window|tab|app)$", "", app.strip())
+    return _decision(request_id, t, "dictation_mode_control", {"action": "start", **({"target_app": app} if app else {})})
 
 
 def match_person(t: str, request_id: str) -> Optional[RouteDecision]:
@@ -536,13 +565,39 @@ def match_quick_actions(t: str, request_id: str) -> Optional[RouteDecision]:
         v = m.group(1)
         n = int(v) if v.isdigit() else _NUM_WORDS.get(v) or {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "last": 9}[v]
         return _decision(request_id, t, "browser_quick_action", {"action": "go_to_tab", "tab": max(1, min(9, n))})
+    if re.match(r"^(?:auto\s*-?\s*fill|fill(?:\s+(?:in|out|up))?)\s+(?:this|the|that)?\s*(?:form|page|details|fields|application)"
+                r"(?:\s+(?:with|using)\s+my\s+(?:details|info|information|data|profile))?(?:\s+for\s+me)?$"
+                r"|^fill\s+(?:in\s+)?my\s+(?:details|info|information)(?:\s+(?:in|on)\s+(?:this|the)\s+(?:form|page))?$", t):
+        return _decision(request_id, t, "browser_autofill", {})
     for pattern, action in _BROWSER_QUICK:
         if re.match(pattern, t):
             return _decision(request_id, t, "browser_quick_action", {"action": action})
+    m = re.match(r"^(?:copy|cut)\s+(?:the\s+|this\s+|that\s+|selected\s+)?(?:text|selection|it)?\s*(?:and|&|then)\s+paste\s+"
+                 r"(?:it\s+)?(?:in|into|to|on)\s+(?:the\s+|my\s+)?(?P<app>[a-z0-9 .+-]{2,30})$", t)
+    if m:
+        return _decision(request_id, t, "pc_quick_action", {"action": "copy_paste_to_app", "app": m.group("app").strip()})
+    m = re.match(r"^(?:take\s+a\s+|take\s+|capture\s+(?:a\s+)?)?screenshot\s+(?:and\s+|then\s+|and\s+then\s+)?(?:paste|put|send)"
+                 r"(?:\s+it)?\s+(?:in|into|to|on)\s+(?:the\s+|my\s+)?(?P<app>[a-z0-9 .+-]{2,30})$", t)
+    if m and not re.fullmatch(r"(?:here|this|it|chat|box|text\s*box|this\s+(?:chat|box))", m.group("app").strip()):
+        return _decision(request_id, t, "pc_quick_action", {"action": "screenshot_paste", "app": m.group("app").strip()})
+    m = re.match(r"^paste\s+(?:it\s+|this\s+|that\s+)?(?:in|into|to|on)\s+(?:the\s+|my\s+)?(?P<app>[a-z0-9 .+-]{2,30})$", t)
+    if m and not re.fullmatch(r"(?:here|this|it|chat|box|text\s*box|this\s+(?:chat|box))", m.group("app").strip()):
+        return _decision(request_id, t, "pc_quick_action", {"action": "paste_to_app", "app": m.group("app").strip()})
     for pattern, action in _PC_QUICK:
         if re.match(pattern, t):
             return _decision(request_id, t, "pc_quick_action", {"action": action})
     return None
+
+
+def match_type_text(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    """'type Hello World' -> type exactly those words (original casing) into the window in front."""
+    m = re.match(r"^(?:type|type out|type in)\s+(?P<body>.+)$", t)
+    if not m or re.search(rf"\b(?:on|in|into)\s+(?:my\s+|the\s+)?{PHONE_WORDS}\b", t):
+        return None
+    body = m.group("body")
+    if re.fullmatch(r"(?:what|whatever|everything|all that)\s+i\s+(?:say|speak|tell).*", body):
+        return None
+    return _decision(request_id, t, "dictate_text", {"text": raw_body(raw, body).rstrip(" .!?") or body})
 
 
 def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
@@ -563,6 +618,12 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
                 r"|^(?:i(?:'ve| have)?|ok(?:ay)?,? i(?:'ve| have)?)\s+(?:logged|signed)\s+in(?:\s+now)?(?:,? continue)?$"
                 r"|^done logging in$", t) or (re.match(r"^(?:continue|carry on|go on|keep going|resume)$", t) and _web_task_pending()):
         return _decision(request_id, t, "web_task", {"resume": True})
+    dictation = match_dictation(t, request_id)
+    if dictation:
+        return dictation
+    typed = match_type_text(t, raw, request_id)
+    if typed:
+        return typed
     person = match_person(t, request_id)
     if person:
         return person
@@ -752,7 +813,35 @@ def _match_phone_quick(t: str, raw: str, request_id: str) -> Optional[RouteDecis
     return None
 
 
+_IP = r"\d{1,3}(?:\.\d{1,3}){3}(?::\d{2,5})?"
+
+
+def match_phone_connect(t: str, request_id: str) -> Optional[RouteDecision]:
+    """'connect my phone', 'connect my phone at 192.168.1.23', 'pair my phone with code 123456 at 192.168.1.23:37123'."""
+    if not re.search(rf"\b(?:connect|reconnect|pair|link)\b.*\b{PHONE_WORDS}\b|\b{PHONE_WORDS}\b.*\b(?:connect|pair)\b", t):
+        return None
+    if re.search(r"\b(?:send|share|transfer|copy|file|photo)\b", t):
+        return None
+    if re.fullmatch(rf"connect\s+to\s+(?:my\s+|the\s+)?{PHONE_WORDS}", t):
+        return None  # "connect to my phone" could mean bluetooth, a call or mirroring: ask ("connect my phone" is ADB)
+    code = re.search(r"\b(?:code\s*)?(\d{6})\b", t)
+    ips = re.findall(_IP, t)
+    if re.search(r"\bpair", t) and code:
+        slots = {"pairing_code": code.group(1)}
+        if ips:
+            slots["pair_address"] = ips[0]
+        if len(ips) > 1:
+            slots["address"] = ips[1]
+        return _decision(request_id, t, "android_connect", slots)
+    if re.search(r"\b(?:is\s+my\s+phone\s+connected|phone\s+status)\b", t):
+        return None
+    return _decision(request_id, t, "android_connect", {"address": ips[0]} if ips else {})
+
+
 def _match_phone(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    conn = match_phone_connect(t, request_id)
+    if conn:
+        return conn
     quick = _match_phone_quick(t, raw, request_id)
     if quick:
         return quick

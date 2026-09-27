@@ -145,6 +145,8 @@ def resolve_discourse_correction(text: str) -> str:
         return text
 
     initial = m.group("initial").strip()
+    if re.search(r"\b(?:type|write|saying|says)\s+\S", initial, re.I):
+        return text  # "type I'm late, wait for me": the words after 'type'/'saying' are content, not a correction
     corr = m.group("corr").strip()
     # Strip politeness suffixes from correction part
     clean_corr = re.sub(r"\s+please$", "", corr, flags=re.I).strip()
@@ -331,6 +333,7 @@ bluetooth wifi battery status notifications clipboard settings system info memor
 chrome firefox edge notepad calculator spotify explorer vscode terminal paint word excel powerpoint outlook teams zoom
 discord telegram whatsapp youtube vlc steam obs photoshop gmail calendar drive browser tab tabs bookmark bookmarks
 browse surf need want make give tell ask app pc web all
+paste copy cut select undo redo type save press enter snip clipboard
 """.split())
 _TYPO_CACHE: dict[str, str] = {}
 

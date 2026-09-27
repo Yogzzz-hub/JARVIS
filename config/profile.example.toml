@@ -1,0 +1,26 @@
+# Your details for "fill this form with my details" (browser auto-fill).
+# Copy this file to config/profile.toml (git-ignored) and fill it in. Leave anything blank to skip it.
+# JARVIS never fills passwords, OTPs or card numbers, and never presses Submit for you.
+[profile]
+full_name = ""
+first_name = ""
+last_name = ""
+email = ""
+phone = ""
+date_of_birth = ""      # e.g. 2004-05-17
+gender = ""
+address = ""
+city = ""
+state = ""
+pincode = ""
+country = "India"
+college = ""
+degree = ""
+department = ""
+register_number = ""
+graduation_year = ""
+company = ""
+job_title = ""
+linkedin = ""
+github = ""
+website = ""

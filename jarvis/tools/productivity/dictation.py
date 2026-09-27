@@ -233,17 +233,64 @@ class DictationSessionManager:
         self.last_typed_text = ""
         self.last_stable_prefix = ""
 
-        # Capture active window
+        # Target: a named window ("dictate in claude" -> the window whose title mentions Claude), else the active one
         try:
             import win32gui
-            hwnd = win32gui.GetForegroundWindow()
-            self.remembered_target_hwnd = hwnd
-            self.remembered_target_title = target_title or win32gui.GetWindowText(hwnd)
+            hwnd = 0
+            if target_title and self.focus_app(target_title, wait_s=5.0):  # waits for an app that was just opened
+                hwnd = win32gui.GetForegroundWindow()
+            if hwnd:
+                self.remembered_target_hwnd = hwnd
+                self.refocus_target()
+            else:
+                hwnd = win32gui.GetForegroundWindow()
+                self.remembered_target_hwnd = hwnd
+            self.remembered_target_title = win32gui.GetWindowText(hwnd) or target_title or "active window"
         except Exception:
-            self.remembered_target_title = target_title or "active_window"
+            self.remembered_target_title = target_title or "active window"
 
         logger.info(f"Dictation mode started targeting: {self.remembered_target_title}")
         return self.remembered_target_title
+
+    @staticmethod
+    def _find_window(name: str) -> int:
+        """Topmost visible window whose title contains ``name`` (case-insensitive); 0 when none."""
+        try:
+            import win32gui
+        except Exception:
+            return 0
+        wanted = (name or "").lower().strip()
+        found: list[int] = []
+
+        def _cb(hwnd, _):
+            if found or not win32gui.IsWindowVisible(hwnd):
+                return
+            title = (win32gui.GetWindowText(hwnd) or "").lower()
+            if wanted and wanted in title and "jarvis" not in title:
+                found.append(hwnd)
+        try:
+            win32gui.EnumWindows(_cb, None)
+        except Exception:
+            pass
+        return found[0] if found else 0
+
+    def focus_app(self, name: str, wait_s: float = 5.0) -> bool:
+        """Bring the window whose title contains ``name`` to the front, waiting for a just-launched app to appear."""
+        deadline = time.monotonic() + max(0.0, wait_s)
+        while True:
+            hwnd = self._find_window(name)
+            if hwnd:
+                try:
+                    import win32gui, win32con
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    win32gui.SetForegroundWindow(hwnd)
+                    time.sleep(0.15)
+                    return True
+                except Exception:
+                    return False
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.25)
 
     def stop(self) -> str:
         self.active_dictation_mode = False
@@ -417,6 +464,57 @@ class DictationSessionManager:
         return formatted
 
 
+# Spoken edit commands while dictating (everything else is typed literally).
+_DICTATION_EDITS = [
+    (r"(?:send|send it|submit|press enter|enter|post it)", "submit"),
+    (r"(?:new line|next line|newline|line break)", "newline"),
+    (r"(?:new paragraph|next paragraph)", "newparagraph"),
+    (r"(?:delete that|delete last word|delete the last word|scratch that)", "delete_last_word"),
+    (r"(?:delete (?:the )?last sentence|delete sentence)", "delete_last_sentence"),
+    (r"(?:backspace)", "backspace"),
+    (r"(?:undo(?: that)?)", "undo"), (r"(?:redo(?: that)?)", "redo"),
+    (r"(?:select all)", "select_all"), (r"(?:copy (?:that|all|it))", "copy_that"),
+    (r"(?:cut (?:that|it))", "cut_that"), (r"(?:paste(?: it| that| here)?)", "paste"),
+    (r"(?:capitali[sz]e that)", "capitalize_that"), (r"(?:make that lowercase|lowercase that)", "make_that_lowercase"),
+]
+
+
+def handle_dictation_utterance(text: str) -> tuple[bool, str]:
+    """Voice input while dictation is on: type it into the remembered window, or run a spoken edit command.
+
+    Returns (still_active, message). The text is typed exactly as heard (formatted), never routed as a command,
+    so "open chrome" said while dictating is written, not executed - "stop typing" ends dictation.
+    """
+    mgr = get_dictation_manager()
+    if mgr.is_exit_command(text):
+        target = mgr.stop()
+        return False, f"Stopped typing into {target or 'the window'}."
+    cleaned = text.strip().lower().rstrip(".!,?")
+    for pattern, action in _DICTATION_EDITS:
+        if re.fullmatch(pattern, cleaned):
+            mgr.refocus_target()
+            if action == "submit":
+                _send_key(VK_RETURN)
+                mgr.last_typed_text = ""
+                return True, "Sent."
+            if action in ("newline", "newparagraph"):
+                # Shift+Enter makes a line break in chat boxes (Claude, ChatGPT, WhatsApp) instead of sending
+                for _ in range(1 if action == "newline" else 2):
+                    _send_combo([VK_SHIFT], VK_RETURN)
+                return True, "New line."
+            if action == "select_all":
+                _send_combo([VK_CONTROL], ord("A"))
+                return True, "Selected all."
+            ok, _, msg = mgr.execute_edit_action(action)
+            return True, msg
+    mgr.refocus_target()
+    formatted = format_dictation(text)
+    spacer = " " if mgr.last_typed_text and not mgr.last_typed_text.endswith((" ", "\n")) else ""
+    _type_unicode(spacer + formatted)
+    mgr.last_typed_text = (mgr.last_typed_text + spacer + formatted)[-2000:]
+    return True, f"Typed: {formatted}"
+
+
 _GLOBAL_DICTATION_MANAGER: Optional[DictationSessionManager] = None
 
 
@@ -450,7 +548,9 @@ class DictationTool(Tool):
         target = arguments.target_app or mgr.remembered_target_title or "active_window"
 
         if not arguments.streaming:
-            mgr.refocus_target()
+            # "open notepad and type hello": wait for the named app's window instead of typing into whatever is in front
+            if not (arguments.target_app and mgr.focus_app(arguments.target_app)):
+                mgr.refocus_target()
             _type_unicode(formatted)
 
         mgr.last_typed_text = formatted
@@ -514,7 +614,8 @@ class DictationModeControlTool(Tool):
             return {
                 "active": True,
                 "target_app": target,
-                "message": f"Dictation mode activated. Dictating into '{target}'. Say 'stop typing' when done.",
+                "message": (f"Dictation on - I'll type what you say into '{target}'. Say 'new line', 'send it', "
+                            "'delete that' or 'stop typing'."),
             }
         elif action in ("stop", "disable", "off"):
             target = mgr.stop()

@@ -60,6 +60,27 @@ COMMON_PACKAGE_MAP = {
 }
 
 
+def find_tool(name: str, near: Optional[str] = None) -> Optional[str]:
+    """adb.exe / scrcpy.exe in the usual Windows places when they are not on PATH (scrcpy ships its own adb)."""
+    import glob
+    exe = f"{name}.exe" if os.name == "nt" else name
+    home, local = os.path.expanduser("~"), os.environ.get("LOCALAPPDATA", "")
+    candidates = []
+    if near:
+        candidates.append(os.path.join(os.path.dirname(near), exe))
+    candidates += [os.path.join(local, "Android", "Sdk", "platform-tools", exe), os.path.join("C:\\", "platform-tools", exe),
+                   os.path.join(home, "platform-tools", exe), os.path.join(home, "scoop", "shims", exe),
+                   os.path.join("C:\\", "ProgramData", "chocolatey", "bin", exe)]
+    for pattern in (os.path.join(local, "Microsoft", "WinGet", "Packages", "*", "**", exe),
+                    os.path.join(home, "Downloads", "*scrcpy*", "**", exe), os.path.join(home, "Downloads", "platform-tools*", "**", exe),
+                    os.path.join("C:\\", "scrcpy*", "**", exe), os.path.join("C:\\", "Program Files*", "*scrcpy*", "**", exe)):
+        try:
+            candidates += glob.glob(pattern, recursive=True)[:5]
+        except Exception:
+            pass
+    return next((c for c in candidates if c and os.path.isfile(c)), None)
+
+
 class AndroidScrcpyConnector(BaseConnector):
     """Integrates scrcpy and ADB for on-demand Android screen viewing and typed control.
     Strictly forbids arbitrary shell execution. All mutations pass Phase 5 policy.
@@ -87,8 +108,8 @@ class AndroidScrcpyConnector(BaseConnector):
         )
         self.enabled = enabled
         self.device_id = device_id
-        self.scrcpy_bin = scrcpy_path or shutil.which("scrcpy")
-        self.adb_bin = adb_path or shutil.which("adb")
+        self.scrcpy_bin = scrcpy_path or shutil.which("scrcpy") or find_tool("scrcpy")
+        self.adb_bin = adb_path or shutil.which("adb") or find_tool("adb", near=self.scrcpy_bin)
         self.max_size = max_size
         self.max_fps = max_fps
         self.stay_awake = stay_awake
@@ -268,6 +289,49 @@ class AndroidScrcpyConnector(BaseConnector):
         "developer": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS", "date": "android.settings.DATE_SETTINGS",
     }
 
+    def _connect(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Connect the phone: USB, a saved/new Wi-Fi address, or Android 11+ wireless pairing - with the exact fix when not."""
+        address = str(arguments.get("address", "") or "").strip()
+        code = re.sub(r"\D", "", str(arguments.get("pairing_code", "") or ""))
+        pair_address = str(arguments.get("pair_address", "") or "").strip()
+        if address and not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}(?::\d{2,5})?", address):
+            raise ValueError("That doesn't look like a phone address (e.g. 192.168.1.23:5555)")
+        if pair_address and not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}", pair_address):
+            raise ValueError("The pairing address looks like 192.168.1.23:37123 (from Wireless debugging > Pair device)")
+        saved_device = self.device_id
+        self.device_id = None  # server-level commands must not target a device
+        try:
+            if code and pair_address:
+                rc, out, err = self._run_adb(["pair", pair_address, code], timeout=20.0)
+                if rc != 0 or "Successfully paired" not in (out + err):
+                    return {"status": "FAILED", "success": False,
+                            "message": f"Pairing failed ({(err or out)[:120]}). On the phone open Developer options > Wireless "
+                                       "debugging > Pair device with pairing code, and read me the code and IP:port shown there."}
+            target = address or _saved_wifi_address()
+            if target:
+                if ":" not in target:
+                    target += ":5555"
+                rc, out, err = self._run_adb(["connect", target], timeout=10.0)
+                if "connected to" in (out + err).lower():
+                    _save_wifi_address(target)
+            rc, out, _ = self._run_adb(["devices", "-l"], timeout=8.0)
+        finally:
+            self.device_id = saved_device
+        lines = [ln for ln in out.splitlines()[1:] if ln.strip()]
+        ready = [ln for ln in lines if " device" in ln]
+        if ready:
+            model = re.search(r"model:(\S+)", ready[0])
+            return {"status": "SUCCESS", "success": True,
+                    "message": f"Your phone is connected ({model.group(1).replace('_', ' ') if model else ready[0].split()[0]})."}
+        if any("unauthorized" in ln for ln in lines):
+            return {"status": "FAILED", "success": False,
+                    "message": "Your phone is plugged in but hasn't allowed this PC yet. Unlock it and tap 'Allow' on the "
+                               "'Allow USB debugging?' prompt (tick 'Always allow'), then say 'connect my phone' again."}
+        return {"status": "FAILED", "success": False,
+                "message": "No phone found. Either plug it in with a USB data cable and turn on Settings > Developer options > "
+                           "USB debugging, or use Wi-Fi: turn on Wireless debugging, tap 'Pair device with pairing code' and "
+                           "say 'pair my phone with code 123456 at 192.168.1.23:37123'."}
+
     def _quick_action(self, arguments: dict[str, Any]) -> dict[str, Any]:
         what = str(arguments.get("what", "")).lower()
         value = arguments.get("value")
@@ -403,6 +467,9 @@ class AndroidScrcpyConnector(BaseConnector):
 
         if action == "quick":
             return self._quick_action(arguments)
+
+        if action == "connect":
+            return self._connect(arguments)
 
         if action == "input":
             kind = str(arguments.get("action", "")).lower()
@@ -698,3 +765,23 @@ PHONE_MEDIA: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "whatsapp_media": (("/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images",
                         "/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents"), ()),
 }
+
+
+_PHONE_STATE = Path(__file__).resolve().parents[3] / "data" / "phone.json"
+
+
+def _saved_wifi_address() -> str:
+    try:
+        import json
+        return json.loads(_PHONE_STATE.read_text(encoding="utf-8")).get("wifi_address", "")
+    except Exception:
+        return ""
+
+
+def _save_wifi_address(address: str) -> None:
+    try:
+        import json
+        _PHONE_STATE.parent.mkdir(parents=True, exist_ok=True)
+        _PHONE_STATE.write_text(json.dumps({"wifi_address": address}), encoding="utf-8")
+    except Exception:
+        pass

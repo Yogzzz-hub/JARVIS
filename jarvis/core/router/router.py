@@ -14,6 +14,7 @@ from jarvis.core.context.models import FollowupType, ReferenceConfidence
 from jarvis.core.router.guards import check_negation, is_informational_or_question
 from jarvis.core.router.matcher import match_patterns
 from jarvis.core.router.models import (
+    SubCommand,
     ComplexityLevel,
     ReasonCode,
     RouteDecision,
@@ -56,6 +57,7 @@ class SmartRouter:
         self.app_resolver = app_resolver
         self.registry_version = registry_version
         self.trace_debug = trace_debug
+        self._in_clause = False
         self.total_routed = 0
         self.lane_counts: dict[str, int] = {lane.value: 0 for lane in RouteLane}
         self.tool_registry = tool_registry
@@ -435,6 +437,16 @@ class SmartRouter:
                 reason_code=ReasonCode.EXACT_PATTERN, routing_ms=(perf_counter_ns() - t0) / 1e6, breakdown_ms=breakdown)
             self._record(ref_decision)
             return ref_decision
+
+        # 3b-multi. "open notepad and type hello", "play X on youtube then set volume to 30": split into steps and route
+        # each one, so a single-intent matcher never swallows the rest of the sentence as its argument.
+        if not self._in_clause:
+            multi = await self._route_multi_step(routing_text if positive_override else original_text, request_id)
+            if multi:
+                multi.routing_ms = (perf_counter_ns() - t0) / 1e6
+                multi.breakdown_ms = breakdown
+                self._record(multi)
+                return multi
 
         # 3b-ext. EXTENDED DOMAINS: phone control, messaging, knowledge, web, reminders (< 1 ms)
         from jarvis.core.router.extended import match_extended
@@ -1411,6 +1423,10 @@ class SmartRouter:
                         return clarify_dec
 
         # 11. LANE 1: TINY LOCAL MODEL (Ollama)
+        if self._in_clause:  # one step of a multi-step request: no model call here, the planner handles the whole request
+            return RouteDecision(request_id=request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.5,
+                                 source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.COMPLEX, needs_planner=True,
+                                 normalized_text=routing_text, reason_code=ReasonCode.MULTI_STEP, candidate_count=0)
         candidate_defns = [self.catalog.intents[c] for c in candidate_names if c in self.catalog.intents]
         try:
             llm_decision = await self.llm_provider.classify(routing_text, candidate_defns, request_id)
@@ -1505,6 +1521,86 @@ class SmartRouter:
 
         self._record(llm_decision)
         return llm_decision
+
+    # A later step starts with one of these (after "and", "then" or a comma); the text before it is a separate step.
+    _STEP_VERBS = (r"open|launch|start|close|quit|exit|type|write|play|pause|resume|stop|set|turn|mute|unmute|increase|"
+                   r"decrease|lower|raise|search|google|look up|take|paste|copy|cut|select|press|hit|save|go to|scroll|"
+                   r"minimize|maximize|show|lock|refresh|reload|switch|send|share|make|create|move|delete|rename|download|"
+                   r"install|read|summarize|check|find|call|message|text|remind|note|bookmark|zoom|screenshot|snip|put|"
+                   r"click|enable|disable|connect|fill|autofill|dictate|shut down|restart|sleep|empty|clear|empty")
+    _FIRST_VERBS = _STEP_VERBS + r"|research|compare|book|order|translate"
+    _MESSAGE_WORDS = re.compile(r"\b(?:saying|says|tell|text|message|reply|remind|note that|write that|whatsapp|email|mail|sms)\b")
+
+    def _split_steps(self, text: str) -> list[str]:
+        t = " ".join(text.strip().rstrip(".!?").split())
+        verbs = self._STEP_VERBS
+        # "open youtube and play X" is one step: play X on YouTube
+        t = re.sub(r"^(?:open|go to|launch)\s+youtube\s+(?:and\s+)?(?:then\s+)?play\s+(.+?)(?=\s*(?:,|\band then\b|\bthen\b|\band\s+(?:"
+                   + verbs + r")\b|$))", r"play \1 on youtube", t, flags=re.I)
+        # "close chrome and edge" -> close chrome ; close edge
+        m = re.match(r"^(close|quit|exit|kill)\s+([a-z0-9 .+-]+?(?:\s*(?:,|\band\b)\s*[a-z0-9 .+-]+?)+)$", t, flags=re.I)
+        if m and not re.search(rf"(?:,|\band\b)\s*(?:{verbs})\b", m.group(2), flags=re.I):
+            names = [n.strip() for n in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", m.group(2)) if n.strip()]
+            t = " ; ".join(f"{m.group(1)} {n}" for n in names)
+        t = re.sub(rf"\s*,?\s*\b(?:and\s+)?then\b\s*,?\s*(?=(?:{verbs})\b)", " ; ", t, flags=re.I)
+        t = re.sub(rf"\s*,\s*(?:and\s+)?(?=(?:{verbs})\b)", " ; ", t, flags=re.I)
+        t = re.sub(rf"\s+and\s+(?=(?:{verbs})\b)", " ; ", t, flags=re.I)
+        return [c.strip(" ,") for c in t.split(";") if c.strip(" ,")]
+
+    async def _route_multi_step(self, text: str, request_id: str) -> RouteDecision | None:
+        lowered = " ".join(text.lower().split())
+        if not re.search(r"\band\b|\bthen\b|,", lowered):
+            return None
+        if not re.match(rf"^(?:please\s+|can you\s+|could you\s+|jarvis\s*,?\s+)?(?:{self._FIRST_VERBS})\b", lowered):
+            return None
+        commands_part = re.split(r"\b(?:type|write|saying)\b", lowered, maxsplit=1)[0]  # typed text is the user's words
+        if re.search(r"\b(?:wait|sorry|actually|i mean|instead|rather|no no|scratch that)\b|\bno\s*,|\band not\b", commands_part):
+            return None  # a correction or negation ("open chrome, wait no, open firefox"), not a list of steps
+        # one action that reads like two ("take a screenshot and paste it in whatsapp", "copy this and paste in notepad")
+        from jarvis.core.router.extended import match_extended
+        whole = match_extended(text, request_id)
+        if whole and whole.intent == "pc_quick_action" and (whole.slots or {}).get("action") in (
+                "screenshot_paste", "copy_paste_to_app", "paste_to_app"):
+            return None
+        steps = self._split_steps(text)  # original casing: typed text keeps the user's capitals
+        if not 2 <= len(steps) <= 5:
+            return None
+        # a message's own words ("tell mom I'll come and then call") belong to the message, not to new steps
+        if self._MESSAGE_WORDS.search(steps[0].lower()):
+            return None
+        subs: list[SubCommand] = []
+        risks: list[str] = []
+        self._in_clause = True
+        try:
+            for step in steps:
+                d = await self.route(CommandRequest(text=step))
+                if (d.lane != RouteLane.LANE_0 or not d.intent or d.subcommands or d.intent in self._NOT_STEP_INTENTS
+                        or d.complexity == ComplexityLevel.COMPOUND):
+                    subs = []
+                    break
+                subs.append(SubCommand(intent=d.intent, tool=d.intent, arguments=dict(d.slots or {})))
+                risks.append(str(d.risk or "REVERSIBLE"))
+        finally:
+            self._in_clause = False
+        if not subs:
+            # at least one step needs thinking (research, find, decide): the planner/agent does the whole request
+            return RouteDecision(
+                request_id=request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.95,
+                source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.COMPLEX, needs_planner=True,
+                normalized_text=lowered, reason_code=ReasonCode.MULTI_STEP, candidate_count=0)
+        # "open notepad and type hello": type into the app that was just opened, once its window is up
+        for prev, sub in zip(subs, subs[1:]):
+            if prev.tool == "open_app" and sub.tool in ("dictate_text", "dictation_mode_control") and not sub.arguments.get("target_app"):
+                sub.arguments["target_app"] = str(prev.arguments.get("name") or "")
+        order = ("DESTRUCTIVE", "EXTERNAL_EFFECT", "SENSITIVE", "REVERSIBLE", "READ_ONLY")
+        risk = next((r for r in order if r in risks), "REVERSIBLE")
+        return RouteDecision(
+            request_id=request_id, lane=RouteLane.LANE_0, intent="compound", slots={"steps": [s.tool for s in subs]},
+            confidence=1.0, source=RouteSource.EXACT, complexity=ComplexityLevel.COMPOUND, risk=risk, missing_slots=[],
+            normalized_text=lowered, reason_code=ReasonCode.COMPOUND_COMMAND, subcommands=subs, candidate_count=len(subs))
+
+    _NOT_STEP_INTENTS = frozenset({"compound", "clarify", "show_dashboard", "stop_speaking", "stop_task", "cancel_task",
+                                   "chat", "general_chat", "unsupported"})
 
     def _record(self, decision: RouteDecision):
         self.total_routed += 1

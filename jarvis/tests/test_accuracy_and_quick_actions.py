@@ -116,7 +116,8 @@ def test_existing_commands_are_unchanged(router):
 
 def test_quick_action_tools_are_registered_and_safe_off_windows():
     from jarvis.tools.system.quick_actions import BrowserQuickActionTool, PCQuickActionTool, create_quick_action_tools
-    assert {t.definition.name for t in create_quick_action_tools()} == {"browser_quick_action", "pc_quick_action", "android_quick_action"}
+    assert {t.definition.name for t in create_quick_action_tools()} == {"browser_quick_action", "pc_quick_action", "android_quick_action",
+                                                                     "android_connect", "browser_autofill"}
     import os
     if os.name != "nt":
         assert BrowserQuickActionTool().run({"action": "new_tab"})["status"] == "FAILED"

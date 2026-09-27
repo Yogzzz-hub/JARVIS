@@ -77,6 +77,19 @@ class CommandService:
                 return request
         return request
 
+    def _dictation(self, request):
+        """While dictation mode is on, spoken words are typed into the chosen text box instead of run as commands."""
+        if getattr(request, "source", "") != "voice":
+            return None
+        try:
+            from jarvis.tools.productivity.dictation import get_dictation_manager, handle_dictation_utterance
+            if not get_dictation_manager().is_active():
+                return None
+            _, message = handle_dictation_utterance(request.text or "")
+        except Exception as exc:
+            return CommandResult(request_id=request.request_id, state="FAILED", message=f"Dictation failed: {exc}", metrics={})
+        return CommandResult(request_id=request.request_id, state="SUCCESS", message=message, metrics={})
+
     _FRAGMENT = re.compile(r"^(?:(?:no|i mean|i meant|it's|its|do it)\s*,?\s+)?(?:in|on|via|using|through|with)\s+(?:the\s+|my\s+)?"
                            r"(?:whats\s?app|chrome|edge|firefox|brave|browser|gmail|e-?mail|telegram|phone|mobile|youtube|spotify)"
                            r"(?:\s+(?:app|please))?[.!?]?$", re.I)
@@ -196,6 +209,9 @@ class CommandService:
     async def handle(self, request, clock=None):
         if not self.accepting:
             raise RuntimeError("service shutting down")
+        dictated = self._dictation(request)
+        if dictated is not None:
+            return dictated
         request = self._expand_repeat(request)
         request = self._expand_fragment(request)
         self._last_user_text, self._last_user_at = request.text, time.monotonic()
