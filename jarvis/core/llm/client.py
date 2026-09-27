@@ -208,6 +208,23 @@ def extract_json(text: str) -> Any:
     raise LLMError(f"Model did not return valid JSON: {cleaned[:160]!r}")
 
 
+# Per-role speed/accuracy tuning. The tiny intent model only ever sees a short prompt and must be deterministic:
+# a 2k context halves its prompt-processing time and memory, temperature 0 makes the same wording route the same way.
+ROLE_TUNING: dict[str, dict[str, float]] = {
+    "fast": {"num_ctx": 2048, "max_temperature": 0.0},
+    "planner": {"max_temperature": 0.2},
+}
+
+
+def role_tuning(role: str, temperature: float, num_ctx: int | None) -> tuple[float, int | None]:
+    t = ROLE_TUNING.get(role, {})
+    if "max_temperature" in t:
+        temperature = min(temperature, t["max_temperature"])
+    if num_ctx is None and "num_ctx" in t:
+        num_ctx = int(t["num_ctx"])
+    return temperature, num_ctx
+
+
 def model_candidates(spec: str) -> list[str]:
     """'qwen3.5:4b, llama3.2' -> ['qwen3.5:4b', 'llama3.2'] (a role's models in order of preference)."""
     return [m.strip() for m in (spec or "").split(",") if m.strip()]
@@ -545,6 +562,7 @@ class OllamaClient:
         num_ctx: int | None = None,
     ) -> ChatResult:
         model = model or await self.resolve(role)
+        temperature, num_ctx = role_tuning(role, temperature, num_ctx)
         payload = self._chat_payload(model, messages, schema, tools, temperature, max_tokens, think, False, num_ctx)
         self.total_requests += 1
         for _ in range(2):
@@ -577,6 +595,7 @@ class OllamaClient:
         num_ctx: int | None = None,
     ) -> ChatResult:
         model = model or self.resolve_sync(role)
+        temperature, num_ctx = role_tuning(role, temperature, num_ctx)
         payload = self._chat_payload(model, messages, schema, None, temperature, max_tokens, think, False, num_ctx)
         self.total_requests += 1
         for _ in range(2):
@@ -733,8 +752,13 @@ class OllamaClient:
         if sys.platform == "win32":
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
         try:
+            env = dict(os.environ)
+            # Faster generation and half-size KV cache on GPUs that support it; harmless elsewhere.
+            env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
+            env.setdefault("OLLAMA_KV_CACHE_TYPE", "q8_0")
             self._server_proc = subprocess.Popen(
                 [exe, "serve"],
+                env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,

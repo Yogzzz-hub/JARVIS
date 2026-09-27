@@ -84,6 +84,7 @@ class FasterWhisperEngine:
         self.step_size_ms = step_size_ms
         self.initial_prompt = initial_prompt
         self.language = language
+        self.vocabulary = None  # jarvis.core.stt.names.NameVocabulary: hotwords + name correction
 
         self._model = None
         self._loaded = False
@@ -209,7 +210,7 @@ class FasterWhisperEngine:
                 without_timestamps=True,
             )
             text, _ = join_segments(segments)
-            return clean_transcript(text)
+            return self._fix_names(clean_transcript(text))
 
         text = await asyncio.to_thread(_transcribe)
 
@@ -229,6 +230,14 @@ class FasterWhisperEngine:
             confidence=0.0,
             generated_ns=perf_counter_ns(),
         )
+
+    def _fix_names(self, text: str) -> str:
+        if not text or self.vocabulary is None:
+            return text
+        try:
+            return self.vocabulary.correct(text)
+        except Exception:
+            return text
 
     def _final_beam(self) -> int:
         """Beam search for the final transcript: full width on a GPU, capped at 3 on the CPU (latency)."""
@@ -268,6 +277,12 @@ class FasterWhisperEngine:
             )
 
         def _transcribe_final():
+            try:
+                return _run_final(hotwords=self.vocabulary.hotwords() if self.vocabulary else None)
+            except TypeError:  # faster-whisper older than 1.0: no hotwords argument
+                return _run_final(hotwords=None, _legacy=True)
+
+        def _run_final(hotwords=None, _legacy=False):
             # Accuracy pass: rumble removed and level normalised, Whisper's own Silero VAD cuts out the non-speech
             # parts (noise, music, TV), and segments Whisper is not confident about are dropped.
             segments, info = self._model.transcribe(
@@ -285,10 +300,11 @@ class FasterWhisperEngine:
                 log_prob_threshold=-1.0,
                 compression_ratio_threshold=2.4,
                 without_timestamps=True,
+                **({} if _legacy else {"hotwords": hotwords}),
             )
             text, seg_list = join_segments(segments)
             voiced_ms = float(getattr(info, "duration_after_vad", 0.0) or 0.0) * 1000.0 or None
-            return clean_transcript(text, speech_ms=voiced_ms), info.language, seg_list
+            return self._fix_names(clean_transcript(text, speech_ms=voiced_ms)), info.language, seg_list
 
         text, language, segments = await asyncio.to_thread(_transcribe_final)
         finalization_ms = (perf_counter_ns() - t0) / 1e6

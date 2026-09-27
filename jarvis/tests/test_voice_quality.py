@@ -96,3 +96,51 @@ def test_bare_verb_asks_what_to_open():
     from jarvis.core.router.router import SmartRouter
     d = asyncio.run(SmartRouter(llm_provider=DisabledProvider()).route("open"))
     assert d.lane.value == "CLARIFY" and d.clarification == "What should I open?"
+
+
+def test_name_vocabulary_fixes_near_miss_names_only():
+    from jarvis.core.stt.names import NameVocabulary
+    v = NameVocabulary(["Akash Anna", "Sushmitaa Mahesh", "Karthik", "Telegram"])
+    assert v.correct("open spotfy") == "open Spotify"
+    assert v.correct("message akash ana saying I will come") == "message Akash Anna saying I will come"
+    assert v.correct("call karthk") == "call Karthik"
+    assert v.correct("send it to karthik saying spotfy is slow") == "send it to karthik saying spotfy is slow"
+    assert v.correct("open the store and turn the volume up") == "open the store and turn the volume up"
+    assert "Akash Anna" in v.hotwords()
+
+
+def test_final_pass_gets_hotwords_and_corrects_names(monkeypatch):
+    import sys
+    from jarvis.core.stt import faster_whisper_engine as fw
+    from jarvis.core.stt.names import NameVocabulary
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            if k.get("device") == "cuda":
+                raise RuntimeError("no GPU")
+
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            seg = SimpleNamespace(text=" message akash ana saying hi", no_speech_prob=0.01, avg_logprob=-0.2,
+                                  compression_ratio=1.1, start=0, end=2)
+            return iter([seg]), SimpleNamespace(language="en", duration_after_vad=2.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
+    eng = fw.FasterWhisperEngine(model="small.en", device="cpu", beam_size=3)
+    eng.vocabulary = NameVocabulary(["Akash Anna"])
+
+    async def run():
+        await eng.load()
+        await eng.start_session("s")
+        await eng.feed_audio((np.random.randn(32000) * 1000).astype(np.int16).tobytes())
+        return await eng.finalize()
+    assert asyncio.run(run()).text == "message Akash Anna saying hi"
+    assert "Akash Anna" in seen["hotwords"]
+
+
+def test_fast_role_is_deterministic_with_small_context():
+    from jarvis.core.llm.client import role_tuning
+    assert role_tuning("fast", 0.4, None) == (0.0, 2048)
+    assert role_tuning("chat", 0.4, None) == (0.4, None)
+    assert role_tuning("fast", 0.4, 4096) == (0.0, 4096)

@@ -440,6 +440,9 @@ WhatsApp (Baileys bridge) ────────┘        │  shortcut expan
    GPU (near large-v3 accuracy) and small.en on the CPU. The final pass filters rumble, cuts non-speech with Whisper's
    own voice detection, drops pieces Whisper isn't confident about, and rejects noise hallucinations (repeated phrases,
    "Also, we...", "Thanks for watching", more words than the audio could hold, or under 0.22 s of real speech).
+   Your contacts and installed apps are handed to Whisper as hotwords, and a near-miss name is corrected after
+   transcription ("open spotfy" -> Spotify, "message akash ana" -> Akash Anna); real words and message text are
+   never changed.
    Text arrives from the UI, CLI, HTTP or WhatsApp.
 2. **CommandService.**
    - Creates the task.
@@ -618,6 +621,9 @@ set in `[models]`:
 | Speech to text | faster-whisper | `[voice] stt_model` | `auto` (large-v3-turbo on GPU, small.en on CPU) |
 | Text to speech | Piper | `config/response.toml` | local Piper voice |
 
+- **Speed tuning.** The fast (intent) model runs with a 2k context and temperature 0 (quicker and consistent),
+  planning is capped at temperature 0.2, and when JARVIS starts Ollama itself it enables flash attention and a
+  q8_0 KV cache (faster generation, half the cache memory on supported GPUs).
 - **Best first.** Each role lists models in order of preference; the first one you have pulled is used, so
   JARVIS keeps working with older models until you pull the new ones. `python -m jarvis.diagnostics` shows the
   model chosen for each role.

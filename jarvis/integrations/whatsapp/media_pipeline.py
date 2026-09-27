@@ -93,7 +93,11 @@ class WhatsAppMediaPipeline:
                 def _transcribe() -> str:
                     segments, _ = model.transcribe(pcm_16k, beam_size=2, language=language, without_timestamps=True,
                                                    vad_filter=True, condition_on_previous_text=False)
-                    return " ".join(seg.text.strip() for seg in segments).strip()
+                    from jarvis.core.stt.quality import clean_transcript, join_segments
+                    text, _ = join_segments(segments)
+                    text = clean_transcript(text)
+                    vocab = getattr(self.stt_engine, "vocabulary", None)
+                    return vocab.correct(text) if (vocab and text) else text
 
                 return await asyncio.to_thread(_transcribe)
             return "[Voice Note: Transcriber offline]"

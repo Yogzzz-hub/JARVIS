@@ -367,9 +367,7 @@ class Runtime:
         self.voice = VoicePipeline(
             hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level),
             wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold),
-            stt_engine=FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model, device=cfg.stt_device,
-                                          compute_type=cfg.compute_type, initial_prompt=self._stt_vocabulary(),
-                                          beam_size=cfg.stt_beam_size),
+            stt_engine=self._stt_engine(cfg, project),
             endpoint_detector=EndpointDetector(default_silence_ms=cfg.endpoint_silence_ms),
             max_utterance_s=cfg.max_utterance_s,
             command_service=self.service, event_bus=self.bus, response_engine=response,
@@ -382,6 +380,29 @@ class Runtime:
             logging.getLogger("jarvis.runtime").exception("Voice startup failed")
             await self.voice.stop()
             self.bus.emit("voice.error", "", error=self.voice_error)
+
+    def _stt_engine(self, cfg, project):
+        from jarvis.core.stt.faster_whisper_engine import FasterWhisperEngine
+        engine = FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model,
+                                     device=cfg.stt_device, compute_type=cfg.compute_type,
+                                     initial_prompt=self._stt_vocabulary(), beam_size=cfg.stt_beam_size)
+        engine.vocabulary = self._name_vocabulary()
+        return engine
+
+    def _name_vocabulary(self):
+        """Contacts + installed apps: Whisper hotwords and post-transcription name correction."""
+        from jarvis.core.stt.names import NameVocabulary
+        names: list[str] = []
+        try:
+            from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
+            names += [c.display_name for c in ContactResolver()._contacts[:300] if c.display_name]
+        except Exception:
+            pass
+        try:
+            names += [e.display_name for e in self.resolver.list_installed_entries()[:400]]
+        except Exception:
+            pass
+        return NameVocabulary(names)
 
     def _stt_vocabulary(self) -> str:
         """Bias Whisper toward words JARVIS commands use (names, apps, contacts)."""
