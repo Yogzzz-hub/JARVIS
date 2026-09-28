@@ -1775,8 +1775,9 @@ class SmartRouter:
         if not 2 <= len(steps) <= 5:
             return None
         # a message's own words ("tell mom I'll come and then call") belong to the message, not to new steps
-        if self._MESSAGE_WORDS.search(steps[0].lower()):
-            return None
+        first = steps[0].lower()
+        if self._MESSAGE_WORDS.search(first) and not re.fullmatch(r"(?:open|launch|start|close|quit|exit|kill)\s+(?:the\s+)?whats\s*app(?:\s+(?:app|web|desktop))?", first):
+            return None  # "open whatsapp" is the app, not a message
         subs: list[SubCommand] = []
         risks: list[str] = []
         token = _IN_CLAUSE.set(True)

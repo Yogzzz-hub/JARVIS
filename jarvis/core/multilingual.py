@@ -30,7 +30,9 @@ _STATE = Path(__file__).resolve().parents[2] / "data" / "language.json"
 _COMMAND_WORDS = frozenset("""pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
 anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thora thorakku thiranthu edu eduthu edunga
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
-sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu""".split())
+sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu
+pannitu pannittu panitu pannanum manikku nyabagam yaar yaaru pannirukka pannirukanga panniruka anupchaa anupiyaa anuppiyaa anupicha poyiducha enga engey
+iruku irukku romba adikudhu adikuthu thookam varudhu pasikudhu velicham inniku innaiku naalaikku ennoda""".split())
 
 
 def _tamil_lexicon() -> frozenset[str]:
@@ -111,15 +113,16 @@ def match_language_switch(text: str) -> Optional[str]:
 
 
 # ------------------------------------------------------------------ Thanglish command -> English command
-_P_END = r"(?:\s+(?:da|di|dei|pa|ma|please|plz|jarvis|ippo|seekiram|konjam|ok|sari|seri))*"
+_P_END = r"(?:\s+(?:da|di|dei|pa|ma|please|plz|jarvis|ippo|seekiram|konjam|ok|sari|seri|bro|machi|macha|dude|ji|nga|boss))*"
 _OPEN = r"(?:(?:open|launch|start|run)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|panniduda)|thora|thorakku|thiranthu\s+vidu|open)"
 _CLOSE = r"(?:(?:close|quit|exit|kill)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu)|moodu|mudu|moodunga)"
 _PLAY = r"(?:podu|podunga|pottu\s+vidu|potu\s+vidu|play\s+(?:pannu|panu|pannunga|panni\s+vidu))"
-_SEND = r"(?:anuppu|anupu|anuppidu|anuppunga|anuppi\s+vidu|send\s+(?:pannu|panu|pannunga|pannidu))"
+_SEND = r"(?:anuppu|anupu|anuppidu|anuppunga|anuppi\s+vidu|send\s+(?:pannu|panu|pannunga|pannidu)|(?:message|msg|text|whatsapp)\s+(?:pannu|panu|pannunga|pannidu|panniru|pannu\s+da))"
 _TELL = r"(?:sollu|sollidu|sollunga|solli\s+vidu|solliru|solliduda|sollirunga)"
 _EN_VERBS = (r"open|close|play|pause|stop|mute|unmute|lock|search|install|uninstall|download|restart|shutdown|shut down|"
              r"minimize|maximize|refresh|reload|copy|paste|save|delete|check|read|summarize|summarise|increase|decrease|"
-             r"reduce|scroll down|scroll up|select all|undo|redo|call|connect|update|start|translate|type|record|share")
+             r"reduce|scroll down|scroll up|select all|undo|redo|call|connect|update|start|translate|type|record|share|"
+             r"organize|organise|clean|sort|find|install|remind|minimise|pause|resume")
 _PANNU = r"(?:pannu|panu|pannunga|pannuga|pannidu|panni\s+vidu|panniduda|pannu\s+da)"
 _DOWN = r"(?:kammi|korai|kurai|kuraichu|koraichu|korachidu|koraichidu|kuraichidu|reduce|decrease)"
 _UP = r"(?:jaasthi|jasthi|athigam|adhigam|koodu|kootu|koottu|ethu|eathu|increase)"
@@ -128,6 +131,12 @@ _SET = r"(?:vai|vechidu|vachidu|vachu\s+vidu|set\s+" + _PANNU + r"|podu|pannu)"
 
 def _clean(text: str) -> str:
     t = " ".join((text or "").strip().split())
+    try:
+        from jarvis.core.router.normalize import strip_ramble
+        t = strip_ramble(t) or t  # "da pc ah lock pannu, i'm going out"
+    except Exception:
+        pass
+    t = re.sub(r"^(?:(?:da|dei|bro|machi|macha|dude|boss|hey)\s*,?\s+)+", "", t, flags=re.I)
     t = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*|um+\s+|uh+\s+|(?:can|could|would)\s+(?:you|u)\s+(?:please\s+)?|please\s+|plz\s+|kindly\s+)+",
                "", t, flags=re.I)
     t = re.sub(r"\s*,?\s+(?:jarvis|please|plz|thanks|thank\s+you)$", "", t, flags=re.I)
@@ -149,6 +158,54 @@ def to_english_command(text: str) -> str:
     def keep(fragment: str) -> str:  # original casing for names / message text
         i = raw.lower().find(fragment)
         return raw[i:i + len(fragment)] if i >= 0 else fragment
+
+    # two steps: "word open pannitu volume 10 ku vai" -> "open word and then set volume to 10"
+    parts = re.split(r"\s+(?:pannitu|pannittu|panitu|pannittu)\s+", body, maxsplit=1)
+    if len(parts) == 2 and parts[1].strip():
+        first, second = to_english_command(parts[0] + " pannu"), to_english_command(parts[1])
+        if first != parts[0] + " pannu" and second != parts[1]:
+            return f"{first} and then {second}"
+    # reminders: "kumar ku call pannanum nu 5 manikku remind pannu"
+    m = re.fullmatch(r"(?P<x>.+?)\s+(?:nu|apdinu)\s+(?:(?P<n>\d{1,2})\s*(?:manikku|mani\s*ku|mani\s+ku)\s+)?(?:remind|nyabagam)\s+" + _PANNU
+                     + r"(?:\s+(?P<n2>\d{1,2})\s*(?:manikku|mani\s*ku))?", body)
+    if m:
+        x = m.group("x")
+        c = re.fullmatch(r"(?P<w>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku)\s+call\s+(?:pannanum|panna\s+venum|pannu)", x)
+        what = f"call {keep(c.group('w'))}" if c else keep(re.sub(r"\s+(?:pannanum|panna\s+venum)$", "", x))
+        n = m.group("n") or m.group("n2")
+        return f"remind me to {what}" + (f" at {n}" if n else "")
+    # questions and chat
+    m = re.fullmatch(r"(?P<x>[a-z0-9 .+-]{2,40}?)\s+(?:na|naa|nna|endral|endraal)\s+(?:enna|yenna|ennadhu|ennaadhu)", body)
+    if m:
+        return f"what is {keep(m.group('x'))}"
+    m = re.fullmatch(r"(?:(?P<d>inniku|innaiku|indru|naalaikku|nalaiku)\s+)?(?:en\s+|ennoda\s+)?(?P<w>calendar|schedule|screen|to\s*do\s*list)\s*(?:la|le|il)\s+"
+                     r"(?:enna|yenna)\s+(?:iruku|irukku|irukka)", body)
+    if m:
+        day = {"naalaikku": " tomorrow", "nalaiku": " tomorrow"}.get(m.group("d") or "", " today" if m.group("d") else "")
+        return f"what's on my {m.group('w')}{day if m.group('w') in ('calendar', 'schedule') else ''}".strip()
+    if re.fullmatch(r"whats?\s*app\s*(?:la|le|il)\s+(?:yaar|yaaru|yar|yaru|evan|evanga)\s+(?:message|msg|text)\s+"
+                    r"(?:pannirukka|pannirukanga|panniruka|pannanga|anupirukka|anupirukanga|anupichirukanga)", body):
+        return "who messaged me on whatsapp"
+    m = re.fullmatch(r"(?P<p>[a-z][a-z .]{1,30}?)\s+(?:enna|yenna)\s+(?:message|msg|text)\s+(?:pannirukanga|pannirukka|panniruka|pannaru|"
+                     r"pannanga|anupirukanga|anupichirukanga|anupirukka)", body)
+    if m:
+        return f"what did {keep(m.group('p'))} say"
+    if re.fullmatch(r"(?:en\s+)?(?:message|msg|text)\s+(?:anupchaa|anupiyaa|anuppiyaa|anupicha|anupuniya|poyiducha|poocha|pochaa|sent\s+aa)", body):
+        return "did the message go through"
+    m = re.fullmatch(r"(?:en\s+|ennoda\s+)?(?P<f>[a-z0-9 .+-]{2,40}?)\s+(?:enga|engey|engae)\s+(?:iruku|irukku|irukka)(?:\s+nu\s+(?:thedu|paaru|kandupidi|sollu))?", body)
+    if m:
+        return f"where's my {keep(m.group('f'))}"
+    m = re.fullmatch(r"(?:phone|mobile)\s*(?:la|le|il)\s+(?P<x>[a-z -]{2,20}?)\s+(?P<s>on|off)\s+" + _PANNU, body)
+    if m:
+        return f"turn {m.group('s')} {m.group('x')} on my phone"
+    m = re.fullmatch(r"(?:screen|brightness|velicham)\b.*?\b(?P<dir>" + _DOWN + "|" + _UP + r")(?:\s+" + _PANNU + ")?", body)
+    if m and not re.search(r"\b(?:volume|sound|saththam)\b", body):
+        return "dim the screen" if re.fullmatch(_DOWN, m.group("dir")) else "make the screen brighter"
+    for pat, eng in ((r"(?:romba\s+)?bore\s+(?:adikudhu|adikuthu|adikkudhu)", "i'm so bored"),
+                     (r"(?:romba\s+)?(?:tired|tayard)\s+(?:ah\s+)?(?:iruku|irukku)", "i'm so tired"),
+                     (r"(?:romba\s+)?thookam\s+(?:varudhu|varuthu)", "i'm sleepy"), (r"(?:romba\s+)?pasikudhu", "i'm hungry")):
+        if re.fullmatch(pat, body):
+            return eng
 
     # messages: "amma ku late aagum nu message anuppu", "arun kitta naan varala nu sollu"
     m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku|kitta)\s+(?P<msg>.+?)\s+(?:nu|apdinu|endru|nnu)\s+"

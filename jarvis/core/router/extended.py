@@ -682,7 +682,8 @@ def match_voice_and_screen(t: str, raw: str, request_id: str) -> Optional[RouteD
                     r"|what\s+does\s+(?:this|that)\s+(?:error|popup|pop-up|warning|message|dialog)(?:\s+(?:on\s+(?:my|the)\s+screen|here))?\s+mean"
                     r"|what(?:'s|\s+is|\s+does)\s+(?:this|that|the)\s+(?:popup|pop-up|pop\s+up|dialog|dialogue|window|box|notification|error|warning|alert|screen)\s+(?:saying|say|telling\s+me)"
                     r"|what(?:'s|\s+is)\s+(?:written|showing|displayed)\s+on\s+(?:my|the)\s+(?:screen|display|monitor)"
-                    r"|(?:tell\s+me\s+)?what\s+(?:do\s+)?you\s+see\s+on\s+(?:my|the)\s+screen|read\s+what(?:'s|\s+is)\s+on\s+(?:my|the)\s+screen", t):
+                    r"|(?:tell\s+me\s+)?what\s+(?:do\s+)?you\s+see\s+on\s+(?:my|the)\s+screen|read\s+what(?:'s|\s+is)\s+on\s+(?:my|the)\s+screen"
+                    r"|what(?:'s|\s+is)\s+(?:this|that)\s+(?:thing|stuff|window|icon|box|sign|symbol)\s+on\s+(?:my|the)\s+screen", t):
         return _decision(request_id, t, "describe_screen", {"device": "pc", "question": raw})
     m = re.fullmatch(r"(?:find|locate|look\s+for|search\s+for)\s+(?P<target>.+?)\s+(?:on\s+(?:the|my)\s+screen\s+)?and\s+(?:then\s+)?"
                      r"(?P<how>double[- ]click|right[- ]click|click|tap|press|select)\s+(?:on\s+)?(?:it|that)", t)
@@ -853,7 +854,7 @@ _KNOWLEDGE_Q = re.compile(
     r"|^why\s+(?:is|are|does|do|did|can't|won't|isn't)\b"
     r"|^(?:explain|define)\s+(?!(?:this|the|my)\s+(?:error|screen|popup|message))"
     r"|^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?difference\s+between\b"
-    r"|^i\s+(?:was|am|'m)\s+(?:wondering|curious)\b|^i\s+wonder\s+(?:how|why|what|if|whether)\b"
+    r"|^i\s+(?:was|am|'m)\s+(?:just\s+|really\s+)?(?:wondering|curious)\b|^i\s+wonder\s+(?:how|why|what|if|whether)\b"
     r"|^what\s+(?:does|do)\s+.+?\s+(?:actually\s+|exactly\s+|really\s+)?do(?:\s+exactly)?$|^what\s+(?:is|are)\s+.+?\s+(?:actually\s+)?(?:used\s+)?for$"
     r"|^what\s+do\s+you\s+(?:think|feel)\s+(?:about|of)\b|^(?:do\s+you\s+think|in\s+your\s+opinion|what'?s\s+your\s+(?:opinion|view|take)\s+on)\b"
     r"|^how\s+does\s+.+\s+compare\s+(?:to|with)\b|^(?:is|are)\s+(?!my\b|i\b|it\b)[^?]+?\s+(?:a\s+)?(?:good|bad|safe|worth\s+it|reliable|free\s+to\s+use)\b"
@@ -1015,6 +1016,13 @@ def match_files(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
         return d("create_folder", {"path": raw_body(raw, c.group("n").strip())})
     if m:
         return d("rename_file", {"source": raw_body(raw, m.group("file")), "new_name": raw_body(raw, m.group("new")).strip()})
+    c = re.fullmatch(r"(?:i\s+remember\s+|i\s+think\s+)?(?:i\s+)?(?:saving|saved|downloading|downloaded|putting|put|keeping|kept|had|have)\s+"
+                     rf"(?:this\s+|my\s+|the\s+|a\s+|an\s+)?(?:{_FILE}|(?P<q2>[\w .'-]{{2,40}}?))\s+somewhere\b.*?\b(?P<act>open|find|locate|get|look\s+for|search\s+for)\s+(?:it|that)\b.*", t)
+    if c and not re.search(rf"\b(?:{PHONE_WORDS}|keys?|wallet|glasses|car|bike|charger)\b", t):
+        if c.group("file"):
+            return d("open_file" if c.group("act") == "open" else "find_file",
+                     {"path": raw_body(raw, c.group("file"))} if c.group("act") == "open" else {"query": raw_body(raw, c.group("file"))})
+        return d("find_file", {"query": raw_body(raw, c.group("q2").strip())})
     m = (re.fullmatch(r"where\s+did\s+i\s+(?:save|put|keep|store|download|leave)\s+(?:my\s+|the\s+|that\s+)?(?P<q>.{2,60}?)", t)
          or (re.fullmatch(r"(?:where(?:'s|\s+is|\s+are)|find|locate|look\s+for|search\s+for|i\s+can'?t\s+find|i\s+cannot\s+find|i\s+lost|i\s+misplaced)\s+(?:my|the)\s+(?P<q>.{2,60}?)"
                           r"(?:\s+(?:anywhere|somewhere))?"
@@ -1084,6 +1092,9 @@ def match_routines_and_media(t: str, raw: str, request_id: str) -> Optional[Rout
     # conversation, not commands
     if re.fullmatch(r"(?:ok(?:ay)?\s+)?(?:thank\s+you|thanks|thx|ty|thank\s+u)(?:\s+(?:so\s+much|a\s+lot|jarvis|buddy|man))*"
                     r"|(?:good|great|nice|awesome|well)\s+(?:job|work|done)(?:\s+jarvis)?|you(?:'re|\s+are)\s+(?:awesome|great|the\s+best|amazing)", t) \
+            or re.search(r"(?:^|,\s*)i'?m\s+(?:just\s+|so\s+|really\s+|very\s+|kinda\s+|totally\s+|completely\s+|a\s+bit\s+)*"
+                         r"(?:exhausted|tired|drained|sleepy|bored|sad|stressed|worn\s+out|burnt\s+out|done|lonely|upset|happy)\s*[.!]*$", t) \
+            or re.fullmatch(r"(?:thanks|thank\s+you|thx)\s+(?:da|bro|machi|macha|dude|boss|sir|ma|pa)(?:\s+jarvis)?", t) \
             or re.fullmatch(r"(?:good\s+(?:night|afternoon|evening)|gn|sweet\s+dreams|see\s+you(?:\s+later|\s+tomorrow)?|bye(?:\s+bye)?|"
                             r"goodbye|take\s+care|how(?:'s|\s+is)\s+(?:it\s+going|your\s+day(?:\s+going)?|life))(?:\s+(?:jarvis|buddy|man|bro))?", t) \
             or re.match(r"^(?:(?:honestly|really|actually|ugh|man|so|well|tbh|to\s+be\s+honest)\s*,?\s+)?"
@@ -1523,6 +1534,7 @@ def _match_whatsapp(t: str, raw: str, request_id: str) -> Optional[RouteDecision
                    r"(?:text|message|msg|whatsapp(?:\s+message)?|line|note)\s*(?:saying|that says|to say|stating|that|with|:)\s*(?P<body>.+)$"),
         ("direct", r"^(?:tell|text|message|msg|ping|whatsapp|send)\s+(?:a\s+(?:message|msg|text)\s+to\s+)?(?P<who>[\w .'+-]+?)\s+(?:saying|that says|to say|stating|with the message|with message)\s+(?P<body>.+)$"),
         ("direct", r"^(?:text|message|msg|ping|whatsapp)\s+(?P<who>[\w .'+-]+?)\s+and\s+(?:tell|say\s+to|let)\s+(?:him|her|them)\s+(?:know\s+)?(?:that\s+)?(?P<body>.+)$"),
+        ("direct", r"^(?:text|message|msg|ping|whatsapp)\s+(?P<who>[\w .'+-]+?)\s+and\s+(?:say|write|type)\s+(?:that\s+)?(?P<body>.+)$"),
         ("direct", r"^(?:text|message|msg|ping|whatsapp|send\s+a\s+message\s+to)\s+(?P<who>[\w .'+-]+?)\s+(?:on|in|via)\s+whats\s*app\s*,?\s*(?:and\s+)?"
                    r"(?:say|saying|tell\s+(?:him|her|them)|let\s+(?:him|her|them)\s+know)\s+(?:that\s+)?(?P<body>.+)$"),
     )

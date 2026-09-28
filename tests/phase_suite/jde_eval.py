@@ -39,7 +39,7 @@ def main() -> int:
     from tests.phase_suite.runner import load
     engine = LocalJDE.load(Path(args.model) if args.model else latest_model_dir(), catalog=default_catalog())
     print("model", engine.meta.decision_model_version)
-    for split in ("dev", "blind", "blind2", "blind3", "blind4", "blind5"):
+    for split in ("dev", "blind", "blind2", "blind3", "blind4", "blind5", "blind6"):
         acc, n, misses = family_accuracy(engine, load(split))
         print(f"  {split:7} family accuracy {acc:6.2f}% over {n}   top misses: {misses.most_common(3)}")
     return 0

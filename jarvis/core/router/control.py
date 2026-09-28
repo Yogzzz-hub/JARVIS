@@ -83,6 +83,14 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
         )
 
     # 3. Stop speaking / stop audio / cancel / pause / resume active tasks
+    _stop = re.compile(r"(?:ok(?:ay)?\s+|alright\s+)?(?:that'?s\s+)?enough(?:\s+(?:talking|speaking|reading|now))?"
+                       r"|(?:you\s+can\s+|please\s+|just\s+)?stop\s+(?:reading|talking|speaking)(?:\s+(?:now|please|it|that|out\s+loud))*"
+                       r"|(?:ok(?:ay)?\s+)?(?:shh+|shush|hush)(?:\s+(?:now|please))?|pesa+dh?[ae]|pesa+the|summa\s+iru|stop")
+    clauses = [c.strip(" .!") for c in cleaned.split(",") if c.strip(" .!")]
+    if len(clauses) > 1 and all(_stop.fullmatch(c) for c in clauses) or cleaned in ("pesadha", "pesadhe", "pesaathe", "summa iru"):
+        return RouteDecision(request_id=request_id, lane=RouteLane.CONTROL, intent="stop_speaking", confidence=1.0,
+                             source=RouteSource.CONTROL, complexity=ComplexityLevel.SIMPLE, normalized_text=cleaned,
+                             reason_code=ReasonCode.CONTROL_COMMAND, candidate_count=1, routing_ms=0.0)
     is_control = (
         cleaned in CONTROL_PHRASES
         or cleaned.startswith(("stop speaking", "stop talking", "be quiet", "cancel current", "stop current", "pause task", "resume task", "cancel task", "stop task"))

@@ -177,3 +177,46 @@ def test_two_slip_typos_only_rearrange_letters():
     from jarvis.core.router.normalize import correct_command_typos
     assert correct_command_typos("set vloum to 20") == "set volume to 20"
     assert correct_command_typos("terminate vlc player") == "terminate vlc player"
+
+
+@pytest.mark.parametrize("text,intent", [
+    ("okay so basically i was thinking, could you maybe open spotify or something", "open_app"),
+    ("uh yeah so i need the volume at like 40", "volume_set"),
+    ("hmm what was i going to say, oh yeah, take a screenshot", "take_screenshot"),
+    ("jarvis jarvis are you listening, okay, open chrome", "open_app"),
+    ("alright i think i'm done with whatsapp for now, you can close it", "close_app"),
+    ("okay so first open chrome, and then after that, can you mute the volume", "compound"),
+    ("i remember saving notes.txt somewhere but i don't know where, can you open it", "open_file"),
+    ("so like add phone cover to my shopping list, i need to buy it", "todo"),
+    ("okay okay that's enough, you can stop talking now", "stop_speaking"),
+])
+def test_spoken_rambles(router, text, intent):
+    assert route(router, text).intent == intent
+
+
+@pytest.mark.parametrize("text", ["honestly today was a long day, i'm just exhausted", "i like this song",
+                                  "could you please thank you so much", "romba bore adikudhu", "word na enna bro"])
+def test_rambles_that_are_conversation_do_nothing(router, text):
+    d = route(router, text)
+    assert d.lane.value != "LANE_0" and d.intent not in ("get_time", "wake_word_status")
+
+
+@pytest.mark.parametrize("thanglish,english", [
+    ("bro konjam spotify open pannu please", "open spotify"),
+    ("screen romba bright ah iruku, konjam kammi pannu", "dim the screen"),
+    ("word open pannitu volume 10 ku vai", "open word and then set volume to 10"),
+    ("amma ku call me back nu message pannu", "send a message to amma saying call me back"),
+    ("whatsapp la yaar message pannirukka", "who messaged me on whatsapp"),
+    ("en resume enga iruku nu thedu", "where's my resume"),
+    ("phone la wifi on pannu", "turn on wifi on my phone"),
+    ("kumar ku call pannanum nu 5 manikku remind pannu", "remind me to call kumar at 5"),
+    ("inniku calendar la enna iruku", "what's on my calendar today"),
+])
+def test_mixed_thanglish(thanglish, english):
+    from jarvis.core import multilingual as ml
+    assert ml.to_english_command(thanglish) == english
+
+
+def test_thanglish_message_never_replies_to_everyone(router):
+    d = route(router, "amma ku call me back nu message pannu")
+    assert d.intent == "send_whatsapp_message" and d.slots["recipient"].lower() == "amma"

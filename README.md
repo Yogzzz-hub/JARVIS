@@ -988,7 +988,7 @@ python -m tests.generalization.benchmark_runner       # deterministic generaliza
 python -m jarvis.decision.evaluation.evaluate         # decision-engine benchmark
 python -m tests.whatsapp_personal.benchmark           # 500-case WhatsApp personal-reply benchmark (fake provider)
 python -m tests.rag.benchmark                         # RAG precision / recall / abstention
-python -m tests.phase_suite.runner --all --fails      # phase command suite: dev and blind 1-5 splits
+python -m tests.phase_suite.runner --all --fails      # phase command suite: dev and blind 1-6 splits
 ```
 
 ### Phase command suite (all 12 phases + WhatsApp, phone, automation, Thanglish, chat)
@@ -1005,11 +1005,16 @@ deterministic understanding; with Ollama running, anything still unrecognised go
 | blind-3 (more easy commands) | 1,054 | - | 87.3% | 99.7% |
 | blind-4 | 695 | - | 89.1% | 100% |
 | blind-5 (conversational: "before i forget, open brave") | 557 | - | **59.8%** | 98.9% |
+| blind-6 (spoken rambles + mixed Thanglish/English) | 306 | - | **46.1%** | 100% |
 
 Each blind set was written after the previous round of fixes and scored once before anything was changed for it,
 so the "first run" column is the honest measure of wordings nobody wrote a rule for. Commands in the usual style
 reached 89% first time; the conversational style (a remark before the command, opinions, "is X good ...") exposed a
-gap (59.8%) that led to the remark-then-command handling and the final safety check below.
+gap (59.8%) that led to the remark-then-command handling and the final safety check below. Long spoken rambles
+("uh yeah so i need the volume at like 40", "jarvis jarvis are you listening, okay, open chrome") and mixed
+Thanglish + English ("bro konjam spotify open pannu", "word open pannitu volume 10 ku vai", "en resume enga iruku")
+were the weakest style of all (46.1%); a ramble cleaner (hesitations, repeated words, "or something", trailing
+"thanks" / "i'm going out", never touching message text) and more Thanglish forms now cover them.
 
 A final check runs after routing: a question about a thing never changes it ("is spotify a good app" does not close
 Spotify), a question never sends a message, stored memories are only forgotten when the owner says "forget ...",

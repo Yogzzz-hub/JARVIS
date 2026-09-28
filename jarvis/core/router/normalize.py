@@ -200,6 +200,50 @@ _HEDGED_VERBS = (r"(?:open|start|launch|run|bring|close|find|search|set|adjust|c
                  r"drop|shoot|organi[sz]e|clean|find|minimi[sz]e|lower|raise|dim|say|repeat|put|move|copy|rename|delete)\b")
 
 
+_FILLER_LEAD = re.compile(r"^(?:(?:(?:can|could|would|will)\s+(?:you|u)(?:\s+please)?(?=\s+(?:uh|um|so|okay|ok|hey|yeah|alright|jarvis|hmm|well|oh)\b)|"
+                          r"okay|oaky|ok|so|um+|uh+|erm|hmm+|yeah|yaeh|yeha|yep|alright|basically|well|hey|jarvis|oh\s+yeah|oh|right|"
+                          r"like|you\s+know|i\s+mean|anyway|anyways|actually\s+so|hi|and|also|oh\s+and|plus)\s*[,.!?]*\s+)+", re.I)
+_MSG_VERBS = r"(?:tell|text|message|msg|ask|whatsapp|send|say|let|inform|reply|ping|remind\s+\w+\s+to)"
+
+
+def strip_ramble(t: str) -> str:
+    """Spoken disfluency around a command: "uh yeah so i need the volume at like 40", "jarvis jarvis are you listening,
+    okay, open chrome", "search google for X, i want to buy one", "can you uh set the volume to 60 please thanks"."""
+    if not t:
+        return t
+    t = re.sub(r"\b(\w+)(?:\s*,?\s+\1\b)+", r"\1", t, flags=re.I)  # "okay okay", "jarvis jarvis"
+    t = re.sub(r"(?<=\s)(?:um+|uh+|erm|hmm+)\b\s*,?\s*", "", t, flags=re.I)  # inner hesitations
+    t = re.sub(r"\b(so|at|to|about)\s+(?:like|lkie|liek)\s*,?\s+(?!(?:it|this|that|them|him|her|me|to)\b)", r"\1 ", t, flags=re.I)
+    t = re.sub(r"\b((?:can|could|will)\s+you)\s+(?:like|lkie|liek)\s*,?\s+(?!(?:it|this|that|them|him|her|me|to)\b)", r"\1 ", t, flags=re.I)
+    t = re.sub(r"\s*,?\s*(?:and\s+)?then\s*,?\s*after\s+that\s*,?\s*|\s*,\s*and\s+after\s+that\s*,?\s*", " and then ", t, flags=re.I)
+    t = re.sub(r"\b(then|and)\s*,?\s*(?:can|could|would)\s+you\s+(?:please\s+)?", r"\1 ", t, flags=re.I)  # "at like 40", "can you like"
+    t = re.sub(r",\s*like\s*,\s*", ", ", t, flags=re.I)
+    t = re.sub(r"\b(can|could|would|will)\s+you\s+maybe\b", r"\1 you", t, flags=re.I)
+    t = re.sub(r"\s+(?:or\s+something|or\s+anything|or\s+whatever)\b", "", t, flags=re.I)
+    without = re.sub(r"\s*,?\s+(?:please\s+)?(?:thanks|thank\s+you|thx)(?:\s+(?:a\s+lot|so\s+much))?\s*[.!]*$", "", t, flags=re.I)
+    if without != t and not re.fullmatch(r"(?:(?:can|could|would|will)\s+(?:you|u)|please|jarvis|okay|ok|um+|uh+|hey|so|and|\s|,)*", without, re.I):
+        t = without  # "... set the volume to 60, thanks"; "could you please thank you so much" stays thanks
+    for _ in range(3):
+        new = _FILLER_LEAD.sub("", t).strip(" ,")
+        if new == t or not new:
+            break
+        t = new
+    # a trailing remark after the command: "lock the pc, i'm going out", "add X to my list, i need to buy it"
+    m = re.match(r"^(?P<cmd>[^,]{4,}?)\s*,\s*(?P<tail>(?:i|i'?m|i'?ll|i'?ve|it'?s|because|cause|coz|since|as|for|so\s+that|"
+                 r"thanks|thank\s+you|please|(?:can\s+you\s+)?(?:tell|show)\s+me|let\s+me\s+know)\b[^,]{0,60})$", t, flags=re.I)
+    if m and not re.search(rf"\b{_MSG_VERBS}\b|\b(?:messag\w*|reply|replies|saying|whats\s*app|email|mail|anuppu|sollu)\b", m.group("cmd"), re.I) and \
+            (re.match(rf"^(?:(?:please|just|so|and|oh|okay|(?:can|could|would|will)\s+(?:you|u))\s+)*{_HEDGED_VERBS}", _FILLER_LEAD.sub("", m.group("cmd")), re.I)
+             or re.search(r"\b(?:pannu|podu|anuppu|sollu|thedu|vai|edu|moodu|thora)\b|\b(?:what|where|who|how|which)\b", m.group("cmd"), re.I)) and \
+            not re.match(r"^(?:if|when|whenever|once|after|before|until|unless)\b", m.group("cmd"), re.I):
+        t = m.group("cmd")
+    for _ in range(3):
+        new = _FILLER_LEAD.sub("", t).strip(" ,")
+        if new == t or not new:
+            break
+        t = new
+    return t
+
+
 _GOOGLE_PRODUCTS = r"(?:chrome|drive|meet|maps|docs|sheets|slides|calendar|photos|classroom|translate|keep|earth|lens|pay|play|news|assistant|account|home|fit|forms)"
 
 
@@ -214,19 +258,24 @@ def _rephrase_wants(t: str) -> str:
     t = re.sub(rf"^i\s+(?:want|need|would\s+like|'d\s+like)\s+(?:you|u)\s+to\s+(?={_HEDGED_VERBS})", "", t)
     t = re.sub(r"^i\s+(?:want|wanna|need|would\s+like|'d\s+like|feel\s+like)\s+(?:to\s+)?(?:listen(?:ing)?\s+to|hear(?:ing)?)\s+(?=\S)", "play ", t)
     # a leading remark before the command: "i'm heading out, lock the pc"
+    t = re.sub(r",\s*(?:oh\s+yeah|okay|ok|so|yeah|right|anyway)\s*,\s*", ", ", t)
     m = re.match(r"^(?P<remark>[^,]{4,60}?)\s*,\s*(?P<rest>.+)$", t)
     if m and len(m.group("remark").split()) >= 2 and not re.match(rf"^(?:please\s+)?{_HEDGED_VERBS}|^(?:no|not|don'?t|do\s+not|never|"
                                                                      r"wait|actually|if|when|whenever|after|once|until|unless|tell|text|"
                                                                      r"ask|message|whatsapp|reply)\b", m.group("remark")) \
-            and re.match(rf"^(?:(?:please|just|quickly|now|so|and)\s+)*{_HEDGED_VERBS}", m.group("rest")) \
+            and re.match(rf"^(?:(?:please|just|quickly|now|so|and|(?:can|could|would|will)\s+(?:you|u))\s+)*{_HEDGED_VERBS}", m.group("rest")) \
             and not re.match(r"^(?:call|name|label|save)\s+(?:it|that|them)\b", m.group("rest")) \
+            and not re.match(r"^(?:(?:please|just|quickly|now|so|and|(?:can|could|would|will)\s+(?:you|u))\s+)*(?:open|find|delete|send|move|copy|"
+                             r"rename|play|show|read|share|print|upload|locate|get|organi[sz]e|clean|sort|fix|check)\s+(?:it|that|them|this|those)\b", m.group("rest")) \
             and "," not in m.group("rest"):
         # a remark before the command: "i'm heading out, lock the pc", "someone's coming, minimize everything"
-        t = re.sub(r"^(?:(?:please|just|quickly|now|so|and)\s+)+", "", m.group("rest"))
+        t = re.sub(r"^(?:(?:please|just|quickly|now|so|and|(?:can|could|would|will)\s+(?:you|u))\s+)+", "", m.group("rest"))
     t = re.sub(rf"^(?:i\s+(?:want|wanna|need|would\s+like)|i'?d\s+like|let\s+me)\s+(?:to\s+)?(?=(?:open|launch|start|close|play|mute|lock|check|see|read|turn)\b)", "", t)
     t = re.sub(r"^(?:check|look\s+(?:on|at|in)|browse|search\s+on)\s+(amazon|flipkart|myntra|ebay|youtube|google|wikipedia)\s+for\s+(?:an?\s+)?", r"search \1 for ", t)
     t = re.sub(r"^(?:any|what(?:'s|\s+is)\s+the)\s+(?:latest\s+)?news\s+(?:about|on|from|in)\s+", "latest news about ", t)
     t = re.sub(r"^(?:take|bring)\s+me\s+to\s+(?=(?:https?://)?[\w-]+(?:\.[\w-]+)+(?:/\S*)?$)", "go to ", t)
+    t = re.sub(r"^(?:i\s+think\s+)?i'?m\s+(?:done|finished)\s+with\s+(?P<a>.+?)(?:\s+for\s+(?:now|today))?\s*,?\s*(?:(?:so\s+)?you\s+can\s+|please\s+|just\s+)?"
+               r"(?:close|quit|exit|shut)\s+(?:it|that)(?:\s+(?:now|down))?$", r"close \g<a>", t)
     t = re.sub(r"^fire\s+(?:up\s+)?(?P<a>.+?)(?:\s+up)?$", r"open \g<a>", t) if re.match(r"^fire\s+\S", t) else t
     t = re.sub(r"^shut\s+(?!(?:up|down|off|it|the\s+(?:pc|computer|laptop|system|lid)|my\s+(?:pc|computer|laptop)|everything)\b)(?=\S+$|\S+\s+\S+$)", "close ", t)
     t = re.sub(r"^(?:i'?m\s+curious|just\s+curious|quick\s+question|random\s+question|out\s+of\s+curiosity)\s*,?\s+", "", t)
@@ -248,6 +297,8 @@ def normalize_text(text: str) -> tuple[str, str]:
     normalized = unicodedata.normalize("NFKC", text)
     # 2. Lowercase / casefold
     cleaned = normalized.strip().casefold().replace("’", "'").rstrip(".?!")
+    # 2a. Spoken rambles around the command
+    cleaned = strip_ramble(cleaned) or cleaned
     # 2b. Discourse self-correction resolution
     cleaned = resolve_discourse_correction(cleaned)
     # 2c. Collapse spaced letters
@@ -406,7 +457,7 @@ chrome firefox edge notepad calculator spotify explorer vscode terminal paint wo
 discord telegram whatsapp youtube vlc steam obs photoshop gmail calendar drive browser tab tabs bookmark bookmarks
 browse surf need want make give tell ask app pc web all
 paste copy cut select undo redo type save press enter snip clipboard
-kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence quickly news talk again charger barely prefer latest texted create download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
+kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence just yeah remember quickly news talk again charger barely prefer latest texted create download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
 put reduce louder quieter brighter dimmer sound speaker speakers mic microphone camera email emails mail inbox meeting
 meetings schedule remember forget note notes reminder reminders todo focus workspace shortcut describe click
 have free busy block draft compose write mails mail calendar agenda any whatsapp dial call
@@ -583,6 +634,7 @@ def clean_for_matching(text: str) -> str:
     """The command with wake words, hesitations, trailing thanks/address and typos in the first words removed,
     keeping the owner's casing (message text and names stay exactly as said). Used by pattern matchers."""
     t = unicodedata.normalize("NFKC", text or "").strip().replace("\u2019", "'")
+    t = strip_ramble(t) or t
     for _ in range(4):
         new = _LEAD.sub("", t, count=1).strip()
         new = _TRAIL.sub("", new).strip()
