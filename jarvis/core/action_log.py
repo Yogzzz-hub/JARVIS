@@ -115,7 +115,9 @@ FOLLOWUP = re.compile(
     rf"|^did\s+{_U}\s+(?:send|sent|do|open|finish|reply)\s+(?:it|that|the\s+message)"
     rf"|^(?:repeat\s+that|say\s+that\s+again|come\s+again|what\s+did\s+{_U}\s+say)"
     rf"|^where\s+did\s+{_U}\s+(?:save|put|send)\s+(?:it|that)"
-    rf"|^(?:was|were|is|has)\s+(?:that|the|my|it)\s*(?:message|msg|mail|email|screenshot|file|note|reminder)?\s+(?:delivered|sent|saved|done|created|set)"
+    rf"|^(?:was|were|is|has)\s+(?:that|the|my|it)\s*(?:message|msg|mail|email|screenshot|file|note|reminder)?\s+(?:been\s+)?(?:actually\s+|really\s+|even\s+|successfully\s+)?(?:delivered|sent|saved|done|created|set)"
+    rf"|^did\s+{_U}\s+(?:actually\s+|really\s+|already\s+)?(?:send|deliver)\s+(?:my|the|that|this)\s+(?:message|msg|text|whatsapp)(?:\s+to\s+[a-z .'-]{{1,30}})?"
+    rf"|^what\s+did\s+{_U}\s+(?:just\s+)?say"
     rf"|^did\s+{_U}\s+(?:actually|really)?\s*(?:send|do|save|open|finish)\s+(?:it|that|the\s+\w+)(?:\s+or\s+not)?"
     rf"|^who\s+(?:got|received|gets)\s+(?:that|the|it|my)?\s*(?:message|msg|text)?"
     rf"|^who\s+was\s+(?:that|the)\s+(?:message|msg|text)\s+for"
@@ -123,14 +125,14 @@ FOLLOWUP = re.compile(
     rf"|^what\s+(?:message|msg|text|mail|email)\s+did\s+{_U}\s+(?:just\s+)?(?:send|sent|write|type)"
     rf"|^did\s+(?:that|it)\s+work"
     rf"|^(?:say|repeat)\s+(?:that|it)\s+(?:again|one\s+more\s+time|once\s+more|1\s+more\s+time)|^(?:pardon|sorry)\s*\??$|^come\s+again"
-    rf"|^did\s+my\s+(?:message|msg|text|whatsapp)\s+(?:to\s+[a-z .'-]{{1,30}}\s+)?(?:go\s+through|get\s+(?:sent|delivered|there)|send|reach)"
+    rf"|^did\s+my\s+(?:message|msg|text|whatsapp|mail|email)\s+(?:to\s+[a-z .'-]{{1,30}}?\s+)?(?:go(?:\s+through|\s+out)?|get\s+(?:sent|delivered|there|through)|send|reach|arrive|land)$"
     rf"|^who\s+did\s+{_U}\s+(?:just\s+)?(?:message|text|send\s+(?:it|that|a\s+message)\s+to|reply\s+to)")
 
 
 def is_followup(text: str) -> bool:
     t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
     t = re.sub(r"^(?:hey\s+|ok\s+)?jarvis,?\s+", "", t)
-    t = re.sub(r"^(?:(?:and|so|wait|but|then|ok|okay|hold\s+on|hang\s+on|um+|uh+|hey|please|jarvis|"
+    t = re.sub(r"^(?:(?:and|so|wait|but|then|ok|okay|hold\s+on|hang\s+on|um+|uh+|hey|please|jarvis|sorry|pardon|excuse\s+me|"
                r"(?:can|could|would|will)\s+(?:you|u)(?:\s+please)?)\s*,?\s+)+", "", t)
     return bool(FOLLOWUP.search(t))
 

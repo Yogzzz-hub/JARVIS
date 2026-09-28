@@ -112,3 +112,30 @@ def test_compound_steps_are_translated_like_single_commands():
     assert svc._translate_intent("volume_mute", {}) == ("volume_set", {"percent": 0})
     assert svc._translate_intent("brightness_set", {"step": -20}) == ("brightness_set", {"percent": 20})
     assert svc._translate_intent("brightness_set", {"percent": 70}) == ("brightness_set", {"percent": 70})
+
+
+def test_google_tools_read_mail_list_and_add_events_with_fake_google():
+    from datetime import datetime
+
+    from jarvis.integrations.google.fake_provider import make_fake_calendar_client, make_fake_gmail_client
+    from jarvis.tools.system.google_tools import EventCreateTool, EventsListTool, MailListTool, parse_when, time_range
+
+    gmail, _ = make_fake_gmail_client()
+    cal, _ = make_fake_calendar_client()
+    mail = asyncio.run(MailListTool(gmail).run({"limit": 2}))
+    assert mail["count"] == 2 and "latest emails" in mail["message"]
+    added = asyncio.run(EventCreateTool(cal).run({"summary": "dentist", "when": "tomorrow at 4"}))
+    assert "dentist" in added["message"] and added["items"][0]["start"].split("T")[1].startswith("16:00")
+    assert asyncio.run(EventsListTool(cal).run({"time_window": "tomorrow"}))["count"] >= 1
+    assert EventCreateTool.definition.requires_confirmation  # adding to the calendar always asks first
+
+    now = datetime(2026, 9, 28, 10, 0).astimezone()  # a Monday
+    assert parse_when("friday at 3:30 pm", now).strftime("%a %H:%M") == "Fri 15:30"
+    assert parse_when("on friday", now) is None  # no time: JARVIS asks
+    start, end = time_range("thursday evening", now)
+    assert start.strftime("%a %H") == "Thu 17" and end.hour == 21
+
+
+def test_google_tools_are_registered_actions():
+    from jarvis.tools.system.google_tools import create_google_tools
+    assert {t.definition.name for t in create_google_tools()} == {"gmail_list_recent", "calendar_list_events", "calendar_create_event"}

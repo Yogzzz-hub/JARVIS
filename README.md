@@ -988,7 +988,7 @@ python -m tests.generalization.benchmark_runner       # deterministic generaliza
 python -m jarvis.decision.evaluation.evaluate         # decision-engine benchmark
 python -m tests.whatsapp_personal.benchmark           # 500-case WhatsApp personal-reply benchmark (fake provider)
 python -m tests.rag.benchmark                         # RAG precision / recall / abstention
-python -m tests.phase_suite.runner --all --fails      # phase command suite: dev, blind and blind-2 splits
+python -m tests.phase_suite.runner --all --fails      # phase command suite: dev and blind 1-4 splits
 ```
 
 ### Phase command suite (all 12 phases + WhatsApp, phone, automation, Thanglish, chat)
@@ -997,16 +997,20 @@ python -m tests.phase_suite.runner --all --fails      # phase command suite: dev
 "um ... jarvis", typos, spoken wake words). Scored router-only, with no AI model, so the numbers show the
 deterministic understanding; with Ollama running, anything still unrecognised goes to the model/planner.
 
-| Split | Commands | Before this work | First run on unseen commands | After fixes |
+| Split | Commands | Before this work | First run (never seen before) | After fixes |
 |---|---|---|---|---|
-| dev (fixed against) | 2,354 | 63.0% | - | 96.2% |
+| dev (fixed against) | 2,354 | 63.0% | - | 96.4% |
 | blind (held out, later used for fixes) | 591 | 61.1% | 83.1% | 96.1% |
-| blind-2 (written after the fixes) | 1,014 | 53.6% | **76.0%** | 98.3% |
+| blind-2 | 1,014 | 53.6% | 76.0% | 98.3% |
+| blind-3 (more easy commands) | 1,054 | - | 87.3% | 99.7% |
+| blind-4 (final check) | 695 | - | **89.1%** | 100% |
 
-The honest generalization figure is the blind-2 first run (76.0%, measured once before any fix for it);
-the "after fixes" columns were tuned on those failures. The safety phase (p05) is still low (about 40-54%):
-dangerous requests mostly go to the planner rather than being refused outright, and destructive tools keep their
-confirmation step. Gmail/Calendar commands are understood but those tools are not registered in the runtime yet.
+Each blind set was written after the previous round of fixes and scored once before anything was changed for it,
+so the "first run" column is the honest measure of how well JARVIS handles wordings nobody wrote a rule for; it
+rose 76.0% -> 87.3% -> 89.1% over three rounds. The safety phase (p05) still sends most dangerous requests to the
+planner rather than refusing them outright; destructive tools keep their confirmation step. Gmail and Google
+Calendar now run as actions (read mail, list events, add an event after confirmation) once an account is connected
+with `connect_google.bat`.
 
 Useful test infrastructure:
 - `jarvis/tests/fake_ollama.py`: an in-process fake Ollama, so AI tests need no network.

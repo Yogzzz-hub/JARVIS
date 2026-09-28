@@ -4,6 +4,8 @@
     python -m tests.phase_suite.runner --blind      # the held-out blind split
     python -m tests.phase_suite.runner --all
     python -m tests.phase_suite.runner --blind2     # the second held-out set, written after the fixes
+    python -m tests.phase_suite.runner --blind3     # the third held-out set (more easy commands)
+    python -m tests.phase_suite.runner --blind4     # the final held-out check (never tuned on)
 
 Writes reports/PHASE_SUITE_<split>.md / .json with accuracy per phase and per difficulty, and every failure.
 """
@@ -128,6 +130,12 @@ def write_report(split: str, results: list[dict], summary: dict, seconds: float)
 
 
 def load(split: str) -> list[dict]:
+    if split == "blind4":
+        from tests.phase_suite.blind4 import build4
+        return build4()
+    if split == "blind3":
+        from tests.phase_suite.blind3 import build3
+        return build3()
     if split == "blind2":
         from tests.phase_suite.blind2 import build2
         return build2()
@@ -139,11 +147,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--blind", action="store_true")
     ap.add_argument("--blind2", action="store_true")
+    ap.add_argument("--blind3", action="store_true")
+    ap.add_argument("--blind4", action="store_true")
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--phase", default="")
     ap.add_argument("--fails", action="store_true", help="print failures")
     args = ap.parse_args()
-    splits = ["dev", "blind", "blind2"] if args.all else ["blind2" if args.blind2 else "blind" if args.blind else "dev"]
+    splits = ["dev", "blind", "blind2", "blind3", "blind4"] if args.all else \
+        ["blind4" if args.blind4 else "blind3" if args.blind3 else "blind2" if args.blind2 else "blind" if args.blind else "dev"]
     for split in splits:
         cases = [c for c in load(split) if not args.phase or c["phase"].startswith(args.phase)]
         t0 = time.time()

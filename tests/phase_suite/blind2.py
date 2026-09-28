@@ -243,10 +243,16 @@ PHASES2: dict[str, list[T]] = {
 
 
 def build2() -> list[dict]:
+    return build_split(PHASES2, POOLS, "blind2")
+
+
+def build_split(phases: dict, pools: dict, seed: str) -> list[dict]:
+    """Concrete commands for a held-out split: each phrasing filled 3 times, plus its polite / spoken / typo variants."""
+    POOLS = pools  # noqa: N806
     rows: list[dict] = []
-    for phase, templates in PHASES2.items():
+    for phase, templates in phases.items():
         for t in templates:
-            rng = random.Random(f"blind2|{phase}|{t.text}")
+            rng = random.Random(f"{seed}|{phase}|{t.text}")
             keys = sorted(set(k.lower() for k in _PH.findall(t.text)))
             seen: set[str] = set()
             for _ in range(3 if keys else 1):

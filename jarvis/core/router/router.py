@@ -32,6 +32,21 @@ KNOWN_SHELL_COMMANDS = frozenset({
 })
 
 
+_SPOKEN_WORDS = re.compile(r"\b(?:and|say|saying|tell|that|the|to|on|in|my|me|him|her|please|whatsapp|message|text|if|about|"
+                           r"is|are|was|what|who|how|why|can|could|would|should|you|i|a|an|for|with|then)\b", re.I)
+
+
+def _looks_like_shell(text: str) -> bool:
+    """'ping google.com', 'ipconfig /all', 'git status' are shell; 'ping keerthi on whatsapp and say hi' is a message."""
+    parts = text.split()
+    if len(parts) > 6:
+        return False
+    if parts[0].lower() in ("ping", "tracert", "nslookup") and len(parts) > 1 and \
+            not re.search(r"[.:\d]|^localhost$|^-", parts[1], re.I):
+        return False  # "ping arun" is a message to Arun, not a network ping
+    return not _SPOKEN_WORDS.search(" ".join(parts[1:])) if len(parts) > 1 else True
+
+
 def _llm_down(decision) -> bool:
     """The classifier failed because Ollama is unreachable (not merely slow or confused)."""
     trace = getattr(decision, "context_trace", None) or {}
@@ -164,9 +179,17 @@ class SmartRouter:
 
     _TELL_PERSON = re.compile(r"^(?:tell|text|message|msg|ping|inform|remind)\s+(?P<who>(?:my\s+)?[a-z][a-z'-]{1,20})\s*,?\s+(?P<msg>.{2,})$", re.I)
 
+    _QUESTION_START = re.compile(r"^(?:(?:hold\s+on|wait|so|and|but|sorry|hey\s+jarvis|jarvis|um+|uh+)\s*,?\s+)*"
+                                 r"(?:was|were|did|has|have|is|are|does|do|had)\b(?!\s+(?:not|n't|tell|send|message|text|let|ask|remind|inform|ping|reply)\b)", re.I)
+
     def _check_recipient(self, decision: RouteDecision, text: str = "") -> RouteDecision:
         if decision.intent not in self._SEND_INTENTS:
             return decision
+        if decision.lane == RouteLane.LANE_0 and self._QUESTION_START.match((text or "").strip()):
+            # "was that message actually sent?" asks about a message; a question never sends one
+            return RouteDecision(request_id=decision.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.6,
+                                 source=decision.source, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
         who = str((decision.slots or {}).get("recipient") or (decision.slots or {}).get("to") or "").strip().lower()
         if re.fullmatch(r"\d{1,5}(?:[:.]\d{2})?\s*(?:am|pm)?", who) and decision.intent == "send_whatsapp_message":
             # "tell mom meeting moved to 5": a time or number is never the contact - the person follows "tell"
@@ -224,6 +247,13 @@ class SmartRouter:
                     routing_ms=(perf_counter_ns() - t0) / 1e6,
                     breakdown_ms=breakdown,
                 )
+                self._record(decision)
+                return decision
+            if re.search(r"\b(?:thank|thanks|thx|ty|cheers|good\s+job|well\s+done)\b", orig_lower):
+                # "um thank you so much jarvis": all of it is conversation, answered by the assistant
+                decision = RouteDecision(request_id=request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.95,
+                                         source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE, normalized_text=original_text,
+                                         reason_code=ReasonCode.QUESTION_NOT_COMMAND, routing_ms=(perf_counter_ns() - t0) / 1e6)
                 self._record(decision)
                 return decision
 
@@ -587,7 +617,7 @@ class SmartRouter:
             shell_cmd = cmd_match.group(1).strip()
         elif routing_text:
             first_tok = routing_text.split()[0].lower()
-            if first_tok in KNOWN_SHELL_COMMANDS:
+            if first_tok in KNOWN_SHELL_COMMANDS and _looks_like_shell(orig_stripped):
                 shell_cmd = orig_stripped
 
         if shell_cmd:

@@ -202,10 +202,18 @@ _GOOGLE_PRODUCTS = r"(?:chrome|drive|meet|maps|docs|sheets|slides|calendar|photo
 
 
 def _rephrase_wants(t: str) -> str:
+    # real-word slips a spell checker can't see: "form now on" = "from now on", "garb a screenshot" = "grab"
+    t = re.sub(r"^form\s+(?=(?:now\s+on|my|the|this|that|here|there|today|tomorrow)\b)", "from ", t)
+    t = re.sub(r"^garb\s+(?=(?:a|the|my|this)\s)", "grab ", t)
     """'i want you to open X' -> 'open X'; 'i want to listen to X' -> 'play X'; 'take me to site.com' -> 'go to site.com';
     'google best laptops' -> 'search google for best laptops'."""
     t = re.sub(rf"^i\s+(?:want|need|would\s+like|'d\s+like)\s+(?:you|u)\s+to\s+(?={_HEDGED_VERBS})", "", t)
     t = re.sub(r"^i\s+(?:want|wanna|need|would\s+like|'d\s+like|feel\s+like)\s+(?:to\s+)?(?:listen(?:ing)?\s+to|hear(?:ing)?)\s+(?=\S)", "play ", t)
+    # a leading remark before the command: "i'm heading out, lock the pc"
+    t = re.sub(rf"^(?:i'?m|i\s+am|i'?ll\s+be|i\s+will\s+be|i'?ve\s+got\s+to|i\s+have\s+to|gotta)\s+[^,]{{2,40}},\s*(?=(?:please\s+)?{_HEDGED_VERBS})", "", t)
+    t = re.sub(rf"^(?:i\s+(?:want|wanna|need|would\s+like)|i'?d\s+like|let\s+me)\s+(?:to\s+)?(?=(?:open|launch|start|close|play|mute|lock|check|see|read|turn)\b)", "", t)
+    t = re.sub(r"^(?:check|look\s+(?:on|at|in)|browse|search\s+on)\s+(amazon|flipkart|myntra|ebay|youtube|google|wikipedia)\s+for\s+(?:an?\s+)?", r"search \1 for ", t)
+    t = re.sub(r"^(?:any|what(?:'s|\s+is)\s+the)\s+(?:latest\s+)?news\s+(?:about|on|from|in)\s+", "latest news about ", t)
     t = re.sub(r"^(?:take|bring)\s+me\s+to\s+(?=(?:https?://)?[\w-]+(?:\.[\w-]+)+(?:/\S*)?$)", "go to ", t)
     t = re.sub(r"^(?:listen\s+to|lemme\s+hear|let\s+me\s+hear)\s+(?!(?:me|him|her|them|this|that|it|what)\b)(?=\S)", "play ", t)
     if not re.search(r"\b(?:in|on)\s+(?:my\s+|the\s+)?(?:pc|computer|laptop|files?|folders?|documents|downloads|notes|drive)\b"
@@ -382,7 +390,7 @@ chrome firefox edge notepad calculator spotify explorer vscode terminal paint wo
 discord telegram whatsapp youtube vlc steam obs photoshop gmail calendar drive browser tab tabs bookmark bookmarks
 browse surf need want make give tell ask app pc web all
 paste copy cut select undo redo type save press enter snip clipboard
-kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
+kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence news talk again charger barely prefer latest texted create download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
 put reduce louder quieter brighter dimmer sound speaker speakers mic microphone camera email emails mail inbox meeting
 meetings schedule remember forget note notes reminder reminders todo focus workspace shortcut describe click
 have free busy block draft compose write mails mail calendar agenda any whatsapp dial call
@@ -451,7 +459,9 @@ def correct_command_typos(routing: str) -> str:
         return routing
     import difflib
     words = routing.split()
-    stop = next((i for i, w in enumerate(words) if w in ("saying", "that", "say", "message", "text", "tell")), len(words))
+    stop = next((i for i, w in enumerate(words) if w in ("saying", "that", "say", "message", "text", "tell")
+                 and not (w == "say" and i + 1 < len(words) and words[i + 1] in ("it", "that", "this"))
+                 and not (w == "that" and i > 0 and words[i - 1] == "say")), len(words))
     head = min(4, stop)
     changed = False
     for i in range(head):

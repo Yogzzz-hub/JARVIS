@@ -58,7 +58,8 @@ FOLDER_WORDS = r"(?:documents?|docs|downloads?|desktop|pictures|photos|music|vid
 KNOWLEDGE_WORDS = r"(?:documents|docs|notes|files|knowledge(?: base)?|pdfs|papers)"
 _COMPOUND = re.compile(r"\b(?:and then|then|after that|also)\b|;|,\s*(?:and\s+)?(?:open|close|send|play|search|find)\b")
 _WHATSAPP_TAIL = re.compile(r"\s+(?:on|via|in|through|over|using)\s+whats\s*app\s*$", re.I)
-_URLISH = re.compile(r"^(?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|ai|dev|edu|in|co|app|gov|me|tv|info|uk|us)(?:/\S*)?$", re.I)
+_URLISH = re.compile(r"^(?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|ai|dev|edu|in|co|app|gov|me|tv|info|uk|us|to|gg|ly|xyz|site|online|tech|blog|news|biz|cc|fm|so|sh|page|"
+    r"link|store|shop|cloud|live|au|ca|de|fr|jp|sg|ae|lk|pk)(?:/\S*)?$", re.I)
 ANDROID_KEYS = {
     "volume_up": ("volume up", "increase volume", "raise volume", "turn up", "louder"),
     "volume_down": ("volume down", "decrease volume", "lower volume", "turn down", "quieter", "softer"),
@@ -319,6 +320,7 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
         re.match(rf"^(?:tell me|show me|what(?:'s| is| are)|check|get|read)(?:\s+(?:the|all|my|any))?(?:\s+(?:total|count of|number of))?(?:\s+{_UNREAD_WORDS})?\s+{_MSG_WORDS}{_WA_IN_ON}$", t)
         # "how many unread messages in whatsapp", "how many unread messages do i have in whatsapp"
         or re.match(rf"^how many(?:\s+total)?(?:\s+{_UNREAD_WORDS})?\s+{_MSG_WORDS}(?:\s+(?:do i have|are there))?{_WA_IN_ON}$", t)
+        or re.match(rf"^(?:how many|any|are there(?:\s+any)?|do i have(?:\s+any)?)(?:\s+{_UNREAD_WORDS})?\s+whats\s*app\s+{_MSG_WORDS}(?:\s+(?:do i have|are there|today|now))?$", t)
         # "total unread messages in whatsapp", "the total unread msg in whatsapp"
         or re.match(rf"^(?:the\s+)?(?:total\s+)?{_UNREAD_WORDS}\s+{_MSG_WORDS}{_WA_IN_ON}$", t)
         # "any unread messages in whatsapp", "do i have any unread messages in whatsapp"
@@ -363,6 +365,8 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
         return _decision(request_id, t, "read_whatsapp_messages", {"filter": "all", "sender": raw_body(raw, m.group("who").strip()), "limit": 5})
 
     # 5. One person's messages: "what did arun say", "what did amma send", "messages from priya", "what is arun saying"
+    if re.match(r"^what(?:'s|\s+is|\s+does)\s+(?:this|that|the)\s+(?:popup|pop-up|dialog|window|box|notification|error|warning|alert|screen|app|page|website|site)\b", t):
+        return None  # something on the screen, not a WhatsApp contact
     m = (re.fullmatch(r"what\s+(?:did|has)\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:say|said|send|sent|text|texted|message|messaged|write|wrote)"
                       r"(?:\s+(?:me|to me))?(?:\s+(?:today|now|recently|just now|on whatsapp|in whatsapp))?", t)
          or re.fullmatch(r"what\s+(?:is|'s)\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:saying|asking|telling me)", t)
@@ -391,6 +395,10 @@ def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
                r"make\s+it\s+work|run\s+it|open\s+it|get\s+it\s+(?:running|working|ready))\b.*$", "", t).strip(" ?.!")
     m = re.match(rf"^(?:install|set ?up|download and install|get and install)\s+(?:the\s+)?(?:app\s+|application\s+|software\s+)?{_APP}(?:\s+(?:app|application|software))?{_ON_PC}$", t) \
         or re.match(rf"^(?:get|have)\s+(?:the\s+)?{_APP}(?:\s+(?:app|application|software))?\s+installed{_ON_PC}$", t)
+    u = re.match(rf"^(?:update|upgrade)\s+(?:the\s+)?(?!(?:my|all|every|everything|status|notes?|to-?do|list|calendar|reminders?|profile|"
+                 rf"password|contacts?|drivers?|windows|the\s+system)\b){_APP}(?:\s+(?:app|application|software|to\s+the\s+latest(?:\s+version)?))?{_ON_PC}$", t)
+    if u and not m:
+        return _decision(request_id, t, "update_software", {"name": u.group("app").strip()})
     c = re.match(r"^(?:do\s+i\s+have|have\s+i\s+got|did\s+i\s+install)\s+(?:the\s+)?(?!(?:a|an|any|some|enough|space|files?|folders?)\b)"
                  r"(?P<app>[a-z0-9][a-z0-9 .+#&'-]{0,40}?)"
                  r"(?:\s+(?:app|application|software))?(?:\s+installed)?\s+(?:on|in)\s+(?:this|my|the)\s+(?:pc|laptop|computer|system|machine)$", t)
@@ -510,8 +518,9 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
         return None
     # ---- battery / network
     if re.match(r"^(?:what(?:'s| is)\s+(?:my|the)\s+|check\s+(?:my\s+|the\s+)?|show\s+(?:me\s+)?(?:my\s+|the\s+)?)?(?:laptop\s+|pc\s+)?battery(?:\s+(?:level|status|percentage|life|left|charge|health))?$", t) \
-            or re.match(r"^how much (?:battery|charge)(?: do i have| is left| left| remaining)?(?: on (?:my |the )?(?:laptop|pc|computer))?$", t) \
-            or re.match(r"^is (?:my |the )?(?:laptop|pc|computer|battery|it) (?:charging|plugged in|on charge)$", t):
+            or re.match(r"^how much (?:battery|charge|juice|power)(?: do i have(?: left)?| have i got(?: left)?| is left| left| remaining| is there)?(?: on (?:my |the )?(?:laptop|pc|computer))?$", t) \
+            or re.match(r"^is (?:my |the )?(?:laptop|pc|computer|battery|it) (?:charging|plugged in|on charge)$", t) \
+            or re.match(r"^is (?:my |the )?(?:charger|power (?:cable|cord|adapter)|adapter) (?:plugged in|connected|on|working)$", t):
         return _decision(request_id, t, "battery_status", {})
     if re.match(r"^(?:what(?:'s| is)\s+)?my\s+(?:local\s+)?ip(?:\s+address)?$", t) \
             or re.match(r"^(?:am i|are we|is (?:the |my )?(?:pc|laptop|computer))\s+(?:connected to (?:the )?internet|online|connected)$", t) \
@@ -540,7 +549,7 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
         or re.match(rf"^(?:new|add (?:a )?)\s*(?:task|to-?do|todo)\s*[:\-]?\s+(?P<x>.+)$", t)
     if m:
         return _decision(request_id, t, "todo", {"action": "add", "item": raw_body(raw, m.group("x"))})
-    if re.match(rf"^(?:show|read|list|open|check|what(?:'s| is) on|what are)\s+(?:me\s+)?(?:my\s+|the\s+)?{_TODO_LIST}$", t) \
+    if re.match(rf"^(?:show|read|list|open|check|what(?:'s| is) on|what are)\s+(?:me\s+)?(?:my\s+|the\s+)?{_TODO_LIST}(?:\s+(?:for\s+)?(?:today|tomorrow|now|this\s+week))?$", t) \
             or re.match(r"^what (?:do i have to do|are my (?:tasks|to-?dos|todos))(?: today)?$", t):
         return _decision(request_id, t, "todo", {"action": "list"})
     m = re.match(rf"^(?:mark|tick off|check off|cross off)\s+(?P<x>.+?)(?:\s+(?:as\s+)?(?:done|complete|completed|finished))?(?:\s+(?:on|from) (?:my\s+)?{_TODO_LIST})?$", t)
@@ -565,7 +574,7 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
     if m:
         return _decision(request_id, t, "forget_fact", {"query": raw_body(raw, m.group("q"))})
     # ---- history, passwords, recycle bin
-    if re.match(r"^(?:what did i (?:just )?(?:ask|say|tell)(?: you)?(?: to do)?(?: (?:earlier|before|last|recently|today))?|show (?:me )?(?:my )?(?:command |recent )?history|(?:my )?recent commands"
+    if re.match(r"^(?:what did i (?:just )?(?:ask|say|tell)(?: you)?(?: to do)?(?: (?:earlier|before|last|recently|today|this morning|so far|yesterday))*|show (?:me )?(?:my )?(?:command |recent )?history|(?:my )?recent commands"
                 r"|what (?:were|are) my (?:last|recent|previous)(?: few| \d+)? commands|(?:list|show)(?: me)? (?:the |my )?(?:last |recent )?commands(?: i (?:gave|said|asked)(?: you)?)?(?: today| earlier)?"
                 r"|what (?:was|were) the last (?:thing|things|command|commands|request|few things) i (?:asked|told|said to|gave)(?: you)?(?: to do)?"
                 r"|(?:list|show|tell)(?: me)? (?:the |all (?:the )?)?(?:things|stuff|commands|requests) i (?:told|asked|gave)(?: you)?(?: to do)?(?: today| earlier| so far)?"
@@ -666,6 +675,8 @@ def match_voice_and_screen(t: str, raw: str, request_id: str) -> Optional[RouteD
                     r"|(?:summari[sz]e|read(?:\s+out)?|explain)\s+(?:what(?:'s|\s+is)\s+on\s+my\s+screen|my\s+screen|the\s+screen)"
                     r"|what(?:'s|\s+is)\s+(?:this|that)\s+(?:error|popup|pop-up|warning|message)(?:\s+(?:on\s+(?:my|the)\s+screen|here))?"
                     r"|what\s+does\s+(?:this|that)\s+(?:error|popup|pop-up|warning|message|dialog)(?:\s+(?:on\s+(?:my|the)\s+screen|here))?\s+mean"
+                    r"|what(?:'s|\s+is|\s+does)\s+(?:this|that|the)\s+(?:popup|pop-up|pop\s+up|dialog|dialogue|window|box|notification|error|warning|alert|screen)\s+(?:saying|say|telling\s+me)"
+                    r"|what(?:'s|\s+is)\s+(?:written|showing|displayed)\s+on\s+(?:my|the)\s+(?:screen|display|monitor)"
                     r"|(?:tell\s+me\s+)?what\s+(?:do\s+)?you\s+see\s+on\s+(?:my|the)\s+screen|read\s+what(?:'s|\s+is)\s+on\s+(?:my|the)\s+screen", t):
         return _decision(request_id, t, "describe_screen", {"device": "pc", "question": raw})
     m = re.fullmatch(r"(?:find|locate|look\s+for|search\s+for)\s+(?P<target>.+?)\s+(?:on\s+(?:the|my)\s+screen\s+)?and\s+(?:then\s+)?"
@@ -768,7 +779,12 @@ def match_google(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
                     rf"|(?:did|has)\s+[a-z .'-]{{1,30}}\s+(?:e-?mail(?:ed)?|mail(?:ed)?|sent\s+(?:me\s+)?(?:an?\s+)?(?:e-?mail|mail))(?:\s+me)?"
                     rf"|what(?:'s| is)?\s+new\s+in\s+my\s+{_MAIL}|anything\s+(?:new|important|urgent)\s+in\s+my\s+{_MAIL}(?:\s+today)?"
                     rf"|(?:latest|recent|unread|new)\s+{_MAIL}", t):
-        return _decision(request_id, t, "gmail_list_recent", {})
+        slots = {"unread_only": True} if re.search(r"\b(?:new|unread|any)\b", t) else {}
+        who = re.search(r"\bfrom\s+(?P<w>[a-z0-9 .@'-]{1,40}?)(?:\s+today)?$", t) or \
+            re.match(r"^(?:did|has)\s+(?P<w>[a-z .'-]{1,30}?)\s+(?:e-?mail|mail|sent)", t)
+        if who:
+            slots["sender"] = raw_body(raw, who.group("w").strip())
+        return _decision(request_id, t, "gmail_list_recent", slots)
     # --- drafting mail (address and body are confirmed before anything is sent)
     m = re.fullmatch(rf"(?:draft|write|compose|prepare|send)\s+(?:an?\s+)?(?:e-?mail|mail)\s+to\s+(?P<to>[a-z0-9 .@'-]{{1,40}}?)"
                      rf"(?:\s+(?:about|regarding|saying|asking(?:\s+for)?|that|to say)\s+(?P<about>.+))?", t) \
@@ -804,8 +820,13 @@ def match_google(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     if m and re.search(r"\b(?:meeting|call|appointment|event|lunch|dinner|interview|review|session|class|hours?|minutes?|"
                        r"calendar|reminder|sync|standup|catch\s*up)\b", m.group("what") + " " + t):
         what = re.sub(r"\s+(?:on|to|in)\s+my\s+calendar$", "", m.group("what")).strip()
-        return _decision(request_id, t, "calendar_create_event", {"summary": raw_body(raw, what), "when": m.group("when")},
-                         lane=RouteLane.CLARIFY, clarification=f"Add '{what}' {m.group('when')} to your calendar - shall I?")
+        what = re.sub(r"^(?:on\s+|to\s+)?my\s+calendar\s+", "", what)
+        from jarvis.tools.system.google_tools import parse_when
+        slots = {"summary": raw_body(raw, what), "when": m.group("when")}
+        if parse_when(m.group("when")):  # a day and a time: the tool itself asks before creating it
+            return _decision(request_id, t, "calendar_create_event", slots)
+        return _decision(request_id, t, "calendar_create_event", slots, lane=RouteLane.CLARIFY,
+                         clarification=f"What time should '{what}' be {m.group('when')}?")
     return None
 
 
@@ -828,7 +849,8 @@ _KNOWLEDGE_Q = re.compile(
     r"|^(?:explain|define)\s+(?!(?:this|the|my)\s+(?:error|screen|popup|message))"
     r"|^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?difference\s+between\b"
     r"|^i\s+(?:was|am|'m)\s+(?:wondering|curious)\b|^i\s+wonder\s+(?:how|why|what|if|whether)\b"
-    r"|^(?:is|would)\s+it\s+(?:be\s+)?(?:better|worse|safer|smarter|ok|okay|fine|good|bad|healthy|wise|possible)\s+(?:to|if)\b")
+    r"|^(?:is|would)\s+it\s+(?:be\s+)?(?:better|worse|safer|safe|smarter|ok|okay|fine|good|bad|healthy|wise|possible|necessary|normal|risky|"
+    r"dangerous|required|legal|worth\s+it|a\s+good\s+idea|a\s+bad\s+idea)\s+(?:to|if)\b")
 
 
 def match_knowledge_question(t: str, request_id: str) -> Optional[RouteDecision]:
@@ -848,7 +870,7 @@ def match_system(t: str, request_id: str) -> Optional[RouteDecision]:
     d = lambda intent, slots=None: _decision(request_id, t, intent, slots or {})  # noqa: E731
     # ---- power (shutdown / restart still ask for confirmation before anything happens)
     if re.fullmatch(rf"(?:shut\s*down|shutdown|turn\s+off|power\s+off|switch\s+off|power\s+down)(?:\s+(?:the|my|this))?\s+{_DEVICE}(?:\s+now)?"
-                    r"|shut\s*down|shutdown(?:\s+now)?", t):
+                    rf"|shut\s*down|shutdown(?:\s+now)?|(?:shut|power|switch|turn)\s+(?:the\s+|my\s+|this\s+)?{_DEVICE}\s+(?:down|off)(?:\s+now)?", t):
         return d("system_power_control", {"action": "shutdown"})
     if re.fullmatch(rf"(?:restart|reboot)(?:\s+(?:the|my|this))?(?:\s+{_DEVICE})?(?:\s+now)?", t):
         return d("system_power_control", {"action": "restart"})
@@ -858,7 +880,7 @@ def match_system(t: str, request_id: str) -> Optional[RouteDecision]:
     if re.fullmatch(rf"lock(?:\s+(?:the|my|this))?(?:\s+{_DEVICE}|\s+screen)?(?:\s+now)?|lock\s+it(?:\s+up)?(?:\s*,?.*leaving.*)?", t):
         return d("system_power_control", {"action": "lock"})  # the executable lock (there is no separate lock tool)
     # ---- volume
-    m = re.fullmatch(r"(?:(?:set|make|put|turn|change|adjust|bring|keep)\s+)?(?:the\s+)?(?:speaker\s+|system\s+|master\s+|pc\s+)?"
+    m = re.fullmatch(r"(?:(?:set|make|put|turn|change|adjust|bring|keep|lower|raise|reduce|increase|decrease|drop|boost)\s+)?(?:the\s+|my\s+)?(?:speaker\s+|system\s+|master\s+|pc\s+)?"
                      r"(?:volume|sound|audio)(?:\s+level)?\s+(?:to\s+|too\s+|at\s+|on\s+|as\s+)?(?:like\s+|about\s+|around\s+|exactly\s+)?"
                      r"(\d{1,3})\s*(?:%|percent|per\s*cent)?", t)
     if m and int(m.group(1)) <= 100:
@@ -884,7 +906,8 @@ def match_system(t: str, request_id: str) -> Optional[RouteDecision]:
             or re.search(r",?\s*turn\s+it\s+up$", t):
         return d("volume_up")
     # ---- brightness
-    m = re.fullmatch(r"(?:(?:set|make|put|turn|change|adjust)\s+)?(?:the\s+)?(?:screen\s+|display\s+)?brightness\s+(?:to\s+|at\s+)?(\d{1,3})\s*(?:%|percent)?", t) \
+    m = re.fullmatch(r"(?:(?:set|make|put|turn|change|adjust|lower|raise|reduce|increase|decrease|drop|bring|dim|boost)\s+)?(?:the\s+|my\s+)?(?:screen\s+|display\s+)?"
+                     r"brightness\s+(?:(?:down|up)\s+)?(?:to\s+|at\s+)?(\d{1,3})\s*(?:%|percent)?", t) \
         or re.fullmatch(r"(?:dim|brighten|darken)\s+(?:the\s+|my\s+)?(?:screen|display|monitor)\s+(?:to|at)\s+(\d{1,3})\s*(?:%|percent)?", t)
     if m and int(m.group(1)) <= 100:
         return d("brightness_set", {"percent": int(m.group(1))})
@@ -925,12 +948,24 @@ def match_system(t: str, request_id: str) -> Optional[RouteDecision]:
     m = re.fullmatch(r"snap\s+(?:this\s+|the\s+|my\s+)?(?:window\s+|it\s+)?(?:to\s+)?(?:the\s+)?(left|right|top|bottom)(?:\s+side)?", t)
     if m:
         return d("snap_window", {"direction": m.group(1)})
+    m = re.fullmatch(r"shut\s+(?:the\s+|my\s+)?(?P<app>[a-z0-9 .+-]{2,30}?)\s+down(?:\s+(?:now|please))?"
+                     r"|(?:the\s+)?(?P<app2>[a-z0-9 .+-]{2,30}?)\s+(?:needs|has|ought)\s+to\s+(?:be\s+)?(?:closed|close|shut|go|stop)"
+                     r"|(?:the\s+)?(?P<app3>[a-z0-9 .+-]{2,30}?)\s+should\s+be\s+closed", t)
+    if m:
+        app = (m.group("app") or m.group("app2") or m.group("app3")).strip()
+        if re.fullmatch(r"(?:(?:the|this|current|active|that)\s+)*window", app):
+            return d("close_window")
+        if not re.fullmatch(rf"(?:{_DEVICE}|it|this|that|everything|all|windows?)", app):
+            return d("close_app", {"name": app})
     m = re.fullmatch(r"get\s+(?P<app>[a-z0-9 .+-]{2,30}?)\s+off\s+(?:my|the)\s+screen(?:\s*,?\s*close\s+it)?", t)
     if m:
         return d("close_app", {"name": m.group("app").strip()})
     return None
 
 
+_DOC_NOUN = re.compile(r"\b(?:bill|card|letter|proposal|record|receipt|report|certificate|statement|agreement|slip|ticket|form|"
+                       r"licen[cs]e|passport|resume|cv|invoice|contract|scan|document|file|notes?|assignment|thesis|marksheet|"
+                       r"transcript|id|aadhaar|pan|visa|policy|warranty|offer)\b")
 _FILE = r"(?P<file>[\w .()'&-]{1,60}?\.[a-z0-9]{2,5})"
 # document / media extensions only: "open google.com" is a website, "open setup.exe" a program
 _DOC_EXT = (r"(?:pdf|docx?|xlsx?|pptx?|odt|ods|txt|rtf|csv|md|json|xml|log|png|jpe?g|gif|bmp|webp|svg|heic|mp3|wav|m4a|flac|"
@@ -942,10 +977,10 @@ def match_files(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     if re.search(rf"\b{PHONE_WORDS}\b", t):
         return None  # "copy report.pdf to my phone": a phone transfer
     d = lambda intent, slots=None: _decision(request_id, t, intent, slots or {})  # noqa: E731
-    m = re.fullmatch(rf"(?P<verb>copy|move)\s+(?:the\s+file\s+)?{_FILE}\s+(?:to|into|in)\s+(?:the\s+|my\s+)?(?P<dst>[\w .:/\\-]{{2,60}}?)(?:\s+folder)?", t)
+    m = re.fullmatch(rf"(?P<verb>copy|move|shift|transfer|put|drag|duplicate)\s+(?:the\s+file\s+)?{_FILE}\s+(?:over\s+|across\s+|back\s+)?(?:to|into|in|onto)\s+(?:the\s+|my\s+)?(?P<dst>[\w .:/\\-]{{2,60}}?)(?:\s+folder)?", t)
     if m:
         dst = m.group("dst").strip()
-        return d(f"{m.group('verb')}_file", {"source": raw_body(raw, m.group("file")),
+        return d("copy_file" if m.group("verb") in ("copy", "duplicate") else "move_file", {"source": raw_body(raw, m.group("file")),
                                              "destination": _FOLDERS.get(dst, raw_body(raw, dst)).title() if dst in _FOLDERS else raw_body(raw, dst)})
     m = re.fullmatch(r"(?:delete|remove)\s+(?:the\s+|my\s+|a\s+)?(?:desktop\s+)?shortcut(?:\s+(?:on|from)\s+(?:the\s+|my\s+)?desktop)?"
                      r"(?:\s+(?:for|of|to)\s+(?P<app>.+))?|(?:delete|remove)\s+(?:the\s+|my\s+)?(?P<app2>\w+)\s+desktop\s+shortcut", t)
@@ -963,6 +998,11 @@ def match_files(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     if m:
         return d("rename_file", {"source": raw_body(raw, m.group("file")), "new_name": raw_body(raw, m.group("new")).strip()})
     m = (re.fullmatch(r"where\s+did\s+i\s+(?:save|put|keep|store|download|leave)\s+(?:my\s+|the\s+|that\s+)?(?P<q>.{2,60}?)", t)
+         or (re.fullmatch(r"(?:where(?:'s|\s+is|\s+are)|find|locate|look\s+for|search\s+for|i\s+can'?t\s+find|i\s+cannot\s+find|i\s+lost|i\s+misplaced)\s+(?:my|the)\s+(?P<q>.{2,60}?)"
+                          r"(?:\s+(?:anywhere|somewhere))?"
+                          r"(?:\s+(?:file|document|pdf|scan))?(?:\s+(?:somewhere\s+)?(?:on|in)\s+(?:this|my|the)\s+(?:pc|computer|laptop|system|drive))?", t)
+             if _DOC_NOUN.search(t) and not re.search(rf"\b(?:{PHONE_WORDS}|keys?|wallet|glasses|car|bike|charger|remote|earphones?|headphones?)\b", t)
+             else None)
          or re.fullmatch(r"(?:i\s+need|i\s+want|get\s+me)\s+(?:my\s+|the\s+)?(?P<q>.{2,60}?)\s*,?\s*(?:where(?:'s|\s+is)\s+it|find\s+it|can\s+you\s+find\s+it)", t)
          or re.fullmatch(r"i\s+(?:downloaded|saved|got|received|made|scanned)\s+(?:a|an|the|my|that)\s+(?P<q>.{2,60}?)(?:\s+(?:yesterday|today|earlier|last\s+\w+|this\s+\w+|recently))?"
                          r"\s*,?\s*(?:can\s+you\s+|please\s+)?(?:find|locate|open|get|show)\s+(?:it|that)(?:\s+for\s+me)?", t))
@@ -1026,7 +1066,10 @@ def match_routines_and_media(t: str, raw: str, request_id: str) -> Optional[Rout
     # conversation, not commands
     if re.fullmatch(r"(?:ok(?:ay)?\s+)?(?:thank\s+you|thanks|thx|ty|thank\s+u)(?:\s+(?:so\s+much|a\s+lot|jarvis|buddy|man))*"
                     r"|(?:good|great|nice|awesome|well)\s+(?:job|work|done)(?:\s+jarvis)?|you(?:'re|\s+are)\s+(?:awesome|great|the\s+best|amazing)", t) \
-            or re.match(r"^(?:i'?m\s+feeling|i\s+am\s+feeling|i'?m|i\s+am|i\s+feel|feeling)\s+(?:so\s+|very\s+|really\s+|a\s+(?:bit|little)\s+|kinda\s+|pretty\s+|super\s+|quite\s+|too\s+)*"
+            or re.fullmatch(r"(?:good\s+(?:night|afternoon|evening)|gn|sweet\s+dreams|see\s+you(?:\s+later|\s+tomorrow)?|bye(?:\s+bye)?|"
+                            r"goodbye|take\s+care|how(?:'s|\s+is)\s+(?:it\s+going|your\s+day(?:\s+going)?|life))(?:\s+(?:jarvis|buddy|man|bro))?", t) \
+            or re.match(r"^(?:(?:honestly|really|actually|ugh|man|so|well|tbh|to\s+be\s+honest)\s*,?\s+)?"
+                        r"(?:i'?m\s+feeling|i\s+am\s+feeling|i'?m|i\s+am|i\s+feel|feeling)\s+(?:so\s+|very\s+|really\s+|a\s+(?:bit|little)\s+|kinda\s+|pretty\s+|super\s+|quite\s+|too\s+)*"
                         r"(?:bored|tired|sad|happy|lonely|stressed|hungry|sleepy|excited|anxious|exhausted|sick|unwell|down|low|great|good|fine|"
                         r"angry|upset|nervous|worried|confused|lost|overwhelmed|frustrated|motivated|lazy|cold|thirsty|depressed|scared|proud)\b", t) \
             or re.match(r"^(?:tell|say\s+to)\s+me\s+(?:that\s+)?(?:i'?m|i\s+am|you'?re|you\s+are|i\s+(?:can|will|look))\b", t) \
@@ -1191,7 +1234,8 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     m = re.match(r"^(?:remind me|set (?:a )?reminder|create (?:a )?reminder|add (?:a )?reminder)(?:\s+(?:to|that|about|for))?\s+(?P<body>.+)$", t)
     if m:
         return _decision(request_id, t, "set_reminder", {"text": raw_body(raw, m.group("body"))})
-    m = re.match(r"^(?:list|show|what are) (?:my )?(?:pending |upcoming )?reminders$", t)
+    m = re.match(r"^(?:list|show|read|check|what are|tell me)(?: me)? (?:all )?(?:of )?(?:my |the )?(?:pending |upcoming |active )?reminders(?: (?:for )?(?:today|tomorrow|now))?$"
+                 r"|^(?:do i have|are there) any reminders(?: (?:for )?(?:today|tomorrow))?$", t)
     if m:
         return _decision(request_id, t, "list_reminders", {})
 
@@ -1460,6 +1504,8 @@ def _match_whatsapp(t: str, raw: str, request_id: str) -> Optional[RouteDecision
         ("direct", r"^(?:send|shoot|drop|fire\s+off|text|message|ping|whatsapp)\s+(?P<who>[\w .'+-]+?)\s+a\s+(?:quick\s+|short\s+|small\s+)?"
                    r"(?:text|message|msg|whatsapp(?:\s+message)?|line|note)\s*(?:saying|that says|to say|stating|that|with|:)\s*(?P<body>.+)$"),
         ("direct", r"^(?:tell|text|message|msg|ping|whatsapp|send)\s+(?:a\s+(?:message|msg|text)\s+to\s+)?(?P<who>[\w .'+-]+?)\s+(?:saying|that says|to say|stating|with the message|with message)\s+(?P<body>.+)$"),
+        ("direct", r"^(?:text|message|msg|ping|whatsapp|send\s+a\s+message\s+to)\s+(?P<who>[\w .'+-]+?)\s+(?:on|in|via)\s+whats\s*app\s*,?\s*(?:and\s+)?"
+                   r"(?:say|saying|tell\s+(?:him|her|them)|let\s+(?:him|her|them)\s+know)\s+(?:that\s+)?(?P<body>.+)$"),
     )
     for style, pattern in patterns:
         m = re.match(pattern, stripped)

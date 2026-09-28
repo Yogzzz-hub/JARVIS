@@ -112,8 +112,8 @@ def match_language_switch(text: str) -> Optional[str]:
 
 # ------------------------------------------------------------------ Thanglish command -> English command
 _P_END = r"(?:\s+(?:da|di|dei|pa|ma|please|plz|jarvis|ippo|seekiram|konjam|ok|sari|seri))*"
-_OPEN = r"(?:open\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|panniduda)|thora|thorakku|thiranthu\s+vidu|open)"
-_CLOSE = r"(?:close\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu)|moodu|mudu|moodunga)"
+_OPEN = r"(?:(?:open|launch|start|run)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|panniduda)|thora|thorakku|thiranthu\s+vidu|open)"
+_CLOSE = r"(?:(?:close|quit|exit|kill)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu)|moodu|mudu|moodunga)"
 _PLAY = r"(?:podu|podunga|pottu\s+vidu|potu\s+vidu|play\s+(?:pannu|panu|pannunga|panni\s+vidu))"
 _SEND = r"(?:anuppu|anupu|anuppidu|anuppunga|anuppi\s+vidu|send\s+(?:pannu|panu|pannunga|pannidu))"
 _TELL = r"(?:sollu|sollidu|sollunga|solli\s+vidu)"
