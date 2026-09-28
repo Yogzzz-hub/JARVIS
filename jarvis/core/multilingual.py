@@ -103,6 +103,7 @@ _SWITCH = [
 def match_language_switch(text: str) -> Optional[str]:
     t = " ".join((text or "").lower().split()).strip(" .!?")
     t = re.sub(r"^(?:hey\s+)?jarvis\s*,?\s*", "", t)
+    t = re.sub(r"^(?:from\s+now(?:\s+on)?|hereafter|going\s+forward|always)\s*,?\s*", "", t)
     for pattern, mode in _SWITCH:
         if pattern.search(t):
             return mode
@@ -127,7 +128,9 @@ _SET = r"(?:vai|vechidu|vachidu|vachu\s+vidu|set\s+" + _PANNU + r"|podu|pannu)"
 
 def _clean(text: str) -> str:
     t = " ".join((text or "").strip().split())
-    t = re.sub(r"^(?:hey\s+)?jarvis\s*,?\s*", "", t, flags=re.I)
+    t = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*|um+\s+|uh+\s+|(?:can|could|would)\s+(?:you|u)\s+(?:please\s+)?|please\s+|plz\s+|kindly\s+)+",
+               "", t, flags=re.I)
+    t = re.sub(r"\s*,?\s+(?:jarvis|please|plz|thanks|thank\s+you)$", "", t, flags=re.I)
     t = re.sub(r"^(?:konjam|please|plz|seekiram)\s+", "", t, flags=re.I)
     return t.strip(" .!?")
 
@@ -140,6 +143,8 @@ def to_english_command(text: str) -> str:
         return text
     body = re.sub(_P_END + "$", "", t).strip()
     body = re.sub(r"\s+konjam\b", "", body)
+    # the object marker after the thing named first: "volume ah 48 ku vai", "chrome ah open pannu"
+    body = re.sub(r"^(\S+(?:\s+\S+)?)\s+(?:ah|aa|ai|a)\s+(?=\S)", r"\1 ", body)
 
     def keep(fragment: str) -> str:  # original casing for names / message text
         i = raw.lower().find(fragment)

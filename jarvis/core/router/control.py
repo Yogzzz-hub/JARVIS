@@ -1,3 +1,5 @@
+import re
+
 from jarvis.core.router.models import RouteDecision, RouteLane, RouteSource, ComplexityLevel, ReasonCode
 
 CONTROL_PHRASES = frozenset({
@@ -20,6 +22,18 @@ CONTROL_PHRASES = frozenset({
     "be quiet",
     "silence",
     "shut up",
+    "stop the voice",
+    "stop your voice",
+    "stop the speech",
+    "stop reading",
+    "stop reading that",
+    "quiet",
+    "quiet please",
+    "enough",
+    "that's enough",
+    "okay that's enough",
+    "ok that's enough",
+    "hush",
 })
 
 def match_control(text: str, request_id: str) -> RouteDecision | None:
@@ -28,7 +42,10 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
     cleaned = cleaned.strip().lower()
 
     # 1. Confirm / approve action
-    if cleaned in ("confirm", "yes", "proceed", "approve", "do it", "sure") or cleaned.startswith(("confirm ticket", "approve ticket")):
+    if cleaned in ("confirm", "yes", "proceed", "approve", "do it", "sure", "go ahead", "yes go ahead", "yes do it", "yes please",
+                   "ok do it", "okay do it", "sure go ahead", "confirmed", "yep", "yeah", "yeah do it", "go for it", "yes proceed",
+                   "send it", "yes send it", "ok send it") \
+            or cleaned.startswith(("confirm ticket", "approve ticket")):
         parts = cleaned.split()
         ticket_id = parts[2] if len(parts) >= 3 else ""
         return RouteDecision(
@@ -46,7 +63,9 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
         )
 
     # 2. Reject / cancel action
-    if cleaned in ("reject", "no", "deny", "don't do it", "dont do it") or cleaned.startswith(("reject ticket", "deny ticket")):
+    if cleaned in ("reject", "no", "deny", "don't do it", "dont do it", "no don't", "no dont", "don't", "no thanks", "nope",
+                   "no no", "don't send it", "dont send it", "no don't send", "don't do that") \
+            or cleaned.startswith(("reject ticket", "deny ticket")):
         parts = cleaned.split()
         ticket_id = parts[2] if len(parts) >= 3 else ""
         return RouteDecision(
@@ -67,10 +86,14 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
     is_control = (
         cleaned in CONTROL_PHRASES
         or cleaned.startswith(("stop speaking", "stop talking", "be quiet", "cancel current", "stop current", "pause task", "resume task", "cancel task", "stop task"))
+        or bool(re.fullmatch(r"(?:ok(?:ay)?\s+|alright\s+)?(?:that'?s\s+)?enough\s+(?:talking|speaking|reading|now)"
+                             r"|(?:you\s+can\s+|please\s+|just\s+)?stop\s+(?:reading|talking|speaking)(?:\s+(?:now|please|it|that|out\s+loud))*"
+                             r"|(?:ok(?:ay)?\s+)?(?:shh+|shush|hush)(?:\s+(?:now|please))?", cleaned))
         or (cleaned in ("pause", "resume") and not cleaned.startswith(("pause music", "resume music")))
     )
     if is_control:
-        if any(w in cleaned for w in ("speaking", "talking", "voice", "audio", "quiet", "silence", "shut up", "speech")):
+        if any(w in cleaned for w in ("speaking", "talking", "voice", "audio", "quiet", "silence", "shut up", "speech", "reading",
+                                      "enough", "hush", "shh", "shush")):
             intent = "stop_speaking"
         elif "pause" in cleaned:
             intent = "pause_task"

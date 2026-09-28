@@ -128,7 +128,7 @@ async def test_browsing_goals_go_to_the_web_agent(router, text, goal):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text,intent,slots", [
     ("turn volume down to 30, no wait, 20", "volume_set", {"percent": 20}),
-    ("set brightness to 70, actually 50", "brightness_set", {"level": 50}),
+    ("set brightness to 70, actually 50", "brightness_set", {"percent": 50}),  # the tool field is percent
     ("too loud in here", "volume_down", {}),
     ("can't hear anything from the speakers", "volume_up", {}),
     ("total silence please", "volume_mute", {}),

@@ -87,6 +87,19 @@ def _stem_and_normalize(word: str) -> str:
 
 
 
+def _english_words() -> frozenset:
+    try:
+        from jarvis.integrations.whatsapp.personal_reply.language import english_words
+        return english_words()
+    except Exception:
+        return frozenset()
+
+
+def _slip_distance(a: str, b: str) -> int:
+    from jarvis.core.router.normalize import _edit_distance
+    return _edit_distance(a, b) if abs(len(a) - len(b)) <= 2 else 99
+
+
 _PHONE_MENTION = re.compile(r"\b(?:phone|mobile|android|smartphone|cell ?phone|handset)\b")
 
 _NUMBER_WORDS = re.compile(r"\b(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|percent|%)\b")
@@ -113,7 +126,31 @@ class CapabilityRetriever:
             self._kw_cache[cap.id] = cached
         return cached
 
+    # words that appear in many requests and prove nothing about which action is meant
+    _GENERIC_ANCHORS = frozenset({"last", "thing", "things", "today", "tomorrow", "new", "one", "first", "current", "go",
+                                  "turn", "set", "show", "open", "tell", "say", "check", "see", "look", "give", "take", "ask",
+                                  "use", "try", "feel", "know", "think", "okay", "ok", "yes", "right", "good", "much", "many"})
+
+    def anchored(self, cap: CapabilityDefinition, query: str) -> bool:
+        """True when the request names something distinctive of this capability (a keyword word or its id word).
+        A request with no such word ("i'm feeling tired") must not trigger the action on scoring alone."""
+        cached = self._anchor_cache.get(cap.id)
+        if cached is None:
+            words = [w for w in re.findall(r"[a-z]+", " ".join(list(cap.keywords) + [cap.id.replace(".", " ").replace("_", " ")]).lower())
+                     if w not in STOPWORDS and w not in self._GENERIC_ANCHORS]
+            cached = ({_stem_and_normalize(w) for w in words} - self._GENERIC_ANCHORS, {w for w in words if len(w) >= 4})
+            self._anchor_cache[cap.id] = cached
+        anchors, raw_anchors = cached
+        q_words = [w for w in re.findall(r"[a-z]+", query.lower()) if w not in STOPWORDS]
+        if {_stem_and_normalize(w) for w in q_words} & anchors:
+            return True
+        # a misspelt keyword ("set vloum to 20"): an unknown word one or two slips from a keyword
+        unknown = [w for w in q_words if len(w) >= 4 and w not in _english_words()]
+        return any(w[0] == a[0] and _slip_distance(w, a) <= (2 if min(len(w), len(a)) >= 5 else 1)
+                   for w in unknown for a in raw_anchors)
+
     def _build_index(self) -> None:
+        self._anchor_cache: Dict[str, set] = {}
         self._kw_cache: Dict[str, List[Tuple[str, "re.Pattern[str]"]]] = {}
         self.capabilities = self.registry.list_all()
         self.doc_count = len(self.capabilities)

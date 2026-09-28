@@ -114,13 +114,24 @@ FOLLOWUP = re.compile(
     rf"|^(?:did|has|was)\s+(?:it|that|the\s+message|the\s+msg|my\s+message)\s+(?:get\s+|been\s+)?(?:sen[dt]|delivered|work|go\s+through|done)"
     rf"|^did\s+{_U}\s+(?:send|sent|do|open|finish|reply)\s+(?:it|that|the\s+message)"
     rf"|^(?:repeat\s+that|say\s+that\s+again|come\s+again|what\s+did\s+{_U}\s+say)"
-    rf"|^where\s+did\s+{_U}\s+(?:save|put|send)\s+(?:it|that)")
+    rf"|^where\s+did\s+{_U}\s+(?:save|put|send)\s+(?:it|that)"
+    rf"|^(?:was|were|is|has)\s+(?:that|the|my|it)\s*(?:message|msg|mail|email|screenshot|file|note|reminder)?\s+(?:delivered|sent|saved|done|created|set)"
+    rf"|^did\s+{_U}\s+(?:actually|really)?\s*(?:send|do|save|open|finish)\s+(?:it|that|the\s+\w+)(?:\s+or\s+not)?"
+    rf"|^who\s+(?:got|received|gets)\s+(?:that|the|it|my)?\s*(?:message|msg|text)?"
+    rf"|^who\s+was\s+(?:that|the)\s+(?:message|msg|text)\s+for"
+    rf"|^what\s+was\s+the\s+last\s+thing\s+{_U}\s+did|^(?:the\s+)?last\s+thing\s+{_U}\s+did"
+    rf"|^what\s+(?:message|msg|text|mail|email)\s+did\s+{_U}\s+(?:just\s+)?(?:send|sent|write|type)"
+    rf"|^did\s+(?:that|it)\s+work"
+    rf"|^(?:say|repeat)\s+(?:that|it)\s+(?:again|one\s+more\s+time|once\s+more|1\s+more\s+time)|^(?:pardon|sorry)\s*\??$|^come\s+again"
+    rf"|^did\s+my\s+(?:message|msg|text|whatsapp)\s+(?:to\s+[a-z .'-]{{1,30}}\s+)?(?:go\s+through|get\s+(?:sent|delivered|there)|send|reach)"
+    rf"|^who\s+did\s+{_U}\s+(?:just\s+)?(?:message|text|send\s+(?:it|that|a\s+message)\s+to|reply\s+to)")
 
 
 def is_followup(text: str) -> bool:
     t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
     t = re.sub(r"^(?:hey\s+|ok\s+)?jarvis,?\s+", "", t)
-    t = re.sub(r"^(?:and|so|wait|but|then|ok|okay)\s*,?\s+", "", t)
+    t = re.sub(r"^(?:(?:and|so|wait|but|then|ok|okay|hold\s+on|hang\s+on|um+|uh+|hey|please|jarvis|"
+               r"(?:can|could|would|will)\s+(?:you|u)(?:\s+please)?)\s*,?\s+)+", "", t)
     return bool(FOLLOWUP.search(t))
 
 
@@ -130,7 +141,7 @@ def answer_followup(text: str, log: Optional[ActionLog] = None) -> str:
     last = log.last() or log.last(include_chat=True)
     if last is None:
         return "I haven't done anything for you in the last few hours."
-    if re.search(r"\b(?:repeat|say that again|come again|what did (?:you|u|jarvis) say)\b", t):
+    if re.search(r"\b(?:repeat|say (?:that|it) (?:again|one more time|once more)|come again|pardon|what did (?:you|u|jarvis) say)\b", t):
         said = log.last(include_chat=True)
         return said.reply or f"I {said.describe()}."
     if re.search(r"\b(?:to whom|who)\b.*\b(?:send|sent|message|messaged|text|texted|reply|replied|to|for)\b", t):

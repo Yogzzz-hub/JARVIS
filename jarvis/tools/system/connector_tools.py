@@ -42,7 +42,7 @@ class LocalSendFileInput(Contract):
 
 
 class LocalSendTextInput(Contract):
-    text: str = Field(description="Text or URL to send to phone")
+    text: str = Field(default="", description="Text or URL to send to phone. If empty, the copied (clipboard) text is sent.")
     target_alias: Optional[str] = Field(default=None, description="Optional target device alias")
 
 
@@ -378,16 +378,26 @@ class LocalSendTextTool(Tool):
 
     def run(self, arguments: LocalSendTextInput) -> dict:
         arguments = _coerce_args(LocalSendTextInput, arguments)
+        text = (arguments.text or "").strip()
+        if not text:  # "send this link to my phone": the link the owner copied
+            try:
+                from jarvis.tools.system.keyboard_tools import _read_clipboard_text
+                text = (_read_clipboard_text() or "").strip()
+            except Exception:
+                text = ""
+        if not text:
+            return {"success": False, "message": "Nothing to send - copy the link or text first (Ctrl+C), or say it.",
+                    "bytes_transferred": 0}
         mgr = get_connector_manager()
         c = mgr.get_connector("localsend")
         if not c:
             return {"success": False, "message": "LocalSend connector disabled", "bytes_transferred": 0}
 
-        res = c.execute("send_text", text=arguments.text, target_alias=arguments.target_alias)
+        res = c.execute("send_text", text=text, target_alias=arguments.target_alias)
         return {
             "success": res.get("success", False),
             "message": res.get("message", "Text sent via LocalSend"),
-            "bytes_transferred": len(arguments.text.encode("utf-8")),
+            "bytes_transferred": len(text.encode("utf-8")),
         }
 
 

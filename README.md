@@ -988,7 +988,25 @@ python -m tests.generalization.benchmark_runner       # deterministic generaliza
 python -m jarvis.decision.evaluation.evaluate         # decision-engine benchmark
 python -m tests.whatsapp_personal.benchmark           # 500-case WhatsApp personal-reply benchmark (fake provider)
 python -m tests.rag.benchmark                         # RAG precision / recall / abstention
+python -m tests.phase_suite.runner --all --fails      # phase command suite: dev, blind and blind-2 splits
 ```
+
+### Phase command suite (all 12 phases + WhatsApp, phone, automation, Thanglish, chat)
+
+`tests/phase_suite/` holds new commands for every phase, easy to very hard (polite wrappers, fillers such as
+"um ... jarvis", typos, spoken wake words). Scored router-only, with no AI model, so the numbers show the
+deterministic understanding; with Ollama running, anything still unrecognised goes to the model/planner.
+
+| Split | Commands | Before this work | First run on unseen commands | After fixes |
+|---|---|---|---|---|
+| dev (fixed against) | 2,354 | 63.0% | - | 96.2% |
+| blind (held out, later used for fixes) | 591 | 61.1% | 83.1% | 96.1% |
+| blind-2 (written after the fixes) | 1,014 | 53.6% | **76.0%** | 98.3% |
+
+The honest generalization figure is the blind-2 first run (76.0%, measured once before any fix for it);
+the "after fixes" columns were tuned on those failures. The safety phase (p05) is still low (about 40-54%):
+dangerous requests mostly go to the planner rather than being refused outright, and destructive tools keep their
+confirmation step. Gmail/Calendar commands are understood but those tools are not registered in the runtime yet.
 
 Useful test infrastructure:
 - `jarvis/tests/fake_ollama.py`: an in-process fake Ollama, so AI tests need no network.

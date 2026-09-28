@@ -24,7 +24,7 @@ UNSUPPORTED_DOMAINS_PATTERNS = [
     re.compile(r"\b(?:book|reserve|hail|schedule)\s+(?:a |an |two )?(?:direct )?(?:flight|ticket|cab|taxi|uber|lyft|shuttle|hotel|rental car|train|auto-rickshaw|room in|sleeper|parking spot|table|private dining|tennis court|pet grooming|piano tuning)\b", re.I),
 
     # 3. Food delivery & Dining reservations
-    re.compile(r"\b(?:pizzas?|pepperoni|garlic bread|domino'?s|butter chicken|naan|zomato|instacart|doordash|starbucks|macchiatos?|donuts?|krispy kreme|takeout|dining booth|bistro|table for \w+|restaurant downtown|sushi bar)\b", re.I),
+    re.compile(r"\b(?:pizzas?|pepperoni|garlic bread|domino'?s|butter chicken|butter naan|garlic naan|zomato|instacart|doordash|starbucks|macchiatos?|donuts?|krispy kreme|takeout|dining booth|bistro|table for \w+|restaurant downtown|sushi bar)\b", re.I),
     re.compile(r"\b(?:order|reserve)\s+(?:a |two |some )?(?:large |box of )?(?:pizzas?|table|groceries|macchiatos?|donuts?|takeout|food|dinner|lunch|breakfast|cake delivery|flowers|dry cleaning|prescription|contact lenses|birthday greeting|propane tank|embroidery)\b", re.I),
     re.compile(r"\b(?:cake delivery|flowers delivery|grocery delivery)\b", re.I),
 
@@ -56,6 +56,7 @@ UNSUPPORTED_DOMAINS_PATTERNS = [
 _PERSONAL_FRAME = re.compile(
     r"^(?:please\s+)?(?:remind me|set (?:a |an )?(?:reminder|alarm|timer)|add .+ to (?:my |the )?(?:to-?\s?do|todo|task|shopping|checklist)"
     r"|put .+ on (?:my |the )?(?:to-?\s?do|todo|task|shopping)|mark .+ (?:as )?(?:done|complete)|remember that|note that|take a note|make a note"
+    r"|remember (?:my|i|i'm|i've|our|the|where)\b|note down|write down|don'?t forget|keep in mind"
     r"|(?:tell|text|message|whatsapp|msg|ping|inform|ask|reply to|remind)\s+(?!me\b)[a-z]+\b.*\b(?:that|saying|to|about)\b"
     r"|(?:email|mail)\s+[a-z]+)", re.I)
 
@@ -65,6 +66,9 @@ def check_unsupported_external(routing_text: str, request_id: str) -> RouteDecis
     cleaned = routing_text.strip()
     if _PERSONAL_FRAME.match(cleaned):
         return None
+    # the words of a message are the message ("tell arun I'll bring naan"), not a request to JARVIS
+    cleaned = re.split(r"\s+(?:saying|that says|to say|that|nu)\s+", cleaned, maxsplit=1)[0] \
+        if re.match(r"^(?:tell|text|message|msg|send|whatsapp|ask|let|reply|inform|remind)\b", cleaned) else cleaned
     for pattern in UNSUPPORTED_DOMAINS_PATTERNS:
         if pattern.search(cleaned):
             return RouteDecision(

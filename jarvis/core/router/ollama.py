@@ -194,7 +194,7 @@ class OllamaProvider:
         try:
             from jarvis.core.capabilities.slot_extractor import extract_slots
             sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
-            if sem_caps:
+            if sem_caps and getattr(self.capability_retriever, "anchored", lambda *_: True)(sem_caps[0][0], text):
                 best_cap, score = sem_caps[0]
                 slots, missing = extract_slots(best_cap, text)
                 if not missing:

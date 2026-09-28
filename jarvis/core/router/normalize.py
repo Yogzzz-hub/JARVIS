@@ -41,6 +41,10 @@ SLANG_FILLER = (
     "pannu",
     "uh",
     "um",
+    "umm",
+    "uhh",
+    "erm",
+    "hmm",
     "ah",
     "er",
     "ri8",
@@ -126,7 +130,7 @@ def resolve_discourse_correction(text: str) -> str:
     """Detects and applies mid-utterance self-corrections (e.g. 'Open Chrome—actually Edge', 'Launch Notepad, sorry I meant VS Code')."""
     cleaned = text.strip().rstrip(".!?")
 
-    corr_cues = (r"actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))?|make\s+that|scratch\s+that|rather|"
+    corr_cues = (r"no\s*,?\s*wait|oh\s+wait|actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))?|make\s+that|scratch\s+that|rather|"
                  r"\bno\b|i\s+mean|correction")
 
     pattern = re.compile(
@@ -189,6 +193,30 @@ def resolve_discourse_correction(text: str) -> str:
     return f"{initial} {clean_corr}"
 
 
+_HEDGED_VERBS = (r"(?:open|start|launch|run|bring|close|find|search|set|adjust|check|turn|play|mute|unmute|show|take|send|"
+                 r"put|make|increase|decrease|lower|raise|read|tell|call|delete|copy|move|minimi[sz]e|maximi[sz]e|switch|lock|"
+                 r"shut|restart|pause|stop|go|type|create|add|remind|remember)\b")
+
+
+_GOOGLE_PRODUCTS = r"(?:chrome|drive|meet|maps|docs|sheets|slides|calendar|photos|classroom|translate|keep|earth|lens|pay|play|news|assistant|account|home|fit|forms)"
+
+
+def _rephrase_wants(t: str) -> str:
+    """'i want you to open X' -> 'open X'; 'i want to listen to X' -> 'play X'; 'take me to site.com' -> 'go to site.com';
+    'google best laptops' -> 'search google for best laptops'."""
+    t = re.sub(rf"^i\s+(?:want|need|would\s+like|'d\s+like)\s+(?:you|u)\s+to\s+(?={_HEDGED_VERBS})", "", t)
+    t = re.sub(r"^i\s+(?:want|wanna|need|would\s+like|'d\s+like|feel\s+like)\s+(?:to\s+)?(?:listen(?:ing)?\s+to|hear(?:ing)?)\s+(?=\S)", "play ", t)
+    t = re.sub(r"^(?:take|bring)\s+me\s+to\s+(?=(?:https?://)?[\w-]+(?:\.[\w-]+)+(?:/\S*)?$)", "go to ", t)
+    t = re.sub(r"^(?:listen\s+to|lemme\s+hear|let\s+me\s+hear)\s+(?!(?:me|him|her|them|this|that|it|what)\b)(?=\S)", "play ", t)
+    if not re.search(r"\b(?:in|on)\s+(?:my\s+|the\s+)?(?:pc|computer|laptop|files?|folders?|documents|downloads|notes|drive)\b"
+                     r"|\b(?:hardware|temperatures?|network|wi-?fi|bluetooth|battery|cpu|gpu|ram|memory|disk|storage|processes|"
+                     r"settings|system|without|except|but\s+not)\b", t):
+        t = re.sub(r"^look\s+up\s+(?=\S)(?!.*\s(?:on|in)\s+\S+$)", "search google for ", t)
+        t = re.sub(r"^look\s+up\s+(?=\S)", "search for ", t)
+    t = re.sub(rf"^google\s+(?!{_GOOGLE_PRODUCTS}\b|it\b|that\b|this\b)(?=\S)", "search google for ", t)
+    return t
+
+
 def normalize_text(text: str) -> tuple[str, str]:
     """Returns (original_text, routing_text)."""
     original = text
@@ -203,13 +231,22 @@ def normalize_text(text: str) -> tuple[str, str]:
     # 3. Clean punctuation except quotes, dashes, apostrophes; preserve clause delimiters , and ;
     cleaned = re.sub(r"[?!:]+", " ", cleaned)
     cleaned = re.sub(r"[,;]+", " , ", cleaned)
+    # 3b. Typos in the first words before the politeness / wake prefixes are recognised ("cuold you open ...")
+    cleaned = correct_command_typos(" ".join(cleaned.split()))
+    # 3c. A spoken address or thanks at the end is not part of the command ("... jarvis", "... thank you")
+    for _ in range(3):
+        stripped = re.sub(r"\s*,?\s+(?:hey\s+)?(?:jarvis|thank\s+you(?:\s+so\s+much)?|thanks|thank\s+u|thx|ty|man|buddy|sir|boss|"
+                          r"okay|ok)\s*,?$", "", cleaned).strip()
+        if stripped == cleaned or not stripped:
+            break
+        cleaned = stripped
 
     # 4. Iteratively strip leading wake words, polite prefixes, hesitation markers, and leading slang
     for _ in range(5):
         changed = False
         for wake in WAKE_WORDS:
-            if cleaned.startswith(wake + " ") or cleaned.startswith(wake + ","):
-                cleaned = cleaned[len(wake):].strip(" ,")
+            if cleaned.startswith(wake + " ") or cleaned.startswith(wake + ". ") or cleaned.startswith(wake + "."):
+                cleaned = cleaned[len(wake):].strip(" ,.")
                 changed = True
                 break
             elif cleaned == wake:
@@ -222,16 +259,26 @@ def normalize_text(text: str) -> tuple[str, str]:
                 changed = True
                 break
 
+        # Wanting phrasings are the command itself ("i want you to open steam", "i want to listen to X on youtube")
+        rephrased = _rephrase_wants(cleaned)
+        if rephrased != cleaned:
+            cleaned = rephrased
+            changed = True
+        # Spoken commas left behind by a stripped prefix ("uh, could you, like, open brave")
+        if cleaned.startswith(","):
+            cleaned = cleaned.lstrip(" ,")
+            changed = True
         # Strip conversational hesitation phrases e.g. "you know open notepad" or "like open notepad"
         if cleaned.startswith("you know "):
             cleaned = cleaned[9:].strip()
             changed = True
-        elif cleaned.startswith("like ") and any(v in cleaned for v in ("open", "start", "launch", "run", "bring", "close", "find", "search", "set", "adjust", "check")):
+        elif re.match(rf"^(?:like|maybe)\s*,?\s+(?={_HEDGED_VERBS})", cleaned):
             cleaned = cleaned[5:].strip()
             changed = True
 
         leading_tokens = cleaned.split()
-        if len(leading_tokens) > 1 and leading_tokens[0] in ("yes", "yeah", "yep", "sure", "ok", "okay"):
+        if len(leading_tokens) > 1 and (leading_tokens[0] in ("yes", "yeah", "yep", "sure", "ok", "okay", "so", "alright", "anyway", "anyways")
+                                        or (leading_tokens[0] in ("well", "look", "listen") and leading_tokens[1] == ",")):
             cleaned = " ".join(leading_tokens[1:])
             changed = True
         elif leading_tokens and leading_tokens[0] in SLANG_FILLER and leading_tokens[0] not in PROTECTED_WORDS:
@@ -284,6 +331,7 @@ def normalize_text(text: str) -> tuple[str, str]:
     routing = re.sub(r"\bget\s+([a-zA-Z0-9_\-\.]+?)(?:\s+(?:media\s+player|player|app|application|browser))?\s+(?:running|rolling|going)\b", r"open \1", routing, flags=re.I)
     routing = re.sub(r"\bbring\s+([a-zA-Z0-9_\-\.]+?)\s+onto\s+(?:the\s+)?desktop\b", r"open \1", routing, flags=re.I)
     routing = re.sub(r"\b(?:fire\s+up|spin\s+up)\b", "open", routing, flags=re.I)
+    routing = re.sub(r"^(?:pull|bring|boot|load)\s+up\s+(?!the\s+(?:volume|sound|brightness))", "open ", routing, flags=re.I)
 
     routing = re.sub(r"\b(?:shut\s+down|terminate|kill\s+off)\s+(?!computer|pc|system|windows\b)([a-zA-Z0-9_\-\.]+)", r"close \1", routing, flags=re.I)
     routing = re.sub(r"\b(?:dismiss|shut|close)\s+(?:the\s+)?(?:open\s+)?(?:active|current|focused|top|this)\s+window\b", "close window", routing, flags=re.I)
@@ -334,16 +382,66 @@ chrome firefox edge notepad calculator spotify explorer vscode terminal paint wo
 discord telegram whatsapp youtube vlc steam obs photoshop gmail calendar drive browser tab tabs bookmark bookmarks
 browse surf need want make give tell ask app pc web all
 paste copy cut select undo redo type save press enter snip clipboard
+kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
+put reduce louder quieter brighter dimmer sound speaker speakers mic microphone camera email emails mail inbox meeting
+meetings schedule remember forget note notes reminder reminders todo focus workspace shortcut describe click
+have free busy block draft compose write mails mail calendar agenda any whatsapp dial call
+what who where when which whom did was were learn remove find copy move rename recent
+much many eating using
+text ask let know messaged chats chat group reply
+like that this repeat hear male female change actually mirror connect dial press
+notification shortcuts
 """.split())
 _TYPO_CACHE: dict[str, str] = {}
 
 
+_EXTRA_ENGLISH = frozenset("than nor yet via per amid unto whom whose thus hence ought shall whilst amongst".split())
+
+
 def _english_word(tok: str) -> bool:
+    if tok in _EXTRA_ENGLISH:
+        return True
     try:
         from jarvis.integrations.whatsapp.personal_reply.language import english_words
         return tok in english_words()
     except Exception:
         return False
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Damerau-Levenshtein (optimal string alignment): a swapped pair of letters counts as one typo."""
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[-1][-1]
+
+
+def _typo_distance_ok(word: str, cand: str) -> bool:
+    """A real typo is one slip (two in a long word of the same length); 'terminate' is not a typo of 'terminal'."""
+    dist = _edit_distance(word, cand)
+    return dist <= 1 or (dist == 2 and len(word) == len(cand) and len(word) >= 8)
+
+
+_APP_NAMES: frozenset[str] | None = None
+
+
+def _app_names() -> frozenset[str]:
+    global _APP_NAMES
+    if _APP_NAMES is None:
+        try:
+            from jarvis.core.router.slots import APP_CANONICAL
+            _APP_NAMES = frozenset(k for k in APP_CANONICAL if " " not in k)
+        except Exception:
+            _APP_NAMES = frozenset()
+    return _APP_NAMES
 
 
 def correct_command_typos(routing: str) -> str:
@@ -358,13 +456,20 @@ def correct_command_typos(routing: str) -> str:
     changed = False
     for i in range(head):
         w = words[i]
-        if len(w) < 3 or not w.isalpha() or w in COMMAND_VOCAB:
-            continue
+        if len(w) < 3 or not w.isalpha() or w in COMMAND_VOCAB or w in APP_ALIASES or w in ASR_TYPOS or w in _app_names():
+            continue  # app nicknames ("calc") and known speech slips are handled by their own tables
         fixed = _TYPO_CACHE.get(w)
         if fixed is None:
             fixed = w
             if not _english_word(w):
-                cands = [c for c in difflib.get_close_matches(w, COMMAND_VOCAB, n=2, cutoff=0.75) if c[0] == w[0]]
+                cands = [c for c in difflib.get_close_matches(w, COMMAND_VOCAB, n=3, cutoff=0.75) if c[0] == w[0]
+                         and _typo_distance_ok(w, c)]
+                # a word-ending variant of a command word is a real word, not a typo ("shortcuts", "notification")
+                if any(w in (c + "s", c + "es", c + "ed", c + "d", c + "ing") for c in cands):
+                    cands = []
+                swapped = [c for c in cands if sorted(c) == sorted(w)]  # two letters swapped: the likeliest typo
+                if swapped:
+                    cands = swapped[:1]
                 if len(cands) == 1 or (len(cands) == 2 and difflib.SequenceMatcher(None, w, cands[0]).ratio()
                                        - difflib.SequenceMatcher(None, w, cands[1]).ratio() > 0.08):
                     fixed = cands[0]
@@ -418,3 +523,51 @@ def normalize_paraphrases(routing: str) -> str:
     # "pick the first result, wait, take the last one" (after correction) -> an ordinal reference
     r = re.sub(r"^(?:pick|take|choose|select)\s+the\s+(first|second|third|fourth|fifth|last)\s+(?:result|one|item|file)$", r"open the \1 one", r)
     return " ".join(r.split())
+
+
+# ------------------------------------------------------------------------------------------------ light clean
+_LEAD = re.compile(r"^(?:(?:hey|hi|ok|okay|hello|yo)\s+)?jarvis\s*[,.!:]?\s+|^(?:um+|uh+|erm|er|hmm+|ah|so|okay so|ok so|"
+                   r"alright)\s*[,.]?\s+|^(?:well|right|now|listen|look|okay|ok)\s*,\s*"
+                   r"|^(?:(?:can|could|would|will)\s+(?:you|u)\s+)?(?:please|pls|plz|kindly)\s+"
+                   # hedges before a command: "could you, like, open brave", "can you just turn it up"
+                   r"|^(?:(?:can|could|would|will)\s+(?:you|u)\s*,\s*|(?:(?:can|could|would|will)\s+(?:you|u)\s+)?"
+                   rf"(?:like|just|maybe)\s*,?\s+(?={_HEDGED_VERBS}))|^,\s*", re.I)
+_TRAIL = re.compile(r"\s*[,.!]?\s+(?:(?:hey\s+)?jarvis|thank\s+you(?:\s+so\s+much)?|thanks|thank\s+u|thx|ty|please|pls|plz)"
+                    r"\s*[.!?]*$", re.I)
+
+
+_SPLIT_FIX = {"wi fi": "wifi", "blue tooth": "bluetooth", "whats app": "whatsapp", "what's app": "whatsapp", "you tube": "youtube",
+              "screen shot": "screenshot", "note pad": "notepad", "v s code": "vs code", "power point": "powerpoint",
+              "g mail": "gmail", "e mail": "email", "insta gram": "instagram", "tele gram": "telegram"}
+_SPOKEN_SPLITS = re.compile(r"\b(?:" + "|".join(k.replace(" ", r"\s+").replace("'", "'?") for k in _SPLIT_FIX) + r")\b", re.I)
+_CONTRACTION_FIX = {"whats": "what's", "wheres": "where's", "hows": "how's", "whos": "who's", "thats": "that's",
+                    "dont": "don't", "cant": "can't", "wont": "won't", "didnt": "didn't", "doesnt": "doesn't", "isnt": "isn't",
+                    "im": "i'm", "ive": "i've", "youre": "you're", "theres": "there's", "lets": "let's"}
+_CONTRACTIONS = re.compile(r"\b(?:" + "|".join(_CONTRACTION_FIX) + r")\b", re.I)
+
+
+def clean_for_matching(text: str) -> str:
+    """The command with wake words, hesitations, trailing thanks/address and typos in the first words removed,
+    keeping the owner's casing (message text and names stay exactly as said). Used by pattern matchers."""
+    t = unicodedata.normalize("NFKC", text or "").strip().replace("\u2019", "'")
+    for _ in range(4):
+        new = _LEAD.sub("", t, count=1).strip()
+        new = _TRAIL.sub("", new).strip()
+        if new == t or not new:
+            break
+        t = new
+    t = _CONTRACTIONS.sub(lambda m: _CONTRACTION_FIX[m.group(0).lower()], t)
+    t = _SPOKEN_SPLITS.sub(lambda m: _SPLIT_FIX[re.sub(r"\s+", " ", m.group(0).lower())], t)
+    words = t.split()
+    head = " ".join(words[:4]).lower()
+    fixed = correct_command_typos(head)
+    if fixed != head and len(fixed.split()) == len(words[:4]):
+        t = " ".join(fixed.split() + words[4:])
+    low = t.lower()
+    wanted = _rephrase_wants(low)
+    if wanted != low:  # only the opening is rewritten: keep the owner's casing in the rest
+        k = 0
+        while k < min(len(low), len(wanted)) and low[len(low) - 1 - k] == wanted[len(wanted) - 1 - k]:
+            k += 1
+        t = wanted[: len(wanted) - k] + (t[len(t) - k:] if k else "")
+    return t

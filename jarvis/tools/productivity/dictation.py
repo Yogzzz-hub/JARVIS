@@ -609,7 +609,7 @@ class DictationModeControlTool(Tool):
         mgr = get_dictation_manager()
         action = arguments.action.lower().strip()
 
-        if action in ("start", "enable", "on"):
+        if action in ("start", "enable", "on", "begin", "resume", "play"):
             target = mgr.start(arguments.target_app)
             return {
                 "active": True,
@@ -617,7 +617,7 @@ class DictationModeControlTool(Tool):
                 "message": (f"Dictation on - I'll type what you say into '{target}'. Say 'new line', 'send it', "
                             "'delete that' or 'stop typing'."),
             }
-        elif action in ("stop", "disable", "off"):
+        elif action in ("stop", "disable", "off", "end", "pause", "exit"):
             target = mgr.stop()
             return {
                 "active": False,

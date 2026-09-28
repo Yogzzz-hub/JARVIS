@@ -239,7 +239,8 @@ def date_answer(text: str, now: Optional[datetime] = None) -> Optional[str]:
             n = (target - today).days
             return f"{n} day{'s' if n != 1 else ''} until {m.group('x').strip().title()} ({target.strftime('%A, %d %B %Y')})."
     m = re.match(r"^what(?:'s| is| will be)?\s+(?:the\s+)?(?:date|day)\s+(?:will it be\s+|is it\s+|would it be\s+)?(?P<dir>in|after)\s+(?P<n>\d+)\s+(?P<u>days?|weeks?|months?)(?:\s+from (?:now|today))?$", t) \
-        or re.match(r"^(?:what(?:'s| is)\s+)?(?P<n>\d+)\s+(?P<u>days?|weeks?)\s+from\s+(?:now|today)$", t)
+        or re.match(r"^(?:what(?:'s| is| will be)?\s+)?(?:(?:the\s+)?(?:date|day)\s+(?:will it be|would it be|is it|will be|it will be)?\s*)?"
+                    r"(?P<n>\d+)\s+(?P<u>days?|weeks?)\s+from\s+(?:now|today)$", t)
     if m:
         n = int(m.group("n"))
         unit = m.group("u")

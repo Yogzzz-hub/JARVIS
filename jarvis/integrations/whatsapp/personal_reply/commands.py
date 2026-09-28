@@ -98,6 +98,9 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
         who = m.group("who").strip()
         return {"action": "disable_all"} if _EVERYONE.match(who) else {"action": "disable", "who": who}
     # ---- enable (needs a time window, or an explicit "automatically")
+    explicit_auto = re.search(r"\b(?:automatically|auto[- ]?(?:reply|replies|replying|respond)|on my behalf)\b", t)
+    if not explicit_auto and re.search(r"\b(?:saying|that says|to say|with)\s+\S", t):
+        return None  # "respond to anand with don't wait for me": one reply with those words, not an auto-reply window
     window_present = bool(_FOR.search(t) or _UNTIL.search(t) or _REST_OF_DAY.search(t))
     auto_word = bool(re.search(r"\b(?:automatically|auto[- ]?reply|auto[- ]?respond|on my behalf|for me)\b", t))
     if (window_present or auto_word) and re.match(r"^(?:auto[- ]?reply|auto[- ]?respond|reply|respond|answer|handle|manage|"

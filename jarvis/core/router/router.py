@@ -22,7 +22,7 @@ from jarvis.core.router.models import (
     RouteLane,
     RouteSource,
 )
-from jarvis.core.router.normalize import normalize_text
+from jarvis.core.router.normalize import clean_for_matching, normalize_text
 from jarvis.core.router.ollama import LLMProvider, OllamaProvider
 
 KNOWN_SHELL_COMMANDS = frozenset({
@@ -93,7 +93,8 @@ class SmartRouter:
                      "whatsapp_action", "send_email", "localsend_text")
     _NOT_A_CONTACT = frozenset({"me", "myself", "i", "you", "u", "yourself", "us", "we", "him", "her", "them", "it", "this",
                                 "that", "someone", "anyone", "somebody", "everyone", "jarvis", "the", "my", "total", "all",
-                                "to", "a", "an", "whatsapp", "message", "msg"})
+                                "to", "a", "an", "whatsapp", "message", "msg", "my phone", "phone", "my mobile", "mobile",
+                                "the phone", "my pc", "my laptop", "pc", "laptop"})
     _TELL_ME = re.compile(r"^(?:(?:hey\s+)?jarvis\s*,?\s+)?(?:(?:can|could|would)\s+(?:you|u)\s+)?(?:please\s+)?"
                           r"(?:tell\s+me|show\s+me|let\s+me\s+know|give\s+me|find\s+out)\s+(?P<rest>.+)$", re.I)
 
@@ -101,14 +102,25 @@ class SmartRouter:
         """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
         if isinstance(request, str):
             request = CommandRequest(text=request)
+        try:  # Thanglish word order -> the English command ("chrome open pannu" -> "open chrome")
+            from jarvis.core.multilingual import to_english_command
+            from jarvis.core.router.normalize import correct_command_typos
+            english = to_english_command(request.text or "")
+            if english == request.text:  # "vloume konjam kammi pannu": a typo in the English word
+                fixed = to_english_command(correct_command_typos(" ".join((request.text or "").lower().split())))
+                english = fixed if fixed != correct_command_typos(" ".join((request.text or "").lower().split())) else english
+            if english != request.text:
+                request = request.model_copy(update={"text": english})
+        except Exception:
+            pass
         decision = await self._route(request)
         decision = await self._tell_me(request, decision)
-        return self._check_recipient(decision)
+        return self._check_recipient(decision, request.text or "")
 
     async def _tell_me(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         """'tell me how many unread messages I have' asks for information: route what comes after 'tell me'.
         Used when the whole sentence found nothing better (chat / planner / clarify) or found a message send."""
-        m = self._TELL_ME.match((request.text or "").strip())
+        m = self._TELL_ME.match(clean_for_matching(request.text or "").strip())
         if not m or _IN_CLAUSE.get():
             return decision
         weak = decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY) or decision.intent in (None, "chat", "quick_answer") \
@@ -150,10 +162,21 @@ class SmartRouter:
                                                          "battery_status", "network_info", "recent_actions", "quick_answer"})
         return intent in self._READ_ONLY_CACHE
 
-    def _check_recipient(self, decision: RouteDecision) -> RouteDecision:
+    _TELL_PERSON = re.compile(r"^(?:tell|text|message|msg|ping|inform|remind)\s+(?P<who>(?:my\s+)?[a-z][a-z'-]{1,20})\s*,?\s+(?P<msg>.{2,})$", re.I)
+
+    def _check_recipient(self, decision: RouteDecision, text: str = "") -> RouteDecision:
         if decision.intent not in self._SEND_INTENTS:
             return decision
         who = str((decision.slots or {}).get("recipient") or (decision.slots or {}).get("to") or "").strip().lower()
+        if re.fullmatch(r"\d{1,5}(?:[:.]\d{2})?\s*(?:am|pm)?", who) and decision.intent == "send_whatsapp_message":
+            # "tell mom meeting moved to 5": a time or number is never the contact - the person follows "tell"
+            m = self._TELL_PERSON.match(clean_for_matching(text).strip())
+            if m and m.group("who").lower() not in self._NOT_A_CONTACT:
+                from jarvis.core.router.extended import _looks_like_person, _name_like
+                if _looks_like_person(m.group("who"), text) or _name_like(m.group("who")):
+                    return decision.model_copy(update={"slots": {**decision.slots, "recipient": m.group("who"),
+                                                                 "message": m.group("msg").strip()}})
+            who = "to"  # unknown: ask who it is for
         if who and who.strip(" .'\"") in self._NOT_A_CONTACT:
             return RouteDecision(request_id=decision.request_id, lane=RouteLane.CLARIFY, intent=decision.intent,
                                  slots={k: v for k, v in decision.slots.items() if k not in ("recipient", "to")}, confidence=0.4,
@@ -219,10 +242,12 @@ class SmartRouter:
             self._record(decision)
             return decision
 
+        clean_text = clean_for_matching(original_text) or original_text  # wake words / fillers / thanks / typos removed
+
         # 3a-0. Follow-ups about what JARVIS just did ("who did you send that to?") come from the action record,
         # never from a messaging pattern that would treat "you" / "me" as a contact.
         from jarvis.core.action_log import is_followup
-        if is_followup(original_text):
+        if is_followup(clean_text):
             follow = RouteDecision(
                 request_id=request_id, lane=RouteLane.LANE_0, intent="recent_actions", slots={"question": original_text.strip()},
                 confidence=1.0, source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE, normalized_text=routing_text,
@@ -233,7 +258,7 @@ class SmartRouter:
         # 3a. "Reply to everyone who messaged me ... don't reply in groups": the constraint is part of the
         # request, not a negation of it, so this is decided before the negation guard.
         from jarvis.core.router.extended import match_bulk_reply
-        bulk_decision = match_bulk_reply(original_text, request_id)
+        bulk_decision = match_bulk_reply(clean_text, request_id)
         if bulk_decision:
             bulk_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
             bulk_decision.breakdown_ms = breakdown
@@ -538,7 +563,7 @@ class SmartRouter:
         # 3b-multi. "open notepad and type hello", "play X on youtube then set volume to 30": split into steps and route
         # each one, so a single-intent matcher never swallows the rest of the sentence as its argument.
         if not _IN_CLAUSE.get():
-            multi = await self._route_multi_step(routing_text if positive_override else original_text, request_id)
+            multi = await self._route_multi_step(routing_text if positive_override else clean_text, request_id)
             if multi:
                 multi.routing_ms = (perf_counter_ns() - t0) / 1e6
                 multi.breakdown_ms = breakdown
@@ -547,7 +572,7 @@ class SmartRouter:
 
         # 3b-ext. EXTENDED DOMAINS: phone control, messaging, knowledge, web, reminders (< 1 ms)
         from jarvis.core.router.extended import match_extended
-        ext_decision = match_extended(routing_text if positive_override else original_text, request_id)
+        ext_decision = match_extended(routing_text if positive_override else clean_text, request_id)
         if ext_decision:
             ext_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
             ext_decision.breakdown_ms = breakdown
@@ -1216,7 +1241,7 @@ class SmartRouter:
             return install_decision
 
         # 4. QUESTION / INFORMATIONAL GUARD
-        if is_informational_or_question(original_text, routing_text):
+        if is_informational_or_question(clean_text, routing_text):
             # Extract entities from question and track active topic (Sections 5, 6, 14, 16)
             ents = EntityExtractor.extract_from_utterance(original_text)
             if ents and self.working_memory:
@@ -1477,7 +1502,8 @@ class SmartRouter:
         if top_caps:
             best_cap, score = top_caps[0]
             second_score = top_caps[1][1] if len(top_caps) > 1 else 0.0
-            if score >= 8.5 or (score >= 6.0 and (score - second_score) >= 2.5):
+            anchored = getattr(self.capability_retriever, "anchored", lambda *_: True)(best_cap, routing_text)
+            if anchored and (score >= 8.5 or (score >= 6.0 and (score - second_score) >= 2.5)):
                 slots, missing = extract_slots(best_cap, routing_text, self.working_memory, self.reference_resolver)
                 if not missing:
                     cap_dec = RouteDecision(
@@ -1561,7 +1587,7 @@ class SmartRouter:
             sem_caps = self.capability_retriever.retrieve(routing_text, top_k=2, min_score=6.0)
             if sem_caps:
                 best_cap, score = sem_caps[0]
-                if score >= 6.0:
+                if score >= 6.0 and getattr(self.capability_retriever, "anchored", lambda *_: True)(best_cap, routing_text):
                     from jarvis.core.capabilities.slot_extractor import extract_slots
                     slots, missing = extract_slots(best_cap, routing_text, self.working_memory, self.reference_resolver)
                     if not missing:
@@ -1626,7 +1652,8 @@ class SmartRouter:
                    r"decrease|lower|raise|search|google|look up|take|paste|copy|cut|select|press|hit|save|go to|scroll|"
                    r"minimize|maximize|show|lock|refresh|reload|switch|send|share|make|create|move|delete|rename|download|"
                    r"install|read|summarize|check|find|call|message|text|remind|note|bookmark|zoom|screenshot|snip|put|"
-                   r"click|enable|disable|connect|fill|autofill|dictate|shut down|restart|sleep|empty|clear|empty")
+                   r"click|enable|disable|connect|fill|autofill|dictate|shut down|restart|sleep|empty|clear|dim|brighten|crank|reduce|"
+                   r"upload|launch|kill|unlock")
     _FIRST_VERBS = _STEP_VERBS + r"|research|compare|book|order|translate"
     _MESSAGE_WORDS = re.compile(r"\b(?:saying|says|tell|text|message|reply|remind|note that|write that|whatsapp|email|mail|sms)\b")
 
@@ -1650,7 +1677,8 @@ class SmartRouter:
         lowered = " ".join(text.lower().split())
         if not re.search(r"\band\b|\bthen\b|,", lowered):
             return None
-        if not re.match(rf"^(?:please\s+|can you\s+|could you\s+|jarvis\s*,?\s+)?(?:{self._FIRST_VERBS})\b", lowered):
+        lowered = re.sub(r"^(?:(?:please|kindly|jarvis\s*,?|(?:can|could|would|will)\s+(?:you|u)|first(?:ly)?\s*,?|to start\s*,?)\s+)+", "", lowered)
+        if not re.match(rf"^(?:{self._FIRST_VERBS})\b", lowered):
             return None
         commands_part = re.split(r"\b(?:type|write|saying)\b", lowered, maxsplit=1)[0]  # typed text is the user's words
         if re.search(r"\b(?:wait|sorry|actually|i mean|instead|rather|no no|scratch that)\b|\bno\s*,|\band not\b", commands_part):
@@ -1661,6 +1689,11 @@ class SmartRouter:
         if whole and whole.intent == "pc_quick_action" and (whole.slots or {}).get("action") in (
                 "screenshot_paste", "copy_paste_to_app", "paste_to_app"):
             return None
+        if whole and (whole.intent in ("create_shortcut", "reply_whatsapp_all", "whatsapp_auto_reply", "calendar_create_event",
+                                       "gmail_create_draft", "install_software")
+                      or (whole.intent == "screen_click" and re.search(r"\b(?:click|tap|press|select)\s+(?:on\s+)?(?:it|that)$", lowered))):
+            return None  # one action whose wording contains several verbs ("find the wifi icon and click it")
+        text = re.sub(r"^(?:(?:please|kindly|jarvis\s*,?|(?:can|could|would|will)\s+(?:you|u)|first(?:ly)?\s*,?|to start\s*,?)\s+)+", "", text.strip(), flags=re.I)
         steps = self._split_steps(text)  # original casing: typed text keeps the user's capitals
         if not 2 <= len(steps) <= 5:
             return None

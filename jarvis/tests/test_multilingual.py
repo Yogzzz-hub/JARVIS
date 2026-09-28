@@ -31,7 +31,7 @@ def router():
     ("amma ku late aagum nu message anuppu", "send a message to amma saying late aagum", "send_whatsapp_message"),
     ("time enna", "what time is it", "get_time"),
     ("battery evlo iruku", "what's my battery", "battery_status"),
-    ("pc lock pannu", "lock pc", "lock_pc"),
+    ("pc lock pannu", "lock pc", "system_power_control"),
     ("mute pannu", "mute", "volume_mute"),
     ("google la ipl score thedu", "search google for ipl score", "open_website"),
     ("chrome la gmail open pannu", "open gmail", "open_app"),

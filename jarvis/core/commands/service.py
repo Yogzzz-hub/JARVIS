@@ -69,6 +69,16 @@ class CommandService:
             base = 50.0 if current is None else current
             target = base + step if name == "volume_up" else base - step
             return "volume_set", {"percent": int(max(0, min(100, round(target))))}
+        if name == "brightness_set" and "percent" not in slots and "step" in slots:
+            # "make the screen brighter" / "dim it a bit": a step from the current brightness
+            current = None
+            if self.registry.contains("brightness_get"):
+                try:
+                    current = float(self.registry.get("brightness_get").run({}).get("percent"))
+                except Exception:
+                    current = None
+            target = (50.0 if current is None else current) + int(slots.get("step") or 0)
+            return "brightness_set", {"percent": int(max(0, min(100, round(target))))}
         if name == "restore_window" and self.registry.contains("move_resize_window"):
             return "move_resize_window", {"action": "restore"}
         if name == "whatsapp_status" and self.registry.contains("whatsapp_action"):
@@ -567,11 +577,13 @@ class CommandService:
                 prepared = []
                 # Validate all subcommands before starting any external action.
                 for sub in decision.subcommands:
-                    if not self.registry.contains(sub.tool):
-                        raise ValueError(f"Capability is not available: {sub.tool}")
-                    sub_tool = self.registry.get(sub.tool)
+                    # the same phrasing -> tool-call translation as a single command ("mute", "volume up", "dim it")
+                    sub_name, sub_arguments = self._translate_intent(sub.tool, sub.arguments)
+                    if not self.registry.contains(sub_name):
+                        raise ValueError(f"Capability is not available: {sub_name}")
+                    sub_tool = self.registry.get(sub_name)
                     sub_valid = sub_tool.definition.input_model.model_fields.keys()
-                    filtered_sub = {k: v for k, v in sub.arguments.items() if k in sub_valid} if sub.arguments else {}
+                    filtered_sub = {k: v for k, v in sub_arguments.items() if k in sub_valid} if sub_arguments else {}
                     sub_args = sub_tool.definition.input_model.model_validate(filtered_sub)
                     prepared.append((sub_tool, sub_args))
                 for idx, (sub_tool, sub_args) in enumerate(prepared):
