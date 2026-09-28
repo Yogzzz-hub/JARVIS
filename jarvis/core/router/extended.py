@@ -372,7 +372,7 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
          or re.fullmatch(r"what\s+(?:is|'s)\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:saying|asking|telling me)", t)
          or re.fullmatch(r"what\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:said|sent|texted|wrote|asked|messaged)(?:\s+(?:me|to me))?"
                          r"(?:\s+(?:today|now|recently|on whatsapp|in whatsapp))?", t)
-         or re.fullmatch(rf"(?:read\s+|show\s+|check\s+)?(?:the\s+|my\s+)?(?:latest\s+|last\s+|new\s+|unread\s+)?{_MSG_WORDS}\s+from\s+"
+         or re.fullmatch(rf"(?:read\s+|show\s+|check\s+|any\s+|are\s+there\s+any\s+)?(?:the\s+|my\s+)?(?:latest\s+|last\s+|new\s+|unread\s+)?(?:whatsapp\s+)?{_MSG_WORDS}\s+from\s+"
                          r"(?P<who>[a-z0-9][a-z0-9 .'+-]{0,30}?)(?:\s+(?:on|in)\s+whats\s*app)?", t))
     if m:
         who = m.group("who").strip()
@@ -395,6 +395,11 @@ def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
                r"make\s+it\s+work|run\s+it|open\s+it|get\s+it\s+(?:running|working|ready))\b.*$", "", t).strip(" ?.!")
     m = re.match(rf"^(?:install|set ?up|download and install|get and install)\s+(?:the\s+)?(?:app\s+|application\s+|software\s+)?{_APP}(?:\s+(?:app|application|software))?{_ON_PC}$", t) \
         or re.match(rf"^(?:get|have)\s+(?:the\s+)?{_APP}(?:\s+(?:app|application|software))?\s+installed{_ON_PC}$", t)
+    g = re.match(rf"^(?:get\s+rid\s+of|remove|delete|uninstall)\s+(?:the\s+)?{_APP}(?:\s+(?:app|application|software|program))?\s+(?:from|off)\s+(?:my|this|the)\s+"
+                 rf"(?:pc|laptop|computer|system|machine)$", t)
+    if g and not m:
+        return _decision(request_id, t, "uninstall_software", {"name": g.group("app").strip()}, lane=RouteLane.CLARIFY,
+                         clarification=f"Uninstall {g.group('app').strip()}? Say yes to confirm.")
     u = re.match(rf"^(?:update|upgrade)\s+(?:the\s+)?(?!(?:my|all|every|everything|status|notes?|to-?do|list|calendar|reminders?|profile|"
                  rf"password|contacts?|drivers?|windows|the\s+system)\b){_APP}(?:\s+(?:app|application|software|to\s+the\s+latest(?:\s+version)?))?{_ON_PC}$", t)
     if u and not m:
@@ -493,7 +498,7 @@ def match_everyday(t: str, request_id: str) -> Optional[RouteDecision]:
     return None
 
 
-_TODO_LIST = r"(?:to-?\s?do|todo|task|tasks|checklist)(?:\s+list)?"
+_TODO_LIST = r"(?:to-?\s?do|todo|task|tasks|checklist|shopping|grocery|groceries)(?:\s+list)?"
 
 
 def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
@@ -565,7 +570,7 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
         or re.match(r"^remember\s+(?P<f>(?:my|i|i'm|i've|our|the)\b(?!.*\b(?:to|about)\s+(?:call|buy|send|pay|take|do)\b).{3,})$", t)
     if m:
         return _decision(request_id, t, "remember_fact", {"fact": raw_body(raw, m.group("f"))})
-    m = re.match(r"^(?:what do you (?:remember|know)|what did i tell you)(?:\s+about\s+(?P<q>.+))?$", t) \
+    m = re.match(r"^(?:what do you (?:remember|know)|what did i tell you(?: to remember)?|what did i ask you to remember)(?:\s+about\s+(?P<q>.+))?$", t) \
         or re.match(r"^do you remember\s+(?P<q>.+)$", t) \
         or re.match(r"^where did i (?P<q>park(?:\s+(?:my|the)\s+\w+)?)$", t)
     if m:
@@ -595,7 +600,7 @@ _BROWSER_QUICK = [
     (r"^(?:re-?open|restore|bring back|undo close)\s+(?:the\s+)?(?:last\s+)?(?:closed\s+)?tab$", "reopen_tab"),
     (r"^(?:go\s+to\s+|switch\s+to\s+)?(?:the\s+)?next\s+tab$", "next_tab"),
     (r"^(?:go\s+to\s+|switch\s+to\s+)?(?:the\s+)?(?:previous|prev|last\s+used)\s+tab$", "previous_tab"),
-    (r"^go\s+back$|^(?:go\s+)?back(?:\s+(?:a|one)\s+page)?\s+in\s+(?:the\s+)?browser$|^(?:go\s+)?(?:to\s+the\s+)?previous\s+page$|^go\s+back\s+a\s+page$", "back"),
+    (r"^go\s+back$|^(?:go\s+)?back(?:\s+(?:a|one)\s+page)?\s+in\s+(?:the\s+)?browser$|^(?:go\s+)?(?:to\s+the\s+)?previous\s+page$|^go\s+back\s+a\s+page$|^go\s+back\s+to\s+(?:the\s+)?(?:last|previous)\s+(?:page|site|website)$", "back"),
     (r"^(?:go\s+)?forward(?:\s+(?:a|one)\s+page)?(?:\s+in\s+(?:the\s+)?browser)?$|^(?:go\s+to\s+(?:the\s+)?)?next\s+page$", "forward"),
     (r"^(?:refresh|reload)\s+(?:the\s+|this\s+)?(?:page|tab|website|site|web\s*page)$|^reload$", "reload"),
     (r"^hard\s+(?:refresh|reload)(?:\s+(?:the\s+|this\s+)?page)?$", "hard_reload"),
@@ -849,6 +854,9 @@ _KNOWLEDGE_Q = re.compile(
     r"|^(?:explain|define)\s+(?!(?:this|the|my)\s+(?:error|screen|popup|message))"
     r"|^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?difference\s+between\b"
     r"|^i\s+(?:was|am|'m)\s+(?:wondering|curious)\b|^i\s+wonder\s+(?:how|why|what|if|whether)\b"
+    r"|^what\s+(?:does|do)\s+.+?\s+(?:actually\s+|exactly\s+|really\s+)?do(?:\s+exactly)?$|^what\s+(?:is|are)\s+.+?\s+(?:actually\s+)?(?:used\s+)?for$"
+    r"|^what\s+do\s+you\s+(?:think|feel)\s+(?:about|of)\b|^(?:do\s+you\s+think|in\s+your\s+opinion|what'?s\s+your\s+(?:opinion|view|take)\s+on)\b"
+    r"|^how\s+does\s+.+\s+compare\s+(?:to|with)\b|^(?:is|are)\s+(?!my\b|i\b|it\b)[^?]+?\s+(?:a\s+)?(?:good|bad|safe|worth\s+it|reliable|free\s+to\s+use)\b"
     r"|^(?:is|would)\s+it\s+(?:be\s+)?(?:better|worse|safer|safe|smarter|ok|okay|fine|good|bad|healthy|wise|possible|necessary|normal|risky|"
     r"dangerous|required|legal|worth\s+it|a\s+good\s+idea|a\s+bad\s+idea)\s+(?:to|if)\b")
 
@@ -994,7 +1002,17 @@ def match_files(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
                      rf"(?P<path>[\w .()'&-]{{1,60}}?\.{_DOC_EXT})(?:\s+(?:in|with|using)\s+[a-z ]{{2,20}})?", t)
     if m:
         return d("open_file", {"path": raw_body(raw, m.group("path"))})
-    m = re.fullmatch(rf"(?:rename|change\s+the\s+name\s+of)\s+(?:the\s+file\s+)?{_FILE}\s+(?:to|as|into)\s+(?P<new>[\w .()'&-]{{1,80}})", t)
+    m = re.fullmatch(rf"(?:rename|change\s+the\s+name\s+of)\s+(?:the\s+file\s+)?{_FILE}\s+(?:to|as|into)\s+(?P<new>[\w .()'&-]{{1,80}})", t) \
+        or re.fullmatch(rf"(?:change|update)\s+{_FILE}(?:'s|\s+file's)\s+name\s+(?:to|as)\s+(?P<new>[\w .()'&-]{{1,80}})", t)
+    c = re.fullmatch(rf"(?:make|create)\s+(?:a\s+)?(?:copy|duplicate|backup)\s+of\s+{_FILE}\s+(?:on|in|to|into)\s+(?:the\s+|my\s+)?(?P<dst>[\w .:/\\-]{{2,60}}?)(?:\s+folder)?", t)
+    if c and not m:
+        dst = c.group("dst").strip()
+        return d("copy_file", {"source": raw_body(raw, c.group("file")), "destination": _FOLDERS.get(dst, dst).title() if dst in _FOLDERS else raw_body(raw, dst)})
+    if re.search(r"\bdownloads?(?:\s+folder)?\b", t) and re.search(r"\b(?:organi[sz]e|clean(?:\s+up)?|sort(?:\s+out)?|tidy(?:\s+up)?)\s+(?:it|that|them)\b", t):
+        return d("organize_downloads")
+    c = re.search(r"\bfolder\b.*?\b(?:call|name)\s+it\s+(?P<n>[\w .'-]{1,60})$", t)
+    if c and not m:
+        return d("create_folder", {"path": raw_body(raw, c.group("n").strip())})
     if m:
         return d("rename_file", {"source": raw_body(raw, m.group("file")), "new_name": raw_body(raw, m.group("new")).strip()})
     m = (re.fullmatch(r"where\s+did\s+i\s+(?:save|put|keep|store|download|leave)\s+(?:my\s+|the\s+|that\s+)?(?P<q>.{2,60}?)", t)
@@ -1004,8 +1022,8 @@ def match_files(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
              if _DOC_NOUN.search(t) and not re.search(rf"\b(?:{PHONE_WORDS}|keys?|wallet|glasses|car|bike|charger|remote|earphones?|headphones?)\b", t)
              else None)
          or re.fullmatch(r"(?:i\s+need|i\s+want|get\s+me)\s+(?:my\s+|the\s+)?(?P<q>.{2,60}?)\s*,?\s*(?:where(?:'s|\s+is)\s+it|find\s+it|can\s+you\s+find\s+it)", t)
-         or re.fullmatch(r"i\s+(?:downloaded|saved|got|received|made|scanned)\s+(?:a|an|the|my|that)\s+(?P<q>.{2,60}?)(?:\s+(?:yesterday|today|earlier|last\s+\w+|this\s+\w+|recently))?"
-                         r"\s*,?\s*(?:can\s+you\s+|please\s+)?(?:find|locate|open|get|show)\s+(?:it|that)(?:\s+for\s+me)?", t))
+         or re.fullmatch(r"(?:i\s+think\s+|maybe\s+|i\s+guess\s+)?i\s+(?:downloaded|saved|got|received|made|scanned|kept)\s+(?:a|an|the|my|that)\s+(?P<q>.{2,60}?)(?:\s+(?:yesterday|today|earlier|last\s+\w+|this\s+\w+|recently))?"
+                         r"\s*,?\s*(?:(?:can\s+you\s+|please\s+)?(?:find|locate|open|get|show)\s+(?:it|that)(?:\s+for\s+me)?|where(?:'s|\s+is)\s+it(?:\s+now)?|where\s+did\s+it\s+go)", t))
     if m and not re.search(rf"\b(?:{PHONE_WORDS}|car|keys?|wallet|glasses)\b", m.group("q")):
         return d("find_file", {"query": raw_body(raw, re.sub(r"\s+(?:file|files)$", "", m.group("q")).strip())})
     m = re.fullmatch(rf"(?:how\s+big|what(?:'s|\s+is)\s+the\s+size\s+of|when\s+was)\s+(?:is\s+)?{_FILE}(?:\s+(?:last\s+)?(?:created|modified|made|changed|edited|updated|saved|opened))?", t)
@@ -1076,7 +1094,7 @@ def match_routines_and_media(t: str, raw: str, request_id: str) -> Optional[Rout
             or re.fullmatch(r"what(?:'s|\s+is)\s+your\s+(?:name|age|favou?rite\s+\w+|purpose|job)|who\s+(?:are\s+you|made\s+you|created\s+you|built\s+you)"
                             r"|how\s+old\s+are\s+you|are\s+you\s+(?:real|human|alive|a\s+robot|an?\s+ai|single|happy|ok|okay)|do\s+you\s+have\s+(?:feelings|a\s+name)", t) \
             or re.match(r"^(?:suggest|recommend)\s+(?:me\s+)?(?:something|some|a|an|any|what)\b", t) \
-            or re.match(r"^(?:give|tell|show)\s+me\s+(?:a|an|some|one|another)\s+(?:good\s+|quick\s+|easy\s+|simple\s+|healthy\s+)?"
+            or re.match(r"^(?:give|tell|show)\s+me\s+(?:a|an|some|one|another)\s+(?:\w+\s+)?"
                         r"(?:recipe|idea|tip|suggestion|example|quote|fact|joke|story|riddle|name)s?\b", t) \
             or re.match(r"^(?:write|compose|draft|make\s+up)\s+(?:me\s+)?(?:a|an|some)\s+(?:\w+\s+){0,2}(?:poem|story|essay|song|haiku|limerick|"
                         r"joke|speech|paragraph|caption|bio|letter\s+to\s+santa)s?\b", t):
@@ -1504,6 +1522,7 @@ def _match_whatsapp(t: str, raw: str, request_id: str) -> Optional[RouteDecision
         ("direct", r"^(?:send|shoot|drop|fire\s+off|text|message|ping|whatsapp)\s+(?P<who>[\w .'+-]+?)\s+a\s+(?:quick\s+|short\s+|small\s+)?"
                    r"(?:text|message|msg|whatsapp(?:\s+message)?|line|note)\s*(?:saying|that says|to say|stating|that|with|:)\s*(?P<body>.+)$"),
         ("direct", r"^(?:tell|text|message|msg|ping|whatsapp|send)\s+(?:a\s+(?:message|msg|text)\s+to\s+)?(?P<who>[\w .'+-]+?)\s+(?:saying|that says|to say|stating|with the message|with message)\s+(?P<body>.+)$"),
+        ("direct", r"^(?:text|message|msg|ping|whatsapp)\s+(?P<who>[\w .'+-]+?)\s+and\s+(?:tell|say\s+to|let)\s+(?:him|her|them)\s+(?:know\s+)?(?:that\s+)?(?P<body>.+)$"),
         ("direct", r"^(?:text|message|msg|ping|whatsapp|send\s+a\s+message\s+to)\s+(?P<who>[\w .'+-]+?)\s+(?:on|in|via)\s+whats\s*app\s*,?\s*(?:and\s+)?"
                    r"(?:say|saying|tell\s+(?:him|her|them)|let\s+(?:him|her|them)\s+know)\s+(?:that\s+)?(?P<body>.+)$"),
     )

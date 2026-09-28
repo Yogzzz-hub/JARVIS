@@ -130,6 +130,8 @@ class SmartRouter:
             pass
         decision = await self._route(request)
         decision = await self._tell_me(request, decision)
+        decision = self._sanity(decision, request.text or "")
+        decision = await self._last_clause(request, decision)
         return self._check_recipient(decision, request.text or "")
 
     async def _tell_me(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
@@ -177,6 +179,49 @@ class SmartRouter:
                                                          "battery_status", "network_info", "recent_actions", "quick_answer"})
         return intent in self._READ_ONLY_CACHE
 
+    _STATE_QUESTION = re.compile(r"^(?:(?:um+|uh+|hey|jarvis|so|wait)\s*,?\s+)*(?:is|are|was|were|does|do|did|has|have|should|am|isn'?t|doesn'?t)\b"
+                                 r"(?!\s+(?:not|n't)\b)", re.I)
+
+    def _sanity(self, decision: RouteDecision, text: str) -> RouteDecision:
+        """Last check on an action: a question about a thing never changes it ("is spotify a good app" does not close
+        Spotify), and stored memories are only forgotten when the owner says "forget ..."."""
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent or _IN_CLAUSE.get():
+            return decision
+        chat = lambda: RouteDecision(request_id=decision.request_id, lane=RouteLane.LANE_2, intent=None, slots={},  # noqa: E731
+                                     confidence=0.6, source=decision.source, complexity=ComplexityLevel.SIMPLE,
+                                     normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
+        clean = clean_for_matching(text).strip().lower()
+        if decision.intent == "forget_fact" and not re.match(r"^(?:please\s+)?(?:forget|delete|remove|erase|clear|wipe)\b", clean):
+            return chat()
+        looks_up = re.match(r"^(?:read|list|find|search|get|check|show|recall|summari[sz]e|diagnose|describe)_", decision.intent) or \
+            decision.intent.endswith(("_status", "_info", "_history", "_events", "_recent", "_actions", "_answer", "_processes")) or \
+            decision.intent in ("get_time", "quick_answer", "wifi_status", "contact_info", "knowledge_search", "document_qa",
+                                "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get")
+        if self._STATE_QUESTION.match(clean) and not looks_up and not self._is_read_only(decision.intent):
+            return chat()
+        return decision
+
+    _REMARK_THEN_COMMAND = re.compile(r"^(?P<remark>[^,]{3,80}),\s*(?:(?:and|so|then|please|just|quickly|now)\s+)*(?P<cmd>[^,]{3,80})$", re.I)
+
+    async def _last_clause(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """'before i forget, open brave' / 'someone's coming, minimize everything': when the whole sentence is not
+        understood, the command after a leading remark is. Only an action found that way is taken."""
+        weak = decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY) and decision.reason_code != ReasonCode.QUESTION_NOT_COMMAND
+        if not weak or _IN_CLAUSE.get():
+            return decision
+        m = self._REMARK_THEN_COMMAND.match(clean_for_matching(request.text or "").strip())
+        if not m or re.search(r"\b(?:don'?t|do\s+not|never|not)\b", m.group("remark"), re.I):
+            return decision
+        token = _IN_CLAUSE.set(True)
+        try:
+            inner = await self._route(CommandRequest(text=m.group("cmd")))
+        finally:
+            _IN_CLAUSE.reset(token)
+        if inner.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and inner.intent and not inner.subcommands \
+                and inner.intent not in self._SEND_INTENTS and not (inner.slots or {}).get("pronoun"):
+            return inner
+        return decision
+
     _TELL_PERSON = re.compile(r"^(?:tell|text|message|msg|ping|inform|remind)\s+(?P<who>(?:my\s+)?[a-z][a-z'-]{1,20})\s*,?\s+(?P<msg>.{2,})$", re.I)
 
     _QUESTION_START = re.compile(r"^(?:(?:hold\s+on|wait|so|and|but|sorry|hey\s+jarvis|jarvis|um+|uh+)\s*,?\s+)*"
@@ -185,6 +230,8 @@ class SmartRouter:
     def _check_recipient(self, decision: RouteDecision, text: str = "") -> RouteDecision:
         if decision.intent not in self._SEND_INTENTS:
             return decision
+        if isinstance((decision.slots or {}).get("message"), str) and re.match(r"^[\s,;:.-]+", decision.slots["message"]):
+            decision = decision.model_copy(update={"slots": {**decision.slots, "message": decision.slots["message"].lstrip(" ,;:.-")}})
         if decision.lane == RouteLane.LANE_0 and self._QUESTION_START.match((text or "").strip()):
             # "was that message actually sent?" asks about a message; a question never sends one
             return RouteDecision(request_id=decision.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.6,

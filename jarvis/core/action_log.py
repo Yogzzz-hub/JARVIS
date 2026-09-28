@@ -124,6 +124,8 @@ FOLLOWUP = re.compile(
     rf"|^what\s+was\s+the\s+last\s+thing\s+{_U}\s+did|^(?:the\s+)?last\s+thing\s+{_U}\s+did"
     rf"|^what\s+(?:message|msg|text|mail|email)\s+did\s+{_U}\s+(?:just\s+)?(?:send|sent|write|type)"
     rf"|^did\s+(?:that|it)\s+work"
+    rf"|^who\s+(?:was|did)\s+(?:the|my|your)\s+(?:last|latest|previous)\s+(?:message|msg|text|whatsapp)\s+(?:sent\s+|go\s+)?(?:to|for)"
+    rf"|^did\s+{_U}\s+(?:already\s+|actually\s+)?(?:message|text|ping|reply\s+to)\s+[a-z .'-]{{1,30}}?(?:\s+(?:already|yet))?$"
     rf"|^(?:say|repeat)\s+(?:that|it)\s+(?:again|one\s+more\s+time|once\s+more|1\s+more\s+time)|^(?:pardon|sorry)\s*\??$|^come\s+again"
     rf"|^did\s+my\s+(?:message|msg|text|whatsapp|mail|email)\s+(?:to\s+[a-z .'-]{{1,30}}?\s+)?(?:go(?:\s+through|\s+out)?|get\s+(?:sent|delivered|there|through)|send|reach|arrive|land)$"
     rf"|^who\s+did\s+{_U}\s+(?:just\s+)?(?:message|text|send\s+(?:it|that|a\s+message)\s+to|reply\s+to)")

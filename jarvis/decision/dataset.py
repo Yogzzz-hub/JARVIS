@@ -554,9 +554,40 @@ def _cap_per_family(examples: list[LabeledExample], cap: int, seed: int = 3) -> 
     return out
 
 
+def phase_suite_family(expect: str) -> Optional[str]:
+    """Route family of a phase-suite expectation ("open_app", "CHAT", "MULTI", "calendar_list_events+clarify"...)."""
+    first = expect.split("|")[0].replace("+clarify", "").strip()
+    if first == "CHAT":
+        return "KNOWLEDGE"
+    if first == "MULTI":
+        return "PLANNER"
+    if first == "CLARIFY":
+        return "CLARIFY"
+    if first in ("REJECT", "SAFE") or first.startswith("CONTROL:"):
+        return None  # negation / safety / control are decided by rules before any model
+    fam = _family_of_intent(first)
+    return fam if fam in FAMILY_DEFAULT_FLAGS and fam not in ("UNKNOWN",) else None
+
+
+def from_phase_suite(path: Path) -> list[LabeledExample]:
+    """The phase command suite's DEV split only; the blind splits stay out of training so they remain fair tests."""
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        d = json.loads(line)
+        fam = phase_suite_family(d["expect"])
+        if fam:
+            out.append(make(d["text"], fam, FAMILY_DEFAULT_FLAGS[fam], [fam], source="phase_suite"))
+    return out
+
+
 def training_pool(seed: int = 13) -> list[LabeledExample]:
     exclude = holdout_texts()
     pool = from_registry() + synthetic(seed=seed) + _cap_per_family(from_generalization(generalization_train_files()), 220)
+    phase_dev = ROOT / "tests" / "phase_suite" / "dev.jsonl"
+    if phase_dev.exists():
+        pool += _cap_per_family(from_phase_suite(phase_dev), 180)
     data = ROOT / "tests" / "data"
     if (data / "router_golden.jsonl").exists():
         pool += from_router_golden(data / "router_golden.jsonl")

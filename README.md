@@ -988,7 +988,7 @@ python -m tests.generalization.benchmark_runner       # deterministic generaliza
 python -m jarvis.decision.evaluation.evaluate         # decision-engine benchmark
 python -m tests.whatsapp_personal.benchmark           # 500-case WhatsApp personal-reply benchmark (fake provider)
 python -m tests.rag.benchmark                         # RAG precision / recall / abstention
-python -m tests.phase_suite.runner --all --fails      # phase command suite: dev and blind 1-4 splits
+python -m tests.phase_suite.runner --all --fails      # phase command suite: dev and blind 1-5 splits
 ```
 
 ### Phase command suite (all 12 phases + WhatsApp, phone, automation, Thanglish, chat)
@@ -999,18 +999,29 @@ deterministic understanding; with Ollama running, anything still unrecognised go
 
 | Split | Commands | Before this work | First run (never seen before) | After fixes |
 |---|---|---|---|---|
-| dev (fixed against) | 2,354 | 63.0% | - | 96.4% |
+| dev (fixed against) | 2,354 | 63.0% | - | 96.6% |
 | blind (held out, later used for fixes) | 591 | 61.1% | 83.1% | 96.1% |
-| blind-2 | 1,014 | 53.6% | 76.0% | 98.3% |
+| blind-2 | 1,014 | 53.6% | 76.0% | 98.4% |
 | blind-3 (more easy commands) | 1,054 | - | 87.3% | 99.7% |
-| blind-4 (final check) | 695 | - | **89.1%** | 100% |
+| blind-4 | 695 | - | 89.1% | 100% |
+| blind-5 (conversational: "before i forget, open brave") | 557 | - | **59.8%** | 98.9% |
 
 Each blind set was written after the previous round of fixes and scored once before anything was changed for it,
-so the "first run" column is the honest measure of how well JARVIS handles wordings nobody wrote a rule for; it
-rose 76.0% -> 87.3% -> 89.1% over three rounds. The safety phase (p05) still sends most dangerous requests to the
-planner rather than refusing them outright; destructive tools keep their confirmation step. Gmail and Google
-Calendar now run as actions (read mail, list events, add an event after confirmation) once an account is connected
-with `connect_google.bat`.
+so the "first run" column is the honest measure of wordings nobody wrote a rule for. Commands in the usual style
+reached 89% first time; the conversational style (a remark before the command, opinions, "is X good ...") exposed a
+gap (59.8%) that led to the remark-then-command handling and the final safety check below.
+
+A final check runs after routing: a question about a thing never changes it ("is spotify a good app" does not close
+Spotify), a question never sends a message, stored memories are only forgotten when the owner says "forget ...",
+and a sentence is only run as a shell command when it looks like one ("ping 8.8.8.8", not "ping arun on whatsapp").
+The safety phase (p05) still sends most dangerous requests to the planner rather than refusing them outright;
+destructive tools keep their confirmation step. Gmail and Google Calendar run as actions (read mail, list events,
+add an event after confirmation) once an account is connected with `connect_google.bat`.
+
+The decision model (JDE) was retrained with the dev commands added (`python -m tests.phase_suite.jde_eval` scores it):
+the candidate `models/jde/jde-20260928-150411-2801e0` gets 69-75% of route families right on the blind sets (the
+current model 61-71%) but is 1-4 points lower on the JDE's own benchmark, so it was **not** promoted; `CURRENT` is
+unchanged and the JDE stays in shadow mode.
 
 Useful test infrastructure:
 - `jarvis/tests/fake_ollama.py`: an in-process fake Ollama, so AI tests need no network.

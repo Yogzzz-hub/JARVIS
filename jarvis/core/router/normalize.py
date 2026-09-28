@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 import unicodedata
 
 WAKE_WORDS = (
@@ -195,7 +196,8 @@ def resolve_discourse_correction(text: str) -> str:
 
 _HEDGED_VERBS = (r"(?:open|start|launch|run|bring|close|find|search|set|adjust|check|turn|play|mute|unmute|show|take|send|"
                  r"put|make|increase|decrease|lower|raise|read|tell|call|delete|copy|move|minimi[sz]e|maximi[sz]e|switch|lock|"
-                 r"shut|restart|pause|stop|go|type|create|add|remind|remember)\b")
+                 r"shut|restart|pause|stop|go|type|create|add|remind|remember|let|text|message|ask|ping|whatsapp|inform|reply|"
+                 r"drop|shoot|organi[sz]e|clean|find|minimi[sz]e|lower|raise|dim|say|repeat|put|move|copy|rename|delete)\b")
 
 
 _GOOGLE_PRODUCTS = r"(?:chrome|drive|meet|maps|docs|sheets|slides|calendar|photos|classroom|translate|keep|earth|lens|pay|play|news|assistant|account|home|fit|forms)"
@@ -205,16 +207,30 @@ def _rephrase_wants(t: str) -> str:
     # real-word slips a spell checker can't see: "form now on" = "from now on", "garb a screenshot" = "grab"
     t = re.sub(r"^form\s+(?=(?:now\s+on|my|the|this|that|here|there|today|tomorrow)\b)", "from ", t)
     t = re.sub(r"^garb\s+(?=(?:a|the|my|this)\s)", "grab ", t)
+    # "don't let me forget to call gokul" is a reminder
+    t = re.sub(r"^(?:please\s+)?(?:don'?t|do\s+not)\s+(?:let\s+me\s+)?forget\s+(?:to\s+)?(?=\S)", "remind me to ", t)
     """'i want you to open X' -> 'open X'; 'i want to listen to X' -> 'play X'; 'take me to site.com' -> 'go to site.com';
     'google best laptops' -> 'search google for best laptops'."""
     t = re.sub(rf"^i\s+(?:want|need|would\s+like|'d\s+like)\s+(?:you|u)\s+to\s+(?={_HEDGED_VERBS})", "", t)
     t = re.sub(r"^i\s+(?:want|wanna|need|would\s+like|'d\s+like|feel\s+like)\s+(?:to\s+)?(?:listen(?:ing)?\s+to|hear(?:ing)?)\s+(?=\S)", "play ", t)
     # a leading remark before the command: "i'm heading out, lock the pc"
-    t = re.sub(rf"^(?:i'?m|i\s+am|i'?ll\s+be|i\s+will\s+be|i'?ve\s+got\s+to|i\s+have\s+to|gotta)\s+[^,]{{2,40}},\s*(?=(?:please\s+)?{_HEDGED_VERBS})", "", t)
+    m = re.match(r"^(?P<remark>[^,]{4,60}?)\s*,\s*(?P<rest>.+)$", t)
+    if m and len(m.group("remark").split()) >= 2 and not re.match(rf"^(?:please\s+)?{_HEDGED_VERBS}|^(?:no|not|don'?t|do\s+not|never|"
+                                                                     r"wait|actually|if|when|whenever|after|once|until|unless|tell|text|"
+                                                                     r"ask|message|whatsapp|reply)\b", m.group("remark")) \
+            and re.match(rf"^(?:(?:please|just|quickly|now|so|and)\s+)*{_HEDGED_VERBS}", m.group("rest")) \
+            and not re.match(r"^(?:call|name|label|save)\s+(?:it|that|them)\b", m.group("rest")) \
+            and "," not in m.group("rest"):
+        # a remark before the command: "i'm heading out, lock the pc", "someone's coming, minimize everything"
+        t = re.sub(r"^(?:(?:please|just|quickly|now|so|and)\s+)+", "", m.group("rest"))
     t = re.sub(rf"^(?:i\s+(?:want|wanna|need|would\s+like)|i'?d\s+like|let\s+me)\s+(?:to\s+)?(?=(?:open|launch|start|close|play|mute|lock|check|see|read|turn)\b)", "", t)
     t = re.sub(r"^(?:check|look\s+(?:on|at|in)|browse|search\s+on)\s+(amazon|flipkart|myntra|ebay|youtube|google|wikipedia)\s+for\s+(?:an?\s+)?", r"search \1 for ", t)
     t = re.sub(r"^(?:any|what(?:'s|\s+is)\s+the)\s+(?:latest\s+)?news\s+(?:about|on|from|in)\s+", "latest news about ", t)
     t = re.sub(r"^(?:take|bring)\s+me\s+to\s+(?=(?:https?://)?[\w-]+(?:\.[\w-]+)+(?:/\S*)?$)", "go to ", t)
+    t = re.sub(r"^fire\s+(?:up\s+)?(?P<a>.+?)(?:\s+up)?$", r"open \g<a>", t) if re.match(r"^fire\s+\S", t) else t
+    t = re.sub(r"^shut\s+(?!(?:up|down|off|it|the\s+(?:pc|computer|laptop|system|lid)|my\s+(?:pc|computer|laptop)|everything)\b)(?=\S+$|\S+\s+\S+$)", "close ", t)
+    t = re.sub(r"^(?:i'?m\s+curious|just\s+curious|quick\s+question|random\s+question|out\s+of\s+curiosity)\s*,?\s+", "", t)
+    t = re.sub(r"^i\s+(?:want|wanna|would\s+like|'d\s+like)\s+to\s+watch\s+(?=.+\s+on\s+youtube$)", "play ", t)
     t = re.sub(r"^(?:listen\s+to|lemme\s+hear|let\s+me\s+hear)\s+(?!(?:me|him|her|them|this|that|it|what)\b)(?=\S)", "play ", t)
     if not re.search(r"\b(?:in|on)\s+(?:my\s+|the\s+)?(?:pc|computer|laptop|files?|folders?|documents|downloads|notes|drive)\b"
                      r"|\b(?:hardware|temperatures?|network|wi-?fi|bluetooth|battery|cpu|gpu|ram|memory|disk|storage|processes|"
@@ -390,7 +406,7 @@ chrome firefox edge notepad calculator spotify explorer vscode terminal paint wo
 discord telegram whatsapp youtube vlc steam obs photoshop gmail calendar drive browser tab tabs bookmark bookmarks
 browse surf need want make give tell ask app pc web all
 paste copy cut select undo redo type save press enter snip clipboard
-kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence news talk again charger barely prefer latest texted create download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
+kill capture reboot restart shutdown shut power sleep hibernate laptop computer lower make could would should pull bring silence quickly news talk again charger barely prefer latest texted create download downloaded saved okay time percent back forward tab message messages monday tuesday wednesday thursday friday saturday sunday mark specs
 put reduce louder quieter brighter dimmer sound speaker speakers mic microphone camera email emails mail inbox meeting
 meetings schedule remember forget note notes reminder reminders todo focus workspace shortcut describe click
 have free busy block draft compose write mails mail calendar agenda any whatsapp dial call
@@ -460,7 +476,8 @@ def correct_command_typos(routing: str) -> str:
     import difflib
     words = routing.split()
     stop = next((i for i, w in enumerate(words) if w in ("saying", "that", "say", "message", "text", "tell")
-                 and not (w == "say" and i + 1 < len(words) and words[i + 1] in ("it", "that", "this"))
+                 and not (w == "say" and i + 1 < len(words) and (words[i + 1] in ("it", "that", "this")
+                                                                  or any(_edit_distance(words[i + 1], x) <= 1 for x in ("that", "this"))))
                  and not (w == "that" and i > 0 and words[i - 1] == "say")), len(words))
     head = min(4, stop)
     changed = False
@@ -474,6 +491,12 @@ def correct_command_typos(routing: str) -> str:
             if not _english_word(w):
                 cands = [c for c in difflib.get_close_matches(w, COMMAND_VOCAB, n=3, cutoff=0.75) if c[0] == w[0]
                          and _typo_distance_ok(w, c)]
+                if not cands and len(w) >= 5:
+                    # two slips in an unknown word ("vloum" -> "volume") when exactly one command word is that close
+                    near = [c for c in difflib.get_close_matches(w, COMMAND_VOCAB, n=5, cutoff=0.6)
+                            if c[0] == w[0] and len(c) - len(w) in (0, 1) and _edit_distance(w, c) == 2
+                            and not (Counter(w) - Counter(c))]  # only swapped / dropped letters, no new ones
+                    cands = near if len(near) == 1 else []
                 # a word-ending variant of a command word is a real word, not a typo ("shortcuts", "notification")
                 if any(w in (c + "s", c + "es", c + "ed", c + "d", c + "ing") for c in cands):
                     cands = []
@@ -541,7 +564,7 @@ _LEAD = re.compile(r"^(?:(?:hey|hi|ok|okay|hello|yo)\s+)?jarvis\s*[,.!:]?\s+|^(?
                    r"|^(?:(?:can|could|would|will)\s+(?:you|u)\s+)?(?:please|pls|plz|kindly)\s+"
                    # hedges before a command: "could you, like, open brave", "can you just turn it up"
                    r"|^(?:(?:can|could|would|will)\s+(?:you|u)\s*,\s*|(?:(?:can|could|would|will)\s+(?:you|u)\s+)?"
-                   rf"(?:like|just|maybe)\s*,?\s+(?={_HEDGED_VERBS}))|^,\s*", re.I)
+                   rf"(?:like|just|maybe|quickly|quick|real\s+quick|now)\s*,?\s+(?={_HEDGED_VERBS}))|^,\s*", re.I)
 _TRAIL = re.compile(r"\s*[,.!]?\s+(?:(?:hey\s+)?jarvis|thank\s+you(?:\s+so\s+much)?|thanks|thank\s+u|thx|ty|please|pls|plz)"
                     r"\s*[.!?]*$", re.I)
 

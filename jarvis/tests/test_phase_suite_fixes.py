@@ -139,3 +139,41 @@ def test_google_tools_read_mail_list_and_add_events_with_fake_google():
 def test_google_tools_are_registered_actions():
     from jarvis.tools.system.google_tools import create_google_tools
     assert {t.definition.name for t in create_google_tools()} == {"gmail_list_recent", "calendar_list_events", "calendar_create_event"}
+
+
+@pytest.mark.parametrize("text", ["is spotify a good app for beginners", "the music is killing my ears, lower it",
+                                  "no, don't close audacity", "just let gokul know don't forget the keys",
+                                  "who was the last message sent to", "hold on, was that message actually sent",
+                                  "ping keerthi on whatsapp and say class is cancelled"])
+def test_conversational_sentences_never_trigger_the_wrong_action(router, text):
+    d = route(router, text)
+    assert d.intent not in ("close_app", "close_window", "forget_fact", "reply_whatsapp_message", "powershell_command")
+    if text.startswith(("was", "hold on", "who was")):
+        assert d.intent != "send_whatsapp_message"
+
+
+@pytest.mark.parametrize("text,intent", [
+    ("before i forget, open brave", "open_app"),
+    ("someone's coming, quickly minimize everything", "show_desktop"),
+    ("i'm heading out, lock the pc", "system_power_control"),
+    ("don't let me forget to call gokul tomorrow", "set_reminder"),
+    ("set vloum to 20", "volume_set"),
+    ("say taht one more time", "recent_actions"),
+    ("fire gimp up", "open_app"),
+    ("shut telegram", "close_app"),
+    ("text machan and tell them the exam got postponed", "send_whatsapp_message"),
+    ("is my monday morning free", "calendar_list_events"),
+])
+def test_conversational_commands(router, text, intent):
+    assert route(router, text).intent == intent
+
+
+def test_shell_commands_need_shell_syntax(router):
+    assert route(router, "ping 8.8.8.8").intent == "powershell_command"
+    assert route(router, "ping arun").intent != "powershell_command"
+
+
+def test_two_slip_typos_only_rearrange_letters():
+    from jarvis.core.router.normalize import correct_command_typos
+    assert correct_command_typos("set vloum to 20") == "set volume to 20"
+    assert correct_command_typos("terminate vlc player") == "terminate vlc player"

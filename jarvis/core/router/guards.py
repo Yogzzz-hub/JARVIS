@@ -51,6 +51,11 @@ def check_negation(text: str) -> tuple[bool, list[dict[str, Any]]]:
     """
     lowered = text.strip().casefold()
     constraints = []
+    # "no, don't close audacity": the leading "no" belongs to the negation
+    lowered = re.sub(r"^(?:no+|nah|nope|oh\s+no|wait|hey)\s*,?\s+(?=(?:don't|dont|do not|never|please don't|please do not)\b)", "", lowered)
+    # "don't let me forget to call arun" / "don't forget to ..." ask for a reminder, not for nothing to happen
+    if re.match(r"^(?:please\s+)?(?:don't|dont|do not)\s+(?:let\s+me\s+)?forget\b", lowered):
+        return False, constraints
 
     # Check "don't X, do Y" or "don't X, open Y instead"
     m_split = re.match(r"^(?:don't|do not|never)\s+([^,]+),\s*(?:instead\s+)?(.+)$", lowered)
