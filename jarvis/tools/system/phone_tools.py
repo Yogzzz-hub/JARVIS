@@ -253,11 +253,11 @@ class PhoneTapTextTool(Tool):
         return {"success": bool(res.get("success")), "message": res.get("message", ""), "data": {k: v for k, v in res.items() if k in ("x", "y")}}
 
 
-PhoneSetting = Literal["wifi", "bluetooth", "mobile_data", "airplane_mode", "do_not_disturb", "auto_rotate"]
+PhoneSetting = Literal["wifi", "bluetooth", "mobile_data", "airplane_mode", "do_not_disturb", "auto_rotate", "flashlight"]
 
 
 class PhoneToggleInput(Contract):
-    setting: PhoneSetting = Field(description="wifi, bluetooth, mobile_data, airplane_mode, do_not_disturb or auto_rotate")
+    setting: PhoneSetting = Field(description="wifi, bluetooth, mobile_data, airplane_mode, do_not_disturb, auto_rotate or flashlight")
     on: bool = Field(default=True, description="true = turn on, false = turn off")
 
 

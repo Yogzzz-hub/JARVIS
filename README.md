@@ -381,7 +381,7 @@ Examples are phrasings the router is tested on. You can say them in your own wor
 | 125 | Takes a screenshot of the phone screen and saves it on the PC | `android_screenshot` | Reversible | `Take a screenshot of my phone` |
 | 126 | Checks Android phone connection status via ADB, scrcpy availability, and battery status | `android_status` | Read Only | `Is my phone connected?` · `Check phone status` · `Show phone battery level` |
 | 127 | Taps a button or item by its label on the phone screen | `android_tap_text` | Reversible | `Tap Settings on my phone` · `Press Allow on my phone` |
-| 128 | Turns phone Wi-Fi, Bluetooth, mobile data, airplane mode or do-not-disturb on or off | `android_toggle` | Reversible | `Turn off Bluetooth on my phone` · `Turn on Wi-Fi on my phone` |
+| 128 | Turns phone Wi-Fi, Bluetooth, mobile data, airplane mode, do-not-disturb or the flashlight on or off (the flashlight through its Quick Settings tile) | `android_toggle` | Reversible | `Turn off Bluetooth on my phone` · `Turn on the flashlight on my phone` |
 | 129 | Fast phone controls: quick settings, notification shade, settings pages, brightness %, media volume, which app is open, screen on/off, SMS prepared for you to send | `android_quick_action` | Reversible | `Set my phone brightness to 40` · `Open wifi settings on my phone` · `What app is open on my phone` · `Send SMS to 98765 43210 saying I'm late` |
 
 #### Transfer (4)
@@ -1031,10 +1031,21 @@ The safety phase (p05) still sends most dangerous requests to the planner rather
 destructive tools keep their confirmation step. Gmail and Google Calendar run as actions (read mail, list events,
 add an event after confirmation) once an account is connected with `connect_google.bat`.
 
-The decision model (JDE) was retrained with the dev commands added (`python -m tests.phase_suite.jde_eval` scores it):
-the candidate `models/jde/jde-20260928-150411-2801e0` gets 69-75% of route families right on the blind sets (the
-current model 61-71%) but is 1-4 points lower on the JDE's own benchmark, so it was **not** promoted; `CURRENT` is
-unchanged and the JDE stays in shadow mode.
+The decision model (JDE) was retrained with the phase-suite dev commands added (`python -m tests.phase_suite.jde_eval`
+scores any model on the phase splits; the blind splits are never trained on). Measured on the JDE's own benchmark
+(dev / holdout / adversarial) and on the six blind sets:
+
+| Model | JDE benchmark (avg) | Wrong consequential | Blind sets (avg family accuracy) |
+|---|---|---|---|
+| `CURRENT` jde-20260925-231642-d13eb5 | 87.4% | 0 | 64.9% |
+| same data, retrained today (2 seeds) | 85.2-86.5% | 1 | 64.0-65.3% |
+| **candidate** jde-20260928-150411-2801e0 (+ phase dev) | 85.2% | 0 | **71.9%** |
+
+Retraining the current model's own data scores 1-2 points lower, so part of its lead is a lucky run. The phase data
+trades about one point on the old benchmark for about seven points on real phrasing, with no wrong consequential
+decisions. The promotion rule (beat `CURRENT` on its own benchmark) keeps the current model; to use the candidate:
+`Set-Content models\jde\CURRENT jde-20260928-150411-2801e0` (undo: `Set-Content models\jde\CURRENT jde-20260925-231642-d13eb5`).
+Retrain with `python -m jarvis.decision.train [--seed N] [--no-phase-suite]`.
 
 Useful test infrastructure:
 - `jarvis/tests/fake_ollama.py`: an in-process fake Ollama, so AI tests need no network.

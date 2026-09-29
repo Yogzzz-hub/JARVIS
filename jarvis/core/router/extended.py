@@ -1337,7 +1337,7 @@ def raw_body(raw: str, lowered_fragment: str) -> str:
 _TOGGLES = {
     "wifi": r"wi-?fi|wireless", "bluetooth": r"blue ?tooth", "mobile_data": r"mobile data|data|internet|cellular data",
     "airplane_mode": r"air ?plane mode|flight mode", "do_not_disturb": r"do not disturb|dnd|silent mode",
-    "auto_rotate": r"auto ?-?rotat(?:e|ion)|screen rotation",
+    "auto_rotate": r"auto ?-?rotat(?:e|ion)|screen rotation", "flashlight": r"(?:the\s+)?(?:flash ?light|torch)",
 }
 
 

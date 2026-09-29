@@ -220,3 +220,47 @@ def test_mixed_thanglish(thanglish, english):
 def test_thanglish_message_never_replies_to_everyone(router):
     d = route(router, "amma ku call me back nu message pannu")
     assert d.intent == "send_whatsapp_message" and d.slots["recipient"].lower() == "amma"
+
+
+QS_OFF = ('<hierarchy><node text="" content-desc="Wi-Fi" checkable="true" checked="true" clickable="true" bounds="[0,100][200,200]"/>'
+          '<node text="" content-desc="Flashlight" checkable="true" checked="false" clickable="true" bounds="[200,100][400,200]"/>'
+          '</hierarchy>')
+
+
+def _fake_phone(xml: str):
+    from jarvis.connectors.android.scrcpy import AndroidScrcpyConnector
+    conn = AndroidScrcpyConnector.__new__(AndroidScrcpyConnector)
+    calls = []
+
+    def run(args, timeout=5.0):
+        calls.append(args)
+        return (0, xml, "") if args[:2] == ["shell", "cat"] else (0, "", "")
+    conn._run_adb = run
+    return conn, calls
+
+
+def test_phone_flashlight_uses_the_quick_settings_tile(monkeypatch):
+    import time as _t
+    monkeypatch.setattr(_t, "sleep", lambda *_: None)
+    conn, calls = _fake_phone(QS_OFF)
+    out = conn.execute_authorized_action("a1", "android.toggle", {"setting": "flashlight", "on": True})
+    assert out["success"] and "Turned on" in out["message"]
+    assert ["shell", "input", "tap", "300", "150"] in calls  # the Flashlight tile, not Wi-Fi
+    assert calls[0] == ["shell", "cmd", "statusbar", "expand-settings"] and calls[-1] == ["shell", "cmd", "statusbar", "collapse"]
+
+    conn, calls = _fake_phone(QS_OFF)
+    out = conn.execute_authorized_action("a2", "android.toggle", {"setting": "flashlight", "on": False})
+    assert "already off" in out["message"] and not any(c[:3] == ["shell", "input", "tap"] for c in calls)
+
+    samsung = '<node text="Torch" content-desc="Torch,Off,Button" clickable="true" bounds="[0,0][100,100]"/>'
+    from jarvis.connectors.android.scrcpy import find_quick_tile
+    assert find_quick_tile(samsung, ("flashlight", "torch")) == (50, 50, False)
+
+    conn, calls = _fake_phone('<node content-desc="Wi-Fi" bounds="[0,0][10,10]"/>')
+    out = conn.execute_authorized_action("a3", "android.toggle", {"setting": "flashlight", "on": True})
+    assert not out["success"] and "quick settings" in out["message"] and calls[-1][-1] == "collapse"
+
+
+def test_flashlight_command_routes_to_the_phone_toggle(router):
+    d = route(router, "turn on the flashlight on my phone")
+    assert d.intent == "android_toggle" and d.slots == {"setting": "flashlight", "on": True}

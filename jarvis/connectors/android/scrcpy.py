@@ -394,6 +394,33 @@ class AndroidScrcpyConnector(BaseConnector):
             return ok(f"The SMS to {number} is ready on your phone - tap send to send it.")
         raise ValueError(f"Unknown phone action: {what}")
 
+    def _flashlight(self, on: bool) -> dict[str, Any]:
+        """Android has no shell command for the torch, so use its Quick Settings tile: open the panel, find the
+        Flashlight / Torch tile, tap it only if it is not already in the wanted state, then close the panel."""
+        code, _, err = self._run_adb(["shell", "cmd", "statusbar", "expand-settings"], timeout=8.0)
+        if code != 0:
+            raise RuntimeError(f"Couldn't open the phone's quick settings: {err.strip() or 'the phone refused'}")
+        try:
+            time.sleep(0.7)  # the panel animates open
+            code, _, err = self._run_adb(["shell", "uiautomator", "dump", "/sdcard/jarvis_ui.xml"], timeout=10.0)
+            code2, xml, _ = self._run_adb(["shell", "cat", "/sdcard/jarvis_ui.xml"], timeout=6.0) if code == 0 else (1, "", "")
+            tile = find_quick_tile(xml if code2 == 0 else "", ("flashlight", "torch", "flash light"))
+            if tile is None:
+                return {"status": "NOT_FOUND", "success": False,
+                        "message": "I couldn't find the Flashlight tile in your phone's quick settings. Add it there "
+                                   "(pull down twice > edit / pencil icon) and ask me again."}
+            x, y, state = tile
+            if state is on:
+                return {"status": "SUCCESS", "success": True, "message": f"The phone's flashlight is already {'on' if on else 'off'}."}
+            code, _, err = self._run_adb(["shell", "input", "tap", str(x), str(y)])
+            if code != 0:
+                raise RuntimeError(f"Tap failed: {err}")
+            return {"status": "SUCCESS", "success": True,
+                    "message": f"Turned {'on' if on else 'off'} the phone's flashlight." if state is not None
+                    else "Switched the phone's flashlight."}
+        finally:
+            self._run_adb(["shell", "cmd", "statusbar", "collapse"], timeout=5.0)
+
     def execute_authorized_action(self, action_id: str, action_name: str, arguments: dict[str, Any]) -> Any:
         t0 = time.perf_counter()
         action = action_name.removeprefix("android.")
@@ -577,6 +604,8 @@ class AndroidScrcpyConnector(BaseConnector):
         if action == "toggle":
             setting = str(arguments.get("setting", "")).lower().replace(" ", "_")
             on = bool(arguments.get("on", True))
+            if setting in ("flashlight", "torch"):
+                return self._flashlight(on)
             commands = {
                 "wifi": [["shell", "svc", "wifi", "enable" if on else "disable"]],
                 "mobile_data": [["shell", "svc", "data", "enable" if on else "disable"]],
@@ -723,6 +752,28 @@ def parse_notifications(dumpsys: str) -> list[dict[str, str]]:
             seen.add(key)
             unique.append(it)
     return unique
+
+
+def find_quick_tile(xml: str, names: tuple[str, ...]) -> tuple[int, int, bool | None] | None:
+    """Centre and on/off state (None when the phone doesn't say) of a Quick Settings tile such as Flashlight."""
+    best: tuple[int, int, int, bool | None] | None = None
+    for m in re.finditer(r"<node\b[^>]*>", xml or ""):
+        tag = m.group(0)
+        label = " ".join(v for v in re.findall(r'\b(?:text|content-desc)="([^"]*)"', tag) if v).casefold()
+        bounds = re.search(r'\bbounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+        if not bounds or not any(re.search(rf"\b{re.escape(n)}\b", label) for n in names):
+            continue
+        state: bool | None = None
+        if 'checkable="true"' in tag:
+            state = 'checked="true"' in tag
+        said = re.search(r"[,.\s](on|off)\b", label)
+        if said:
+            state = said.group(1) == "on"
+        score = (2 if 'clickable="true"' in tag else 0) + (1 if state is not None else 0)
+        x1, y1, x2, y2 = map(int, bounds.groups())
+        if best is None or score > best[0]:
+            best = (score, (x1 + x2) // 2, (y1 + y2) // 2, state)
+    return (best[1], best[2], best[3]) if best else None
 
 
 def find_ui_node(xml: str, label: str) -> tuple[int, int, str] | None:

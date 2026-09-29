@@ -53,10 +53,11 @@ def labels(examples: list[LabeledExample]) -> dict[str, np.ndarray]:
     return y
 
 
-def train(encoder_spec: str = "hash", seed: int = 13, epochs: int = 300, l2: float = 3e-4, log=print) -> tuple[LocalJDE, dict]:
+def train(encoder_spec: str = "hash", seed: int = 13, epochs: int = 300, l2: float = 3e-4, log=print,
+          phase_suite: bool = True) -> tuple[LocalJDE, dict]:
     t0 = time.time()
     catalog = RouteCatalog.build()
-    pool = training_pool(seed=seed)
+    pool = training_pool(seed=seed, phase_suite=phase_suite)
     tr, va = split(pool)
     encoder = make_encoder(encoder_spec)
     log(f"pool={len(pool)} train={len(tr)} val={len(va)} encoder={encoder.name}")
@@ -138,12 +139,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--encoder", default="hash")
     ap.add_argument("--epochs", type=int, default=300)
+    ap.add_argument("--seed", type=int, default=13)
+    ap.add_argument("--no-phase-suite", action="store_true", help="leave the phase-suite dev commands out of training")
     ap.add_argument("--promote", action="store_true", help="make this version CURRENT (only after the benchmark says so)")
     ap.add_argument("--auto-promote", action="store_true",
                     help="make it CURRENT only if it beats the current model on the held-out suites with zero wrong "
                          "consequential executions")
     args = ap.parse_args(argv)
-    engine, stats = train(args.encoder, epochs=args.epochs)
+    engine, stats = train(args.encoder, seed=args.seed, epochs=args.epochs, phase_suite=not args.no_phase_suite)
     path = MODEL_ROOT / engine.meta.decision_model_version
     engine.save(path)
     print(f"saved {path} ({stats})")

@@ -582,11 +582,11 @@ def from_phase_suite(path: Path) -> list[LabeledExample]:
     return out
 
 
-def training_pool(seed: int = 13) -> list[LabeledExample]:
+def training_pool(seed: int = 13, phase_suite: bool = True) -> list[LabeledExample]:
     exclude = holdout_texts()
     pool = from_registry() + synthetic(seed=seed) + _cap_per_family(from_generalization(generalization_train_files()), 220)
     phase_dev = ROOT / "tests" / "phase_suite" / "dev.jsonl"
-    if phase_dev.exists():
+    if phase_suite and phase_dev.exists():
         pool += _cap_per_family(from_phase_suite(phase_dev), 180)
     data = ROOT / "tests" / "data"
     if (data / "router_golden.jsonl").exists():
