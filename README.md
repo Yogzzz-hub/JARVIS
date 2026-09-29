@@ -65,7 +65,15 @@ python scripts\setup_models.py --jde                     # optional: GloVe vecto
 Setup installs:
 - the voice extras: wake word, speech recognition, VAD, TTS, push-to-talk hotkey;
 - the Whisper speech model and the Piper voice, which are too large for git;
-- the Ollama models named in `jarvis/config/jarvis.toml`.
+- the Ollama models named in `jarvis/config/jarvis.toml`;
+- a vision model that can really see images: if the configured `qwen3.5:4b` build is text-only, setup pulls
+  `qwen2.5vl:3b` automatically (`python scripts\setup_models.py --vision` pulls it anyway);
+- FFmpeg with winget (`winget install --id Gyan.FFmpeg -e`) when it is missing - used only to extract audio
+  from videos and trim clips; WhatsApp voice notes do **not** need it (they are decoded by PyAV, which comes with
+  the speech package). Skip with `-SkipTools`; open a new terminal after it installs so it is on PATH.
+
+The vision model reads the screen ("what's this error") and the photos **you** send JARVIS on WhatsApp;
+other people's photos are never sent to it.
 
 Check everything at any time:
 
@@ -1084,7 +1092,8 @@ on Linux CI. They pass on a configured Windows PC.
 | WhatsApp doesn't send | Run `python -m jarvis.integrations.whatsapp.doctor`. Check pairing, owner numbers and contacts in `config/whatsapp.toml`. |
 | Phone commands fail | Enable USB debugging, accept the RSA prompt, check that `adb devices` lists the phone. |
 | Browser task stops at a login | Sign in once in the JARVIS browser window, then say "continue". |
-| Screen clicking misses | `ollama pull qwen2.5vl:3b`; `pip install -e .[windows]`. |
+| Screen clicking misses | `python -m jarvis.diagnostics` shows the vision model and whether it can see images; if not, `ollama pull qwen2.5vl:3b`; `pip install -e .[windows]`. |
+| "FFmpeg is not installed" | `winget install --id Gyan.FFmpeg -e`, then open a new terminal and restart JARVIS (only video/audio conversion needs it). |
 | Port 8765 in use | Another backend is already running; use it or stop it in its own window. |
 | Decision engine shows as off | `python scripts\setup_models.py --check`. JDE falls back to the hash model when GloVe is missing. Routing is never affected. |
 

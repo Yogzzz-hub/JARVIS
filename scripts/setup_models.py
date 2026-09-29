@@ -3,6 +3,7 @@
     python scripts/setup_models.py            # speech (Whisper), voice (Piper), wake word, Ollama models
     python scripts/setup_models.py --no-ollama
     python scripts/setup_models.py --check    # report only, download nothing
+    python scripts/setup_models.py --vision   # also pull the dedicated vision model (qwen2.5vl:3b)
     python scripts/setup_models.py --jde      # also fetch GloVe vectors for the decision engine's glove+hash model
 
 Large model binaries are git-ignored, so a fresh checkout has the folders but not the
@@ -160,7 +161,47 @@ def setup_ollama(config, check: bool, want_deep: bool = False) -> bool:
         print(f"[ollama]  pulling {model} ...")
         result = subprocess.run([exe, "pull", model])
         ok = ok and result.returncode == 0
-    return ok
+    return ensure_vision(config, exe, check) and ok
+
+
+def _capabilities(base_url: str, model: str) -> set[str] | None:
+    """Ollama's own list of what a model can do ({"completion", "vision", ...}); None when it does not say."""
+    import json
+    try:
+        req = urllib.request.Request(base_url.rstrip("/") + "/api/show", data=json.dumps({"model": model}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            caps = json.load(resp).get("capabilities")
+        return {str(c).lower() for c in caps} if isinstance(caps, list) else None
+    except Exception:
+        return None
+
+
+def ensure_vision(config, exe: str, check: bool) -> bool:
+    """Screen understanding needs a model that can see images. When the configured vision model is a text-only build,
+    pull the dedicated vision model (the vision-named candidate in [models] vision, e.g. qwen2.5vl:3b)."""
+    from jarvis.core.llm.client import is_vision_model, match_installed, model_candidates
+    try:
+        listing = subprocess.run([exe, "list"], capture_output=True, text=True, timeout=20).stdout
+    except Exception:
+        return False
+    installed = [line.split()[0] for line in listing.splitlines()[1:] if line.strip()]
+    candidates = model_candidates(config.models.vision)
+    for cand in candidates:
+        hit = match_installed(cand, installed)
+        if not hit:
+            continue
+        caps = _capabilities(config.models.base_url, hit)
+        if caps is None or "vision" in caps:
+            print(f"[vision]  OK   {hit}" + ("" if caps is None else " (can see images)"))
+            return True
+        print(f"[vision]  {hit} is a text-only build here; it cannot read the screen")
+    dedicated = next((c for c in candidates if is_vision_model(c)), "qwen2.5vl:3b")
+    if check:
+        print(f"[vision]  MISSING a model that can see images  (ollama pull {dedicated})")
+        return False
+    print(f"[vision]  pulling {dedicated} for screen understanding ...")
+    return subprocess.run([exe, "pull", dedicated]).returncode == 0
 
 
 def setup_jde(check: bool, want_glove: bool) -> bool:
@@ -213,6 +254,8 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="only report what is missing")
     parser.add_argument("--no-ollama", action="store_true", help="skip pulling Ollama models")
     parser.add_argument("--jde", action="store_true", help="download GloVe vectors for the decision engine")
+    parser.add_argument("--vision", action="store_true",
+                        help="also pull the dedicated vision model (the vision-named model in [models] vision, e.g. qwen2.5vl:3b)")
     parser.add_argument("--deep", action="store_true",
                         help="also pull the large deep-reasoning model ([models] deep, e.g. qwen3.6:35b-a3b, ~20 GB)")
     parser.add_argument("--jde-semantic", action="store_true",
@@ -232,6 +275,13 @@ def main() -> int:
         results.append(setup_jde_semantic())
     if not args.no_ollama:
         results.append(setup_ollama(config, args.check, args.deep))
+        if args.vision and not args.check:
+            from jarvis.core.llm.client import find_ollama_executable, is_vision_model, model_candidates
+            exe = find_ollama_executable()
+            dedicated = next((c for c in model_candidates(config.models.vision) if is_vision_model(c)), "qwen2.5vl:3b")
+            if exe:
+                print(f"[vision]  pulling {dedicated} ...")
+                results.append(subprocess.run([exe, "pull", dedicated]).returncode == 0)
     print("\nAll models ready." if all(results) else "\nSome items need attention (see above). Voice still starts with fallbacks where possible.")
     return 0 if all(results) else 1
 

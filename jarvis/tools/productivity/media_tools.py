@@ -9,6 +9,10 @@ from pydantic import Field
 from jarvis.tools.base import Contract, ExecutionMethod, RiskLevel, Tool, ToolDefinition
 
 
+# Without FFmpeg nothing is converted: say so instead of reporting a file that was never made.
+FFMPEG_MISSING = ("FFmpeg is not installed, so I can't convert or cut audio/video yet. Install it with "
+                  "\"winget install --id Gyan.FFmpeg -e\", open a new terminal, then restart JARVIS.")
+
 class ExtractAudioInput(Contract):
     video_path: str = Field(min_length=1, max_length=4096)
     output_audio_path: str | None = None
@@ -61,7 +65,7 @@ class ExtractAudioTool(Tool):
                 raise RuntimeError(f"FFmpeg error: {proc.stderr[:200]}")
             status = "completed"
         else:
-            status = "ffmpeg_missing_simulated"
+            raise RuntimeError(FFMPEG_MISSING)
 
         return {
             "output_path": str(out_path),
@@ -101,7 +105,7 @@ class TrimClipTool(Tool):
                 raise RuntimeError(f"FFmpeg error: {proc.stderr[:200]}")
             status = "completed"
         else:
-            status = "ffmpeg_missing_simulated"
+            raise RuntimeError(FFMPEG_MISSING)
 
         return {
             "output_path": str(out_path),

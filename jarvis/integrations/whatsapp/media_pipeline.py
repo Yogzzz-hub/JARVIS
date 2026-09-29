@@ -126,7 +126,7 @@ class WhatsAppMediaPipeline:
                 return "[Image: Vision provider offline]"
 
             # Safe visual inspection
-            analysis = self.vision_provider.analyze(img_copy, prompt=prompt)
+            analysis = await asyncio.to_thread(self.vision_provider.analyze, img_copy, prompt)  # keeps the loop free
             return analysis
         except Exception as exc:
             logger.error("Failed to analyze WhatsApp image: %s", exc)

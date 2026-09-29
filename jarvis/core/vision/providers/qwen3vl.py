@@ -24,11 +24,13 @@ class Qwen3VLProvider:
 
     def __init__(
         self,
-        model_name: str = "qwen3-vl:2b",
+        model_name: Optional[str] = None,
         base_url: str = "http://127.0.0.1:11434",
-        timeout_s: float = 15.0,
+        timeout_s: float = 60.0,
     ) -> None:
-        self.model_name = model_name
+        # None: JARVIS's [models] vision role (the first installed model that can really see images)
+        self.model_name = model_name or "auto (vision role)"
+        self._fixed_model = model_name
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
         self._is_loaded = False
@@ -58,11 +60,21 @@ class Qwen3VLProvider:
         """Cancel ongoing inference."""
         pass
 
+    def _model(self) -> str:
+        if self._fixed_model:
+            return self._fixed_model
+        from jarvis.core.llm.client import get_llm
+        return get_llm().resolve_sync("vision")
+
     def analyze(self, image: Image.Image, prompt: str) -> str:
         """Run read-only visual inspection."""
+        try:
+            model = self._model()
+        except Exception as e:
+            return f"VISION_UNAVAILABLE: {e}"
         b64_img = encode_image_to_base64(image, format="JPEG", quality=85)
         payload = {
-            "model": self.model_name,
+            "model": model,
             "prompt": prompt,
             "images": [b64_img],
             "stream": False,
@@ -111,8 +123,12 @@ INSTRUCTIONS:
 {{"candidate_id": "C1", "match": true, "confidence": "HIGH", "needs_zoom": false, "needs_clarification": false, "reason_code": "MATCHED_LABEL"}}
 """
         b64_img = encode_image_to_base64(image, format="JPEG", quality=85)
+        try:
+            model = self._model()
+        except Exception:
+            return VisualGroundingDecision(match=False, confidence=GroundingConfidence.LOW, reason_code="VISION_UNAVAILABLE")
         payload = {
-            "model": self.model_name,
+            "model": model,
             "prompt": prompt,
             "images": [b64_img],
             "stream": False,

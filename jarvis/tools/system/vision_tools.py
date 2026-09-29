@@ -108,7 +108,7 @@ class DescribeScreenTool(Tool):
             result = await client.chat([{"role": "user", "content": prompt, "images": [image_b64]}],
                                        role="vision", temperature=0.2, max_tokens=320, timeout=90.0)
         except LLMUnavailable as exc:
-            hint = ("Install one with: ollama pull qwen2.5vl:3b" if "suits role 'vision'" in str(exc)
+            hint = ("Install one with: ollama pull qwen2.5vl:3b" if ("suits role 'vision'" in str(exc) or "can see images" in str(exc))
                     else "Ollama isn't reachable right now.")
             return {"success": False, "message": f"I need a vision model to look at the screen. {hint}", "data": {}}
         except LLMError as exc:

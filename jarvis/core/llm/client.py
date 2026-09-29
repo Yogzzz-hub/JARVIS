@@ -335,6 +335,7 @@ class OllamaClient:
         self._down_until = 0.0
         self._last_error = ""
         self._resolved: dict[str, str | None] = {}
+        self._capabilities: dict[str, frozenset[str] | None] = {}
         self._no_think_unsupported: set[str] = set()
         self._server_proc: subprocess.Popen | None = None
         self.total_requests = 0
@@ -396,6 +397,7 @@ class OllamaClient:
         self._models = [m for m in models if m]
         self._models_at = time.monotonic()
         self._resolved.clear()
+        self._capabilities.clear()
         self._reset_breaker()
         return self._models
 
@@ -473,8 +475,62 @@ class OllamaClient:
             logger.debug("LLM role %s -> %s", role, chosen)
         return chosen
 
+    # ------------------------------------------------------------------ vision capability
+    def _vision_order(self, installed: list[str]) -> list[str]:
+        """Installed models that could serve the vision role, best first: the configured ones, then any vision-named."""
+        order: list[str] = []
+        for candidate in model_candidates(self.settings.model_for("vision")):
+            hit = match_installed(candidate, installed)
+            if hit and hit not in order:
+                order.append(hit)
+        for name in sorted((n for n in installed if is_vision_model(n)), key=lambda n: model_size_billions(n) or 99):
+            if name not in order:
+                order.append(name)
+        return order
+
+    @staticmethod
+    def _caps_from(payload: Any) -> frozenset[str] | None:
+        caps = payload.get("capabilities") if isinstance(payload, dict) else None
+        return frozenset(str(c).lower() for c in caps) if isinstance(caps, list) else None
+
+    async def model_capabilities(self, model: str) -> frozenset[str] | None:
+        """What Ollama says a model can do ({"completion", "vision", "tools", ...}); None when it does not say."""
+        if model not in self._capabilities:
+            try:
+                resp = await self._async_client().post("/api/show", json={"model": model},
+                                                       timeout=httpx.Timeout(8.0, connect=self.settings.connect_timeout_s))
+                self._capabilities[model] = self._caps_from(resp.json()) if resp.status_code == 200 else None
+            except Exception:
+                self._capabilities[model] = None
+        return self._capabilities[model]
+
+    def model_capabilities_sync(self, model: str) -> frozenset[str] | None:
+        if model not in self._capabilities:
+            try:
+                resp = self._client_sync().post("/api/show", json={"model": model},
+                                                timeout=httpx.Timeout(8.0, connect=self.settings.connect_timeout_s))
+                self._capabilities[model] = self._caps_from(resp.json()) if resp.status_code == 200 else None
+            except Exception:
+                self._capabilities[model] = None
+        return self._capabilities[model]
+
+    def _pick_vision(self, installed: list[str], caps_of) -> str | None:
+        """The first candidate that can actually see images. A model Ollama reports without "vision" (a text-only
+        build) is skipped, so the dedicated vision model (e.g. qwen2.5vl:3b) is used instead of silently failing."""
+        for name in self._vision_order(installed):
+            caps = caps_of(name)
+            if caps is None or "vision" in caps:
+                return name
+        return None
+
     async def resolve(self, role: str = "chat") -> str:
         installed = await self.list_models()
+        if role == "vision" and "vision" not in self._resolved:
+            order = self._vision_order(installed)
+            caps = {name: await self.model_capabilities(name) for name in order}
+            self._resolved["vision"] = self._pick_vision(installed, caps.get)
+            if not self._resolved["vision"]:
+                raise LLMUnavailable("No installed Ollama model can see images (screen understanding). Run: ollama pull qwen2.5vl:3b")
         chosen = self._resolve_from(role, installed)
         if not chosen:
             raise LLMUnavailable(f"No installed Ollama model suits role '{role}'. Run: ollama pull {(model_candidates(self.settings.model_for(role)) or ['llama3.2'])[0]}")
@@ -482,6 +538,10 @@ class OllamaClient:
 
     def resolve_sync(self, role: str = "chat") -> str:
         installed = self.list_models_sync()
+        if role == "vision" and "vision" not in self._resolved:
+            self._resolved["vision"] = self._pick_vision(installed, self.model_capabilities_sync)
+            if not self._resolved["vision"]:
+                raise LLMUnavailable("No installed Ollama model can see images (screen understanding). Run: ollama pull qwen2.5vl:3b")
         chosen = self._resolve_from(role, installed)
         if not chosen:
             raise LLMUnavailable(f"No installed Ollama model suits role '{role}'. Run: ollama pull {(model_candidates(self.settings.model_for(role)) or ['llama3.2'])[0]}")

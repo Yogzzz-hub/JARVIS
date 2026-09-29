@@ -30,6 +30,18 @@ from jarvis.security.confirmation.manager import ConfirmationManager
 logger = logging.getLogger("jarvis.integrations.whatsapp.service")
 
 
+
+def _vision_provider():
+    """The owner's photos are read with JARVIS's vision model ([models] vision); off when [features] vision is off."""
+    try:
+        from jarvis.config import load
+        if not load().features.vision:
+            return None
+        from jarvis.core.vision.providers.qwen3vl import Qwen3VLProvider
+        return Qwen3VLProvider()
+    except Exception:
+        return None
+
 class BaileysWebSocketTransport:
     """Production WebSocket transport communicating with local Baileys bridge."""
 
@@ -275,6 +287,7 @@ class WhatsAppIntegrationService:
         # Multimodal media pipeline
         self.media_pipeline = WhatsAppMediaPipeline(
             stt_engine=getattr(command_service, "stt", None),
+            vision_provider=_vision_provider(),
             knowledge_engine=getattr(self.knowledge_service, "knowledge_engine", None) if self.knowledge_service else None,
         )
 

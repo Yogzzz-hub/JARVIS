@@ -40,9 +40,12 @@ def collect():
             add(module, 'WARN', f'Optional dependency unavailable: {type(exc).__name__}')
     for name, enabled in config.features.model_dump().items():
         add(f'Feature: {name}', 'PASS' if enabled else 'WARN', 'Enabled' if enabled else 'Disabled in current deployment')
+    install_hint = {'ffmpeg': 'Not on PATH - install: winget install --id Gyan.FFmpeg -e (then open a new terminal)',
+                    'ollama': 'Not on PATH - install: winget install --id Ollama.Ollama -e',
+                    'git': 'Not on PATH - install: winget install --id Git.Git -e'}
     for executable in ('git', 'winget', 'ffmpeg', 'ollama', 'nvidia-smi'):
         found = shutil.which(executable)
-        add(executable, 'PASS' if found else 'WARN', found or 'Not on PATH')
+        add(executable, 'PASS' if found else 'WARN', found or install_hint.get(executable, 'Not on PATH'))
     db = ROOT / config.paths.db
     if db.exists():
         try:
@@ -106,6 +109,17 @@ def _ollama_checks(config, add):
     add('Ollama', 'PASS', f'{settings.base_url}: {", ".join(models) or "no models installed"}')
     from jarvis.core.llm.client import model_candidates
     for role in ('fast', 'planner', 'chat', 'vision', 'deep', 'embed'):
+        if role == 'vision' and models:
+            # the model that will really read the screen: the first one Ollama says can see images
+            from jarvis.core.llm.client import OllamaClient, LLMUnavailable
+            try:
+                seer = OllamaClient(settings).resolve_sync('vision')
+                add('AI role: vision', 'PASS', f'{seer} (reads the screen and your WhatsApp photos)')
+            except LLMUnavailable:
+                add('AI role: vision', 'WARN', 'no installed model can see images; run: ollama pull qwen2.5vl:3b')
+            except Exception as exc:
+                add('AI role: vision', 'WARN', f'could not check ({type(exc).__name__})')
+            continue
         options = model_candidates(settings.model_for(role))
         wanted = options[0] if options else ''
         exact = next((m for m in (match_installed(o, models) for o in options) if m), None)

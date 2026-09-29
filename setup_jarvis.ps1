@@ -1,4 +1,4 @@
-param([switch]$Browser, [switch]$SkipModels, [switch]$CoreOnly)
+param([switch]$Browser, [switch]$SkipModels, [switch]$CoreOnly, [switch]$SkipTools)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 if (Test-Path '.runtime\python\py312') {
@@ -31,6 +31,20 @@ if ($Browser) {
     if ($LASTEXITCODE -ne 0) { throw 'Browser dependency installation failed.' }
     & $jarvisPython -m playwright install chromium
     if ($LASTEXITCODE -ne 0) { throw 'Chromium installation failed.' }
+}
+
+if (-not $SkipTools -and -not $CoreOnly) {
+    # FFmpeg: voice-note conversion, audio extraction and clip trimming. Installed once with winget when missing.
+    if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host 'Installing FFmpeg (winget, Gyan.FFmpeg) ...'
+            winget install --id Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'FFmpeg could not be installed automatically. Run: winget install --id Gyan.FFmpeg -e' }
+            else { Write-Host 'FFmpeg installed. Open a new terminal (or restart JARVIS) so it is on PATH.' }
+        } else {
+            Write-Warning 'winget is not available; install FFmpeg from https://www.gyan.dev/ffmpeg/builds/ and add its bin folder to PATH.'
+        }
+    }
 }
 
 if (-not $SkipModels -and -not $CoreOnly) {
