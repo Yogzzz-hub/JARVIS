@@ -148,3 +148,43 @@ def test_fast_role_is_deterministic_with_small_context():
     assert role_tuning("fast", 0.4, None) == (0.0, 2048)
     assert role_tuning("chat", 0.4, None) == (0.4, None)
     assert role_tuning("fast", 0.4, 4096) == (0.0, 4096)
+
+
+def test_final_pass_recovers_from_position_encoding_overflow(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import numpy as np
+    import asyncio
+    from jarvis.core.stt import faster_whisper_engine as fw
+    from jarvis.core.stt.names import NameVocabulary
+
+    attempts = []
+
+    class OverflowModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, audio, **kw):
+            attempts.append(kw)
+            if kw.get("hotwords"):
+                raise RuntimeError("No position encodings are defined for positions >= 448, but got position 449")
+            seg = SimpleNamespace(text=" read the unread messages", no_speech_prob=0.01, avg_logprob=-0.2,
+                                  compression_ratio=1.1, start=0, end=2)
+            return iter([seg]), SimpleNamespace(language="en", duration_after_vad=2.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=OverflowModel))
+    eng = fw.FasterWhisperEngine(model="small.en", device="cpu", beam_size=3)
+    eng.vocabulary = NameVocabulary(["Akash Anna"])
+
+    async def run():
+        await eng.load()
+        await eng.start_session("s")
+        await eng.feed_audio((np.random.randn(32000) * 1000).astype(np.int16).tobytes())
+        return await eng.finalize()
+
+    result = asyncio.run(run())
+    assert result.text == "read the unread messages"
+    assert len(attempts) >= 2
+    assert attempts[0].get("hotwords") is not None
+    assert attempts[1].get("hotwords") is None
+

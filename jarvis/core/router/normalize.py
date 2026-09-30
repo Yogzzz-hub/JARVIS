@@ -131,11 +131,16 @@ def resolve_discourse_correction(text: str) -> str:
     """Detects and applies mid-utterance self-corrections (e.g. 'Open Chrome—actually Edge', 'Launch Notepad, sorry I meant VS Code')."""
     cleaned = text.strip().rstrip(".!?")
 
+    # Handle "do X instead of Y": X is the positive target, Y is the excluded alternative
+    m_instead_of = re.match(r"^(?P<target>.+?)\s+instead\s+of\s+(?P<excluded>.+)$", cleaned, re.I)
+    if m_instead_of:
+        return m_instead_of.group("target").strip()
+
     corr_cues = (r"no\s*,?\s*wait|oh\s+wait|actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))?|make\s+that|scratch\s+that|rather|"
-                 r"\bno\b|i\s+mean|correction")
+                 r"\bno\b|i\s+mean|correction|instead\s+use")
 
     pattern = re.compile(
-        rf"^(?P<initial>.+?)(?:—|\.\.\.|,)\s*(?:{corr_cues})\s*,?\s*(?P<corr>.+)$",
+        rf"^(?P<initial>.+?)(?:—|\.\.\.|[,;!?])\s*(?:{corr_cues})\s*,?\s*(?P<corr>.+)$",
         re.I
     )
     m = pattern.match(cleaned)
@@ -157,6 +162,19 @@ def resolve_discourse_correction(text: str) -> str:
     clean_corr = re.sub(r"\s+please$", "", corr, flags=re.I).strip()
     clean_corr = re.sub(r"^(?:take|pick|use|open|make\s+(?:it|that))\s+(?=the\s+(?:%s)\b)" % _ORDINALS, "", clean_corr, flags=re.I)
 
+    # Check for exclusion + target structure: "not Chrome—use Edge", "not Chrome, use Edge", "not Chrome, Edge"
+    m_excl = re.match(
+        r"^(?:actually\s*,?\s*)?(?:not|instead\s+of)\s+[a-zA-Z0-9_\s\-]+?\s*(?:—|,\s*|\s*-\s*|\s+)(?:use|open|launch|make\s+it)?\s*(?P<target>[a-zA-Z0-9_\s\-]+)$",
+        clean_corr,
+        re.I
+    )
+    if m_excl:
+        target = m_excl.group("target").strip()
+        m_open_init = re.match(r"^(?:open|launch|start|bring\s+up|pull\s+up|get\s+(?:my\s+|the\s+)?\w+\s+up)\b", initial, re.I)
+        if m_open_init or "browser" in initial.lower():
+            return f"open {target}"
+        return target
+
     # "open the second file - sorry, the third" / "pick the first result, wait, take the last one": swap the ordinal
     new_ord = re.match(r"^(?:the\s+)?(%s)(?:\s+one)?$" % _ORDINALS, clean_corr, re.I)
     if new_ord and re.search(r"\b(?:%s)\b" % _ORDINALS, initial, re.I):
@@ -166,9 +184,12 @@ def resolve_discourse_correction(text: str) -> str:
     if verb_prefix:
         return clean_corr
 
-    m_open = re.match(r"^(?P<cmd>open|launch|start|bring\s+up|pull\s+up)\s+(.+)$", initial, re.I)
+    m_open = re.match(r"^(?P<cmd>open|launch|start|bring\s+up|pull\s+up|get\s+(?:my\s+|the\s+)?\w+\s+up)\s*(.+)?$", initial, re.I)
     if m_open:
-        return f"{m_open.group('cmd')} {clean_corr}"
+        cmd = "open" if "get " in m_open.group("cmd").lower() else m_open.group("cmd")
+        # Strip leading "use " or "make it " if user said "actually, use Edge" or "actually, make it Edge"
+        app_target = re.sub(r"^(?:use|take|make\s+it|make\s+that|open|launch)\s+", "", clean_corr, flags=re.I).strip()
+        return f"{cmd} {app_target}"
 
     m_vol = re.match(r"^(?P<cmd>set\s+volume\s+to|adjust\s+speaker\s+volume\s+to|volume\s+to)\s+\d+%?", initial, re.I)
     if m_vol:
@@ -188,6 +209,10 @@ def resolve_discourse_correction(text: str) -> str:
     if m_search:
         clean_search = re.sub(r"^(?:in\s+)?|(?:\s+instead)$", "", clean_corr, flags=re.I).strip()
         return f"{m_search.group('cmd')} {clean_search}{m_search.group('rest')}"
+
+    # If initial ends with a number and clean_corr is a number (e.g. "turn volume down to 30", "20" -> "turn volume down to 20")
+    if re.search(r"\b\d+%?$", initial.strip()) and re.match(r"^\d+%?$", clean_corr.strip()):
+        return re.sub(r"\b\d+%?$", clean_corr.strip(), initial.strip())
 
     if len(clean_corr.split()) >= 2:
         return clean_corr
@@ -571,12 +596,12 @@ def normalize_paraphrases(routing: str) -> str:
     """Everyday paraphrases -> the canonical phrasing the deterministic lane already understands."""
     r = routing
     # "open calculator but not notepad" / "run edge but definitely not chrome": the exclusion is not a second command
-    r = re.sub(r"^((?:open|launch|start|run)\s+.+?)\s*,?\s+but\s+(?:definitely\s+|absolutely\s+|please\s+)?not\s+.+$", r"\1", r)
+    r = re.sub(r"^(.+?)\s*(?:,?\s*but\s+(?:definitely\s+|absolutely\s+|please\s+)?not|,?\s*but\s+(?:don't|do\s+not)|,?\s*and\s+(?:don't|do\s+not)|,\s*not)\s+(?:to\s+)?.+$", r"\1", r)
     # "don't mute the sound , just turn it down to 20" -> the positive instruction
     r = re.sub(r"^(?:do\s+not|don't|dont)\s+mute\b.*?\b(?:just\s+)?(?:turn\s+it\s+down|lower\s+it|set\s+it)\s+to\s+(\d+)%?$",
                r"set volume to \1", r)
     # installed?  "is firefox on this computer", "check whether firefox is on this pc", "check if c h r o m e is there"
-    r = re.sub(r"^(?:check\s+(?:whether|if)\s+|is\s+)(%s)\s+(?:is\s+)?(?:on\s+(?:this|my)\s+(?:computer|pc|laptop|system)|there|available)$" % _APP_WORD,
+    r = re.sub(r"^(?:check\s+(?:whether|if)\s+|is\s+)(%s)\s+(?:is\s+)?(?:present(?:\s+on\s+(?:this|my|the)\s+(?:computer|pc|laptop|system|machine))?|on\s+(?:this|my|the)\s+(?:computer|pc|laptop|system|machine)|there|available)$" % _APP_WORD,
                r"is \1 installed", r)
     r = re.sub(r"^check\s+(?:whether|if)\s+(%s)\s+(?:is\s+)?installed$" % _APP_WORD, r"is \1 installed", r)
     # where is it installed
@@ -596,16 +621,28 @@ def normalize_paraphrases(routing: str) -> str:
     # hardware / system
     r = re.sub(r"^(?:check|show|what\s+are)\s+(?:my\s+|the\s+)?(?:processor|cpu|hardware|pc|computer)\s+(?:specs|specifications|details)$",
                "system info", r)
-    # "i need terminal", "need to browse the web", "need to do some math"
-    r = re.sub(r"^(?:i\s+)?need\s+to\s+(?:do\s+(?:some\s+)?)?(?:math|maths|calculations?|math\s+calculations)$", "open calculator", r)
-    r = re.sub(r"^(?:i\s+)?need\s+to\s+(?:browse|surf)\s+(?:the\s+)?(?:web|internet)$", "open chrome", r)
+    # "i need terminal", "need to browse the web", "need to do some math", "somewhere to type"
+    r = re.sub(r"^(?:(?:i\s+)?need|give\s+me|find\s+me|i\s+want)\s+to\s+(?:do\s+(?:some\s+)?)?(?:math|maths|calculations?|math\s+calculations)$", "open calculator", r)
+    r = re.sub(r"^(?:(?:i\s+)?need|give\s+me|find\s+me|i\s+want)\s+(?:something|a\s+tool)\s+to\s+(?:calculate|do\s+math|compute)(?:\s+this)?$", "open calculator", r)
+    r = re.sub(r"^(?:(?:i\s+)?need|give\s+me|find\s+me|i\s+want)\s+to\s+(?:browse|surf)\s+(?:the\s+)?(?:web|internet)$", "open chrome", r)
+    r = re.sub(r"^(?:(?:i\s+)?need|give\s+me|find\s+me|i\s+want)\s+(?:my\s+|the\s+)?browser$", "open chrome", r)
+    r = re.sub(r"^(?:(?:i\s+)?need|give\s+me|find\s+me|i\s+want)\s+(?:somewhere|a\s+place)\s+to\s+(?:type|write|jot\s+down)(?:\s+(?:a\s+)?(?:quick\s+)?(?:note|notes|memo|text))?$", "open notepad", r)
+    r = re.sub(r"^(?:(?:i\s+)?need|give\s+me|find\s+me|i\s+want)\s+somewhere\s+to\s+(?:take\s+notes?|write\s+things?\s+down)$", "open notepad", r)
+    # Window switching / return to previous application
+    r = re.sub(r"^(?:get|take|bring|switch|go|return)\s+(?:(?:me\s+)?back\s+to|to)\s+(?:whatever|the)\s+(?:app|window|program)\s+(?:i\s+was\s+using\s+)?(?:before|previously|earlier).*$", "switch to previous window", r)
+    r = re.sub(r"^(?:get|take|bring|switch|go|return)\s+(?:me\s+)?back\s+to\s+(?:the\s+)?(?:previous|last\s+active)\s+(?:app|window|program)$", "switch to previous window", r)
+    r = re.sub(r"^(?:return|go\s+back)\s+to\s+(?:the\s+)?(?:last\s+active|previous)\s+(?:window|app|program)$", "switch to previous window", r)
+    # Relative clause app descriptions: "pull up the calculator thing I normally use"
+    r = re.sub(r"^(?:pull\s+up|open|launch|start|bring\s+up)\s+(?:the\s+)?([a-zA-Z0-9_\s\-]+?)\s+(?:thing|tool|utility|app|program)\s+(?:(?:that|which)\s+)?(?:i\s+|we\s+)?(?:normally|usually|always)?\s*(?:use|open|have)?$", r"open \1", r)
     r = re.sub(r"^i\s+need\s+(?:the\s+|my\s+)?(%s)$" % _APP_WORD,
                lambda m: f"open {m.group(1)}" if m.group(1).split()[0] in COMMAND_VOCAB else m.group(0), r)
-    # "pull up file explorer", "display the chrome web browser", "open up paint application"
-    r = re.sub(r"^(?:pull\s+up|display|open\s+up|bring\s+up|load\s+up)\s+(?:the\s+)?(%s)(?:\s+(?:web\s+)?(?:browser|application|app|program))?$" % _APP_WORD,
-               lambda m: f"open {m.group(1)}" if m.group(1).split()[0] in COMMAND_VOCAB else m.group(0), r)
+    # "pull up file explorer", "display the chrome web browser", "open up paint application", "initialize excel software"
+    r = re.sub(r"^(?:pull\s+up|display|open\s+up|bring\s+up|load\s+up|fire\s+up|start\s+up|boot\s+up|initialize|initialise)\s+(?:the\s+)?(%s)(?:\s+(?:web\s+)?(?:browser|application|app|program|software))?$" % _APP_WORD,
+               lambda m: f"open {m.group(1)}", r)
     # "pick the first result, wait, take the last one" (after correction) -> an ordinal reference
     r = re.sub(r"^(?:pick|take|choose|select)\s+the\s+(first|second|third|fourth|fifth|last)\s+(?:result|one|item|file)$", r"open the \1 one", r)
+    # Deictic file reference: "i want to see that pdf", "show that document", "view that file"
+    r = re.sub(r"^(?:i\s+want\s+to\s+|can\s+i\s+|let\s+me\s+)?(?:see|view|look\s+at|show)\s+(that\s+(?:pdf|document|file))$", r"open \1", r)
     return " ".join(r.split())
 
 

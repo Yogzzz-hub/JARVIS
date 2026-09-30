@@ -1,4 +1,14 @@
 import re
+from datetime import datetime, time as dt_time
+from jarvis.core.capabilities.temporal import (
+    DatePoint,
+    DateRange,
+    DateTimePoint,
+    DateTimeRange,
+    TemporalResolver,
+    TimeRange,
+)
+from jarvis.core.capabilities.typed_slots import extract_size_constraint
 from jarvis.memory.search.models import SearchQuery
 from jarvis.memory.search.tokenizer import tokenize_filename
 
@@ -138,7 +148,53 @@ def parse_search_query(query_text: str) -> SearchQuery:
     # 1. Detect Context Reference (e.g. "open that file", "the second one")
     context_ref = bool(CONTEXT_PATTERNS.search(lowered))
 
-    # 2. Detect Directory / Location Hint (e.g. "in my downloads folder", "in desktop")
+    # 2. Extract Exclusion Constraints ("but not final report old", "except X", "excluding Y")
+    exclude_patterns: list[str] = []
+    m_ex = re.search(
+        r"\b(?:,\s*not\s+|,\s*but\s+not\s+|but\s+not\s+|except\s+|excluding\s+|without\s+)(?P<ex>[^,.;]+)",
+        lowered,
+    )
+    if m_ex:
+        ex_str = m_ex.group("ex").strip()
+        # Clean leading noise words like "the", "a", "an"
+        ex_clean = re.sub(r"^(?:the|a|an)\s+", "", ex_str)
+        exclude_patterns.append(ex_clean)
+        lowered = lowered[:m_ex.start()].strip()
+
+    # 3. Extract Size Constraints ("bigger than 20 MB but smaller than 200 MB")
+    size_min_bytes: int | None = None
+    size_max_bytes: int | None = None
+    size_c, query_without_size = extract_size_constraint(lowered)
+    if size_c:
+        size_min_bytes = size_c.min_bytes
+        size_max_bytes = size_c.max_bytes
+        lowered = query_without_size
+
+    # 4. Extract Temporal Constraints with TemporalResolver ("last Tuesday between 2 and 6 PM", "after Monday but before yesterday")
+    time_start_iso: str | None = None
+    time_end_iso: str | None = None
+    temp_resolver = TemporalResolver()
+    temp_c, query_without_temp = temp_resolver.resolve(lowered)
+    temporal_hint = None
+    if temp_c:
+        temporal_hint = temp_c.label
+        lowered = query_without_temp
+        if isinstance(temp_c, DatePoint):
+            time_start_iso = datetime.combine(temp_c.date, dt_time.min).isoformat()
+            time_end_iso = datetime.combine(temp_c.date, dt_time.max).isoformat()
+        elif isinstance(temp_c, DateRange):
+            time_start_iso = datetime.combine(temp_c.start_date, dt_time.min).isoformat()
+            time_end_iso = datetime.combine(temp_c.end_date, dt_time.max).isoformat()
+        elif isinstance(temp_c, DateTimePoint):
+            time_start_iso = temp_c.dt.isoformat()
+        elif isinstance(temp_c, DateTimeRange):
+            time_start_iso = temp_c.start_dt.isoformat()
+            time_end_iso = temp_c.end_dt.isoformat()
+        elif isinstance(temp_c, TimeRange):
+            time_start_iso = temp_c.start_time.isoformat()
+            time_end_iso = temp_c.end_time.isoformat()
+
+    # 5. Detect Directory / Location Hint (e.g. "in my downloads folder", "in desktop")
     directory_hint = None
     dir_match = DIRECTORY_PATTERN.search(lowered)
     query_without_dir = lowered
@@ -154,7 +210,7 @@ def parse_search_query(query_text: str) -> SearchQuery:
             directory_hint = matched_dir
         query_without_dir = DIRECTORY_PATTERN.sub(" ", lowered).strip()
 
-    # 3. Detect Content Search / Exact Phrase
+    # 6. Detect Content Search / Exact Phrase
     content_match = CONTENT_SEARCH_PATTERN.search(raw)
     quotes_match = QUOTES_PATTERN.search(raw)
     if content_match:
@@ -164,23 +220,29 @@ def parse_search_query(query_text: str) -> SearchQuery:
             raw_query=raw,
             text=phrase,
             type_hint=None,
-            temporal_hint=None,
+            temporal_hint=temporal_hint,
             latest=False,
             context_reference=False,
             semantic=True,
             tokens=tokens,
             directory_hint=directory_hint,
+            time_start_iso=time_start_iso,
+            time_end_iso=time_end_iso,
+            size_min_bytes=size_min_bytes,
+            size_max_bytes=size_max_bytes,
+            exclude_patterns=exclude_patterns,
         )
 
-    # 4. Detect Temporal Hints
-    temp_match = TEMPORAL_PATTERN.search(query_without_dir)
-    temporal_hint = temp_match.group(0) if temp_match else None
+    # 7. Fallback Temporal Hints if not already resolved
+    if not temporal_hint:
+        temp_match = TEMPORAL_PATTERN.search(query_without_dir)
+        temporal_hint = temp_match.group(0) if temp_match else None
     latest = any(w in query_without_dir for w in ("latest", "newest", "recent", "recently", "used recently", "opened recently"))
 
-    # 5. Detect Semantic Intent (Descriptive query vs direct filename)
+    # 8. Detect Semantic Intent (Descriptive query vs direct filename)
     semantic = bool(SEMANTIC_PATTERN.search(query_without_dir))
 
-    # 6. Detect Type Hint
+    # 9. Detect Type Hint
     type_hint = None
     ext_match = EXT_PATTERN.search(query_without_dir)
     if ext_match:
@@ -198,10 +260,10 @@ def parse_search_query(query_text: str) -> SearchQuery:
                     type_hint = ext
                     break
 
-    # 7. Extract and Clean Search Terms
+    # 10. Extract and Clean Search Terms
     cleaned = FILLER_WORDS.sub("", query_without_dir).strip()
     cleaned = CONTEXT_PATTERNS.sub("", cleaned).strip()
-    if temporal_hint:
+    if temporal_hint and not temp_c:
         cleaned = TEMPORAL_PATTERN.sub(" ", cleaned)
     if type_hint:
         cleaned = TYPE_WORDS_PATTERN.sub(" ", cleaned)
@@ -210,9 +272,18 @@ def parse_search_query(query_text: str) -> SearchQuery:
     cleaned = NOISE_PATTERN.sub(" ", cleaned)
     cleaned = " ".join(cleaned.split()).strip(".,;:?!_- ")
 
+    # Check for "called X" or "named X"
+    m_called = re.search(r"\b(?:called|named)\s+([a-zA-Z0-9_\-\s]+)", raw, re.I)
+    if m_called:
+        c_name = m_called.group(1).strip()
+        # strip exclude clauses from name
+        c_name = re.split(r"\b(?:,\s*but\s+not\s+|,\s*not\s+|but\s+not\s+|except|without)\b", c_name, flags=re.I)[0].strip()
+        if c_name:
+            cleaned = c_name
+
     # Fallback to raw only if no hints were extracted
     if not cleaned:
-        if type_hint or temporal_hint or context_ref or directory_hint:
+        if type_hint or temporal_hint or context_ref or directory_hint or size_min_bytes is not None or size_max_bytes is not None:
             final_text = ""
         else:
             final_text = raw
@@ -232,4 +303,9 @@ def parse_search_query(query_text: str) -> SearchQuery:
         semantic=semantic,
         tokens=tokens,
         directory_hint=directory_hint,
+        time_start_iso=time_start_iso,
+        time_end_iso=time_end_iso,
+        size_min_bytes=size_min_bytes,
+        size_max_bytes=size_max_bytes,
+        exclude_patterns=exclude_patterns,
     )

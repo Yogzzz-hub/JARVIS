@@ -10,6 +10,7 @@ class LaunchTarget:
     path: str
     process_names: tuple[str, ...]
     associated: bool = False
+    canonical_name: str = ""
 
 ALIASES = {
     "chrome": ("chrome.exe", ("chrome.exe",)),
@@ -96,6 +97,64 @@ SYNONYMS = {
 
 def normalize(name):
     return " ".join(name.casefold().split())
+
+
+CANONICAL_NAMES = {
+    "chrome": "Chrome",
+    "google chrome": "Google Chrome",
+    "edge": "Microsoft Edge",
+    "msedge": "Microsoft Edge",
+    "microsoft edge": "Microsoft Edge",
+    "notepad": "Notepad",
+    "calculator": "Calculator",
+    "calc": "Calculator",
+    "vscode": "Visual Studio Code",
+    "vs code": "Visual Studio Code",
+    "visual studio code": "Visual Studio Code",
+    "explorer": "File Explorer",
+    "file explorer": "File Explorer",
+    "terminal": "Windows Terminal",
+    "cmd": "Command Prompt",
+    "powershell": "PowerShell",
+    "brave": "Brave",
+    "firefox": "Mozilla Firefox",
+    "outlook": "Microsoft Outlook",
+    "onenote": "Microsoft OneNote",
+    "vlc": "VLC Media Player",
+    "discord": "Discord",
+    "zoom": "Zoom",
+    "telegram": "Telegram",
+    "opera": "Opera",
+    "paint": "Paint",
+    "mspaint": "Paint",
+    "snippingtool": "Snipping Tool",
+    "snipping tool": "Snipping Tool",
+    "word": "Microsoft Word",
+    "excel": "Microsoft Excel",
+    "powerpoint": "Microsoft PowerPoint",
+    "settings": "Settings",
+    "defaultapps": "Default Apps",
+    "whatsapp": "WhatsApp",
+    "spotify": "Spotify",
+    "youtube": "YouTube",
+    "netflix": "Netflix",
+}
+
+
+def get_canonical_name(name_or_key: str, path: str = "") -> str:
+    key = normalize(name_or_key)
+    if key in CANONICAL_NAMES:
+        return CANONICAL_NAMES[key]
+    if key in SYNONYMS and SYNONYMS[key] in CANONICAL_NAMES:
+        return CANONICAL_NAMES[SYNONYMS[key]]
+    if path and path.endswith(".lnk"):
+        return Path(path).stem
+    if path and path.endswith(".exe"):
+        stem = Path(path).stem.casefold()
+        if stem in CANONICAL_NAMES:
+            return CANONICAL_NAMES[stem]
+        return Path(path).stem.capitalize()
+    return name_or_key.strip().title()
 
 
 def trusted_executable(raw_path):

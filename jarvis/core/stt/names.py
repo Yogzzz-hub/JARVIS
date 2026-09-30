@@ -24,22 +24,46 @@ def _is_english(word: str) -> bool:
         return False
 
 
+def _is_valid_spoken_name(name: str) -> bool:
+    if not name:
+        return False
+    s = name.strip()
+    if len(s) < 2 or len(s) > 35:
+        return False
+    if s[0].isdigit():
+        return False
+    digits = sum(c.isdigit() for c in s)
+    if digits > 2:
+        return False
+    return any(c.isalpha() for c in s)
+
+
 class NameVocabulary:
     def __init__(self, names: Iterable[str] = ()):
         seen: dict[str, str] = {}
         for n in list(JARVIS_WORDS) + list(names):
-            n = " ".join(str(n or "").split())
-            if 3 <= len(n) <= 40 and not n.isdigit():
-                seen.setdefault(n.lower(), n)
+            raw = str(n or "").strip()
+            # Strip emojis, symbols, and variation selectors
+            cleaned = re.sub(r"[\U00010000-\U0010ffff\u2600-\u26ff\u2700-\u27bf\ufe00-\ufe0f]", "", raw)
+            cleaned = " ".join(cleaned.split())
+            if _is_valid_spoken_name(cleaned):
+                seen.setdefault(cleaned.lower(), cleaned)
         self.names = list(seen.values())
         self._by_lower = seen
         self._single = [k for k in seen if " " not in k]
         self._double = [k for k in seen if k.count(" ") == 1]
 
-    def hotwords(self, limit: int = 40) -> str:
-        """Most useful names first (multi-word and unusual names benefit most), kept short for speed."""
+    def hotwords(self, limit: int = 15) -> str:
+        """Most useful names first (multi-word and unusual names benefit most), kept bounded to prevent Whisper context overflow."""
         ranked = sorted(self.names, key=lambda n: (_is_english(n), -len(n.split()), n.lower()))
-        return " ".join(ranked[:limit])
+        selected: list[str] = []
+        char_count = 0
+        for name in ranked[:limit]:
+            if char_count + len(name) > 120:
+                break
+            selected.append(name)
+            char_count += len(name) + 1
+        return " ".join(selected)
 
     def _match(self, span: str, pool: list[str]) -> str | None:
         low = span.lower()

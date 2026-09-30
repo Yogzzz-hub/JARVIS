@@ -389,7 +389,7 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
          or re.fullmatch(r"what\s+(?:is|'s)\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:saying|asking|telling me)", t)
          or re.fullmatch(r"what\s+(?P<who>[a-z][a-z .'-]{0,30}?)\s+(?:said|sent|texted|wrote|asked|messaged)(?:\s+(?:me|to me))?"
                          r"(?:\s+(?:today|now|recently|on whatsapp|in whatsapp))?", t)
-         or re.fullmatch(rf"(?:read\s+|show\s+|check\s+|any\s+|are\s+there\s+any\s+)?(?:the\s+|my\s+)?(?:latest\s+|last\s+|new\s+|unread\s+)?(?:whatsapp\s+)?{_MSG_WORDS}\s+from\s+"
+         or re.fullmatch(rf"(?:read\s+|show(?:\s+me)?\s+|get(?:\s+me)?\s+|check\s+|any\s+|are\s+there\s+any\s+)?(?:the\s+|my\s+)?(?:latest\s+|last\s+|new\s+|unread\s+)?(?:whatsapp\s+)?{_MSG_WORDS}\s+from\s+"
                          r"(?P<who>[a-z0-9][a-z0-9 .'+-]{0,30}?)(?:\s+(?:on|in)\s+whats\s*app)?", t))
     if m:
         who = m.group("who").strip()

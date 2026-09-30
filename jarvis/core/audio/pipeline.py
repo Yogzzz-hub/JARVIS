@@ -207,6 +207,7 @@ class VoicePipeline:
                     self.last_error = str(exc)
                     logger.exception("Voice session failed")
                     self._emit("voice.error", error=str(exc))
+                    self._emit("voice.idle", reason=f"error: {exc}")
                 finally:
                     self._session = None
                     self.wake_engine.reset()
@@ -570,11 +571,19 @@ class VoicePipeline:
                 session.speculative_used = True
             except (asyncio.CancelledError, Exception) as exc:
                 logger.debug("Speculative final pass failed (%s); running the normal one", exc)
-                final = await self.stt.finalize()
+                try:
+                    final = await self.stt.finalize()
+                except Exception as exc2:
+                    logger.warning("Normal STT finalize failed (%s)", exc2)
+                    final = None
         elif self.stt and self.stt.is_loaded and (session.speech_start_ns or session.audio_frames > 15):
             if spec_task is not None:
                 spec_task.cancel()
-            final = await self.stt.finalize()
+            try:
+                final = await self.stt.finalize()
+            except Exception as exc:
+                logger.warning("Normal STT finalize failed (%s)", exc)
+                final = None
 
         if final and final.text:
             session.final_text = final.text

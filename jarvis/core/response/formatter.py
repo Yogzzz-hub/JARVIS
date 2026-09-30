@@ -165,7 +165,7 @@ class ResponseFormatter:
         """Deterministic templating for standard tool execution."""
         match tool_name:
             case "open_app":
-                app_name = data.get("name", "The application")
+                app_name = data.get("canonical_name") or data.get("name", "The application")
                 norm_app = app_name.lower().strip()
                 if norm_app in ("default apps", "defaultapps", "default applications", "default app"):
                     return "Default apps settings is open."
@@ -175,7 +175,9 @@ class ResponseFormatter:
                     return "Downloads folder is open."
                 if norm_app in ("documents", "my documents", "documents folder"):
                     return "Documents folder is open."
-                return f"{app_name.capitalize()} is open."
+                from jarvis.tools.system.app_resolver import CANONICAL_NAMES
+                display_name = CANONICAL_NAMES.get(norm_app) or (app_name if any(c.isupper() for c in app_name[1:]) else app_name.capitalize())
+                return f"{display_name} is open."
 
             case "close_app":
                 app_name = data.get("name", "The application")

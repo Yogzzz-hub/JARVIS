@@ -1,3 +1,4 @@
+from datetime import datetime
 import time
 from jarvis.memory.search.models import MatchReason, SearchQuery, SearchResult
 
@@ -56,7 +57,50 @@ def rerank_search_results(
         mod_ns = cand.get("modified_ns") or 0
         last_opened = cand.get("last_opened_ns")
         open_count = cand.get("open_count") or 0
+        cand_path = (cand.get("path") or "").casefold()
+        cand_size = cand.get("size_bytes", 0) or 0
         reasons: list[str] = []
+
+        # A. Exclusion constraints check
+        if query.exclude_patterns:
+            excluded = False
+            for ex in query.exclude_patterns:
+                ex_clean = ex.strip().casefold()
+                if ex_clean and (ex_clean in name_norm or ex_clean in stem or ex_clean in cand_path):
+                    excluded = True
+                    break
+            if excluded:
+                continue
+
+        # B. Size bounds check
+        if query.size_min_bytes is not None and cand_size <= query.size_min_bytes:
+            continue
+        if query.size_max_bytes is not None and cand_size >= query.size_max_bytes:
+            continue
+
+        # C. Strict temporal range check
+        cand_mod_s = mod_ns / 1e9
+        if query.time_start_iso:
+            try:
+                t_start = datetime.fromisoformat(query.time_start_iso).timestamp()
+                if cand_mod_s < t_start:
+                    continue
+            except Exception:
+                pass
+        if query.time_end_iso:
+            try:
+                t_end = datetime.fromisoformat(query.time_end_iso).timestamp()
+                if cand_mod_s > t_end:
+                    continue
+            except Exception:
+                pass
+
+        # D. Type match & filtering
+        if query.type_hint:
+            clean_type = query.type_hint.casefold()
+            is_type_match = ext == clean_type or (clean_type == "[directory]" and cand.get("is_directory"))
+            if not is_type_match and not clean_query:
+                continue
 
         # 1. Base Lexical RRF score
         score = calculate_rrf_score(rank)
@@ -69,10 +113,10 @@ def rerank_search_results(
             reasons.append(MatchReason.SEMANTIC_MATCH.value)
 
         # 3. Exact name / stem match bonus (capped at +0.35)
-        if clean_query == name_norm or clean_query == stem:
+        if clean_query and (clean_query == name_norm or clean_query == stem):
             score += 0.35
             reasons.append(MatchReason.EXACT_NAME.value)
-        elif name_norm.startswith(clean_query) or stem.startswith(clean_query):
+        elif clean_query and (name_norm.startswith(clean_query) or stem.startswith(clean_query)):
             score += 0.20
             reasons.append(MatchReason.NAME_PREFIX.value)
 

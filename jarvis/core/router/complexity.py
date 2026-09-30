@@ -23,8 +23,6 @@ COMPLEX_PATTERNS = (
     re.compile(r"\b(?:automate|browser automation|click on|navigate to|dom screen)\b", re.I),
     re.compile(r"\bbased\s+on\b", re.I),
     re.compile(r"\bcompare\s+.+\s+and\b", re.I),
-    re.compile(r"\b(?:but\s+(?:don't|do\s+not|never)|without\s+(?:opening|modifying|deleting|sending))\b", re.I),
-    re.compile(r"\b(?:in\s+read-only\s+mode|read-only|as\s+(?:a\s+)?draft\s+only|draft\s+only\s+without\s+sending)\b", re.I),
     re.compile(r"\b(?:together\s+side\s+by\s+side|and\s+.+\s+side\s+by\s+side)\b", re.I),
     re.compile(r"\b(?:take\s+screenshot\s+and\s+(?:send|transfer|open))\b", re.I),
     re.compile(r"\b(?:after\s+finding\s+it|before\s+opening\s+it)\b", re.I),
@@ -45,7 +43,14 @@ def _match_clause_to_subcommand(clause: str) -> SubCommand | None:
     if not c:
         return None
 
-    # 1. open_app: open / start / launch
+    # 1. open_app: open / start / launch (with optional spatial layout)
+    m_open_spatial = re.match(r"^(?:open|start|launch|bring up)?\s*(?:the\s+)?(?P<app>[a-zA-Z0-9_\-\.]+)\s+on\s+the\s+(?P<pos>left|right|top|bottom)\b", c, re.I)
+    if m_open_spatial:
+        app_name = parse_app_name(m_open_spatial.group("app").strip())
+        pos = m_open_spatial.group("pos").lower()
+        if app_name:
+            return SubCommand(intent="open_app", tool="open_app", arguments={"name": app_name, "position": pos})
+
     m_open = re.match(r"^(?:open|start|launch|bring up)\s+(?:the\s+)?([a-zA-Z0-9_\s\.\-]+)$", c, re.I)
     if m_open:
         app_name = parse_app_name(m_open.group(1).strip())
@@ -203,18 +208,33 @@ def check_deterministic_compound(
         app_names = [a.strip() for a in app_names if a.strip()]
         if len(app_names) >= 2 and not any(action_verb_prefix.match(a) for a in app_names[1:]):
             subcommands = []
-            for name in app_names:
-                is_known = getattr(catalog, "is_known_app", lambda n: True)(name)
-                if is_known:
-                    subcommands.append(SubCommand(intent="open_app", tool="open_app", arguments={"name": name}))
+            layout = {}
+            for raw_name in app_names:
+                m_pos = re.match(r"^(?P<app>.+?)\s+on\s+the\s+(?P<pos>left|right|top|bottom)\b", raw_name, re.I)
+                if m_pos:
+                    app_name = parse_app_name(m_pos.group("app").strip()) or m_pos.group("app").strip()
+                    pos_val = m_pos.group("pos").upper()
+                    is_known = getattr(catalog, "is_known_app", lambda n: True)(app_name)
+                    if is_known:
+                        subcommands.append(SubCommand(intent="open_app", tool="open_app", arguments={"name": app_name, "position": pos_val.lower()}))
+                        layout[app_name] = pos_val
+                    else:
+                        break
                 else:
-                    break
+                    is_known = getattr(catalog, "is_known_app", lambda n: True)(raw_name)
+                    if is_known:
+                        subcommands.append(SubCommand(intent="open_app", tool="open_app", arguments={"name": raw_name}))
+                    else:
+                        break
             if len(subcommands) == len(app_names) and len(subcommands) <= 5:
+                res_slots = {"apps": [sub.arguments["name"] for sub in subcommands]}
+                if layout:
+                    res_slots["layout"] = layout
                 return RouteDecision(
                     request_id=request_id,
                     lane=RouteLane.LANE_0,
                     intent="open_app",
-                    slots={"apps": [sub.arguments["name"] for sub in subcommands]},
+                    slots=res_slots,
                     confidence=1.0,
                     source=RouteSource.EXACT,
                     complexity=ComplexityLevel.COMPOUND,
@@ -317,21 +337,5 @@ def check_complexity_gate(
                 constraints=constraints_list,
                 candidate_count=0,
             )
-
-    if constraints_list:
-        return RouteDecision(
-            request_id=request_id,
-            lane=RouteLane.LANE_2,
-            intent=None,
-            slots={},
-            confidence=0.95,
-            source=RouteSource.COMPLEXITY_GATE,
-            complexity=ComplexityLevel.COMPLEX,
-            needs_planner=True,
-            normalized_text=routing_text,
-            reason_code=ReasonCode.MULTI_STEP,
-            constraints=constraints_list,
-            candidate_count=0,
-        )
 
     return None
