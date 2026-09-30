@@ -275,6 +275,10 @@ class CommandService:
         try:
             decision = await self.router.route(request)
             self._last_decisions[task.request_id] = decision
+            try:
+                task.intent = decision.intent or ""
+            except Exception:
+                pass
             self._jde_observe(request, decision)
             if decision.lane not in (RouteLane.CONTROL, RouteLane.REJECT, RouteLane.CLARIFY) \
                     and decision.intent not in ("command_history",):
@@ -434,9 +438,8 @@ class CommandService:
                     elif hasattr(self.response.audio_output, "cancel_current"):
                         self.response.audio_output.cancel_current()
 
-                cancelled = sum(self.tasks.cancel(other.request_id)
-                                for other in tuple(self.tasks.tasks.values())
-                                if other is not task and other.result is None)
+                cancelled = 0 if decision.intent == "stop_speaking" else sum(
+                    self.tasks.cancel(other.request_id) for other in self.tasks.active_tasks(exclude=task, background=False))
                 self.tasks.transition(task, State.EXECUTING)
                 self.tasks.transition(task, State.VERIFYING)
                 state = State.SUCCESS
@@ -551,6 +554,11 @@ class CommandService:
                     verification = VerificationResult(verified=False, confidence=0.0, evidence={"error": message})
                     return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
 
+                stray = self._unanchored_risky([n.tool for n in graph.nodes], request.text)
+                if stray:
+                    return self._finalize(task, State.FAILED, self._stray_message(stray), ToolResult(
+                        success=False, data={"blocked_tools": stray}, error="unrelated risky step", tool_name="planner"),
+                        None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
                 consequential = self._plan_consequential_steps(graph, ai_generated=planning_res.source not in ("cache", "decomposer", "capability_retriever"))
                 if consequential and not graph.missing_capabilities and not graph.blocking_questions:
                     from jarvis.security.confirmation.manager import generate_graph_summary
@@ -652,22 +660,41 @@ class CommandService:
             # Standard LANE 0 / LANE 1 Tool Execution
             name = decision.intent
             raw_arguments = decision.slots
+            from jarvis.core.commands import introspection as own
             if name in ("stop_speaking", "stop_task", "cancel_task"):
-                if hasattr(self.response, "stop_speaking"):
-                    self.response.stop_speaking()
-                elif hasattr(self.response, "audio_output") and self.response.audio_output:
-                    if hasattr(self.response.audio_output, "cancel_all"):
-                        self.response.audio_output.cancel_all()
-                    elif hasattr(self.response.audio_output, "cancel_current"):
-                        self.response.audio_output.cancel_current()
-                cancelled = sum(self.tasks.cancel(other.request_id)
-                                for other in tuple(self.tasks.tasks.values())
-                                if other is not task and other.result is None)
+                scope = str((raw_arguments or {}).get("scope") or "foreground")
+                if scope != "background":  # the answer being spoken belongs to the foreground task
+                    if hasattr(self.response, "stop_speaking"):
+                        self.response.stop_speaking()
+                    elif hasattr(self.response, "audio_output") and self.response.audio_output:
+                        if hasattr(self.response.audio_output, "cancel_all"):
+                            self.response.audio_output.cancel_all()
+                        elif hasattr(self.response.audio_output, "cancel_current"):
+                            self.response.audio_output.cancel_current()
                 self.tasks.transition(task, State.EXECUTING)
+                if name == "stop_speaking":
+                    msg, data = "Speech stopped.", {"control": name}
+                else:
+                    msg, data = own.cancel(self.tasks, task, scope)
                 self.tasks.transition(task, State.VERIFYING)
-                msg = "Speech stopped." if name == "stop_speaking" else ("Cancellation requested for active tasks." if cancelled else "No active tasks to cancel.")
-                tool_res = ToolResult(success=True, data={"control": name, "cancelled_tasks": cancelled}, tool_name="control")
+                tool_res = ToolResult(success=True, data={"control": name, **data}, tool_name="control")
                 ver = VerificationResult(verified=True, confidence=1.0, evidence={"control": True})
+                return self._finalize(task, State.SUCCESS, msg, tool_res, ver, clock, current, is_voice=is_voice)
+            if name in ("jarvis_availability", "resource_usage", "task_status", "previous_outcome"):
+                # Runtime facts only: no model, no planner, no web. Read-only, nothing is started or stopped.
+                self.tasks.transition(task, State.EXECUTING)
+                if name == "resource_usage":
+                    msg, data = await asyncio.to_thread(own.resource_usage)
+                elif name == "jarvis_availability":
+                    from jarvis.diagnostics import collect
+                    msg, data = own.availability(await asyncio.to_thread(collect))
+                elif name == "task_status":
+                    msg, data = own.task_status(self.tasks, task, stuck_only=bool((raw_arguments or {}).get("stuck")))
+                else:
+                    msg, data = own.previous_outcome(self.tasks, task)
+                self.tasks.transition(task, State.VERIFYING)
+                tool_res = ToolResult(success=True, data={"introspection": name, **data}, tool_name=name)
+                ver = VerificationResult(verified=True, confidence=1.0, evidence={"runtime_state": True})
                 return self._finalize(task, State.SUCCESS, msg, tool_res, ver, clock, current, is_voice=is_voice)
 
             name, raw_arguments = self._translate_intent(name, raw_arguments)
@@ -688,6 +715,11 @@ class CommandService:
                     name = name.lower()
                 else:
                     raise ValueError(f"Capability is not available in this deployment: {name or 'unknown'}")
+            if str(getattr(decision.source, "value", decision.source)) in ("TINY_MODEL", "FUZZY", "COMPLEXITY_GATE") \
+                    and self._unanchored_risky([name], request.text):
+                return self._finalize(task, State.FAILED, self._stray_message([name]), ToolResult(
+                    success=False, data={"blocked_tools": [name]}, error="unrelated risky tool", tool_name="router"),
+                    None, clock, current, is_voice=is_voice)
             tool = self.registry.get(name)
             tool_name = tool.definition.name
             if tool_name == "ollama_chat":
@@ -818,6 +850,8 @@ class CommandService:
             pass
 
     def _finalize(self, task, state, message, tool_result, verification, clock, current, is_voice: bool = False, predicted_ms: float = 400.0):
+        if task.result is not None:  # one command_id -> exactly one final response (UI and speech read the same one)
+            return task.result
         try:
             from jarvis.core.multilingual import REPLY_LANGUAGE, THANGLISH, in_thanglish
             if REPLY_LANGUAGE.get() == THANGLISH:
@@ -1108,6 +1142,42 @@ class CommandService:
             args["message"] = composed[:4096]
         return args
 
+    _ANCHOR_SKIP = frozenset({"app", "apps", "file", "files", "system", "pc", "data", "info", "tool", "action", "quick", "get", "set",
+                              "run", "the", "a", "to", "my", "and", "or", "of", "for", "with", "task", "tasks", "job", "manager",
+                              "status", "native", "cli", "ui", "windows", "item", "items", "all", "new"})
+
+    @staticmethod
+    def _stem(w: str) -> str:
+        for suf in ("ing", "ed", "es", "s"):
+            if len(w) > 4 and w.endswith(suf):
+                return w[: -len(suf)]
+        return w
+
+    def _unanchored_risky(self, tools, text: str) -> list:
+        """Risky tools (install / delete / external effects) that the request never mentions. A model may pick a
+        tool, but an install, a deletion or a send must be something the owner actually asked for."""
+        from jarvis.tools.base import RiskLevel
+        said = {self._stem(w) for w in re.findall(r"[a-z]+", (text or "").lower())}
+        out = []
+        for name in tools:
+            if not self.registry.contains(name):
+                continue
+            d = self.registry.get(name).definition
+            risky = d.risk in (RiskLevel.DESTRUCTIVE, RiskLevel.PRIVILEGED, RiskLevel.EXTERNAL_EFFECT) \
+                or any(t in ("install", "uninstall", "package", "winget", "delete") for t in (d.tags or ()))
+            if not risky:
+                continue
+            words = {self._stem(w) for w in re.findall(r"[a-z]+", " ".join([name.replace("_", " "), *(d.tags or ())]).lower())}
+            if not (words - self._ANCHOR_SKIP) & said:
+                out.append(name)
+        return out
+
+    @staticmethod
+    def _stray_message(tools) -> str:
+        from jarvis.core.commands.introspection import tool_words
+        return ("I'm not sure what you want me to do, so I haven't done anything. That request doesn't mention "
+                + ", ".join(tool_words(t) for t in tools) + " - please say it another way.")
+
     def _plan_consequential_steps(self, graph, ai_generated: bool = True) -> list:
         from jarvis.core.llm.tool_catalog import AI_CONFIRM_TOOLS
         from jarvis.tools.base import RiskLevel
@@ -1130,7 +1200,16 @@ class CommandService:
             self.scheduler = DAGScheduler(registry=self.registry, executor=self.executor)
         self._to_executing(task)
         clock.tool_started_ns = now_ns()
-        graph_result = await self.scheduler.execute(graph, approved=approved)
+        task.steps_total = len(graph.nodes)
+        task.steps = {}
+
+        def on_step(node, result):
+            task.steps[node.id] = {"label": node.description or node.tool, "tool": node.tool,
+                                   "state": str(getattr(result.state, "value", result.state)).upper(), "error": result.error}
+        import inspect
+        accepts = "on_step" in inspect.signature(self.scheduler.execute).parameters
+        graph_result = await (self.scheduler.execute(graph, approved=approved, on_step=on_step) if accepts
+                              else self.scheduler.execute(graph, approved=approved))
         clock.tool_returned_ns = now_ns()
         if self.pulse:
             self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "dag_scheduler")
@@ -1174,8 +1253,12 @@ class CommandService:
             try:
                 line = ResponseFormatter.format_verified_tool(nr.tool, nr.output)
             except Exception:
-                continue
-            if line and line not in summaries and not line.startswith("Task completed"):
+                line = ""
+            if not line or line.startswith("Task completed"):
+                # a read-only result without a template still carries its answer: never reduce it to a step count
+                line = next((str(nr.output[k]) for k in ("spoken_summary", "summary", "message", "answer", "result", "text")
+                             if isinstance(nr.output.get(k), (str, int, float)) and str(nr.output.get(k)).strip()), "")
+            if line and line not in summaries:
                 summaries.append(line)
         return " ".join(summaries[-3:]) if summaries else base
 

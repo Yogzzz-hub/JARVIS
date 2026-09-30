@@ -117,6 +117,13 @@ class SmartRouter:
         """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
         if isinstance(request, str):
             request = CommandRequest(text=request)
+        # Questions about JARVIS itself and control of its own tasks: runtime state only - before retrieval, the
+        # planner or any model, so they can never reach an unrelated (e.g. install / delete) capability.
+        from jarvis.core.router.introspection import match_introspection
+        own = match_introspection(request.text or "", request.request_id)
+        if own is not None:
+            self._record(own)
+            return own
         try:  # Thanglish word order -> the English command ("chrome open pannu" -> "open chrome")
             from jarvis.core.multilingual import to_english_command
             from jarvis.core.router.normalize import correct_command_typos

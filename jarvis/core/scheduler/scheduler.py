@@ -57,6 +57,7 @@ class DAGScheduler:
         graph: TaskGraph,
         tickets: Optional[dict[str, str]] = None,
         approved: bool = False,
+        on_step: Optional[Any] = None,
     ) -> GraphResult:
         """Executes a validated TaskGraph and returns a structured GraphResult.
 
@@ -174,6 +175,11 @@ class DAGScheduler:
                     )
 
                 node_results[nid] = result
+                if on_step is not None:  # real progress for "how far has it got"
+                    try:
+                        on_step(node_map[nid], result)
+                    except Exception:
+                        pass
 
                 # First action metric
                 if first_action_ms == 0.0 and result.start_time > 0:

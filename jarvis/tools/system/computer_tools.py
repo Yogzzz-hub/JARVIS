@@ -498,11 +498,13 @@ class SystemDiagnosticsTool(Tool):
             passed = sum(1 for c in checks if c.get("status") in ("PASS", "OK"))
             failed = sum(1 for c in checks if c.get("status") == "FAIL")
             total = len(checks)
-            summary = f"System diagnostics completed: {passed}/{total} checks passed."
+            warned = total - passed - failed
             if failed > 0:
-                summary += f" ({failed} failed)"
+                bad = ", ".join(str(c.get("name")) for c in checks if c.get("status") == "FAIL")[:160]
+                summary = f"JARVIS has {failed} failing check{'s' if failed != 1 else ''} ({bad}). {passed}/{total} checks passed."
             else:
-                summary += " All critical core services and models are healthy."
+                summary = f"JARVIS is healthy. {passed}/{total} checks passed" + (
+                    f", {warned} warning{'s' if warned != 1 else ''} on optional parts, nothing failed." if warned else ".")
             return {
                 "status": "SUCCESS",
                 "total_checks": total,
