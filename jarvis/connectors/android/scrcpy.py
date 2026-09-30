@@ -527,10 +527,11 @@ class AndroidScrcpyConnector(BaseConnector):
 
             if not pkg or not all(c.isalnum() or c in "._" for c in pkg):
                 raise ValueError(f"Invalid Android package name: {pkg}")
+            self._run_adb(["shell", "input", "keyevent", "224"])
             code, _, err = self._run_adb(["shell", "monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"])
             if code != 0:
                 raise RuntimeError(f"Failed to launch app '{pkg}' on Android: {err}")
-            return {"status": "SUCCESS", "message": f"App '{app_raw}' ({pkg}) opened on phone."}
+            return {"status": "SUCCESS", "success": True, "message": f"App '{app_raw}' ({pkg}) opened on phone."}
 
         if action == "capture_state":
             out_path = Path(arguments.get("destination", "screenshots/android_state.png")).resolve()

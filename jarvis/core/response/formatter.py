@@ -439,6 +439,10 @@ class ResponseFormatter:
             case "android_status":
                 return data.get("message") or "Phone status check completed."
 
+            case "android_open_app":
+                app = data.get("app_name") or data.get("app") or ""
+                return data.get("message") or f"{app.title() if app else 'App'} is open on your phone."
+
             case "desktop_ui_snapshot" | "describe_screen":
                 return data.get("message") or f"The active window is {data.get('window_title', 'unknown')}."
 

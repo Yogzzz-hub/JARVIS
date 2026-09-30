@@ -790,7 +790,11 @@ class CommandService:
             tool_result = ToolResult(success=False, error=raw_err, tool_name=name)
         except Exception:
             logging.getLogger("jarvis.commands").exception("unexpected core failure", extra={"request_id": task.request_id})
-            self.tasks.transition(task, State.FAILED)
+            try:
+                if task.state != State.FAILED:
+                    self.tasks.transition(task, State.FAILED)
+            except Exception:
+                pass
             self.active.discard(current)
             raise
         return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=locals().get("predicted_ms", 400.0))
@@ -919,54 +923,68 @@ class CommandService:
 
             # Non-invasive manual acceptance test diagnostic trace
             if os.environ.get("JARVIS_TEST_MODE") == "manual":
-                dec = self._last_decisions.pop(task.request_id, None)
-                norm_text = getattr(dec, "normalized_text", getattr(task, "raw_text", "")) if dec else getattr(task, "raw_text", "")
-                lane_str = getattr(dec.lane, "value", str(dec.lane)) if (dec and hasattr(dec, "lane")) else "UNKNOWN"
-                conf = getattr(dec, "confidence", 1.0) if dec else 1.0
-                slots = getattr(dec, "slots", {}) if dec else {}
-                model_used = getattr(dec, "model_used", None) or "NONE"
-                plan_used = "DAG_PLAN" if (dec and getattr(dec, "needs_planner", False)) else "DIRECT"
-                t_name = tool_result.tool_name if tool_result else (dec.intent if dec else "NONE")
-                risk_class = getattr(dec, "risk", "REVERSIBLE") if dec else "REVERSIBLE"
-                policy_res = "ALLOWED" if state in (State.SUCCESS, State.WAITING_CONFIRMATION) else "DENIED_OR_FAILED"
-                ver_res = verification.status if verification else ("VERIFIED" if state == State.SUCCESS else "NONE")
-                dur = result.metrics.get("total_ms", 0.0)
+                try:
+                    dec = self._last_decisions.pop(task.request_id, None)
+                    norm_text = getattr(dec, "normalized_text", getattr(task, "raw_text", "")) if dec else getattr(task, "raw_text", "")
+                    lane_str = getattr(dec.lane, "value", str(dec.lane)) if (dec and hasattr(dec, "lane")) else "UNKNOWN"
+                    conf = getattr(dec, "confidence", 1.0) if dec else 1.0
+                    slots = getattr(dec, "slots", {}) if dec else {}
+                    model_used = getattr(dec, "model_used", None) or "NONE"
+                    plan_used = "DAG_PLAN" if (dec and getattr(dec, "needs_planner", False)) else "DIRECT"
+                    t_name = tool_result.tool_name if tool_result else (dec.intent if dec else "NONE")
+                    risk_class = getattr(dec, "risk", "REVERSIBLE") if dec else "REVERSIBLE"
+                    policy_res = "ALLOWED" if state in (State.SUCCESS, State.WAITING_CONFIRMATION) else "DENIED_OR_FAILED"
+                    ver_res = verification.status if verification else ("VERIFIED" if state == State.SUCCESS else "NONE")
+                    dur = result.metrics.get("total_ms", 0.0)
 
-                ctx_trace = getattr(dec, "context_trace", None) or {}
-                followup_type = ctx_trace.get("followup_type", "NONE")
-                active_topic_val = ctx_trace.get("active_topic") or (self.working_memory.active_topic.canonical_name if (self.working_memory and getattr(self.working_memory, "active_topic", None)) else "NONE")
-                candidates_str = ctx_trace.get("candidates", "NONE")
-                slot_type = ctx_trace.get("expected_slot_type", "NONE")
-                resolved_ent = ctx_trace.get("resolved") or (slots.get("name") or slots.get("path") or "NONE")
+                    ctx_trace = getattr(dec, "context_trace", None) or {}
+                    followup_type = ctx_trace.get("followup_type", "NONE")
+                    active_topic_val = ctx_trace.get("active_topic") or (self.working_memory.active_topic.canonical_name if (self.working_memory and getattr(self.working_memory, "active_topic", None)) else "NONE")
+                    candidates_str = ctx_trace.get("candidates", "NONE")
+                    slot_type = ctx_trace.get("expected_slot_type", "NONE")
+                    resolved_ent = ctx_trace.get("resolved") or (slots.get("name") or slots.get("path") or "NONE")
 
-                trace_output = (
-                    f"\n============================================================\n"
-                    f"MANUAL ACCEPTANCE DIAGNOSTIC TRACE\n"
-                    f"INPUT:               {getattr(task, 'raw_text', 'N/A')}\n"
-                    f"FOLLOWUP_TYPE:       {followup_type}\n"
-                    f"ACTIVE_TOPIC:        {active_topic_val}\n"
-                    f"CANDIDATES:          {candidates_str}\n"
-                    f"EXPECTED_SLOT_TYPE:  {slot_type}\n"
-                    f"RESOLVED:            {resolved_ent}\n"
-                    f"CAPABILITY:          {t_name}\n"
-                    f"NORMALIZED:          {norm_text}\n"
-                    f"ROUTE:               {lane_str}\n"
-                    f"ROUTE CONFIDENCE:    {conf}\n"
-                    f"RESOLVED ENTITIES:   {slots}\n"
-                    f"MODEL USED:          {model_used}\n"
-                    f"PLAN USED:           {plan_used}\n"
-                    f"TOOL SELECTED:       {t_name}\n"
-                    f"RISK CLASS:          {risk_class}\n"
-                    f"POLICY RESULT:       {policy_res}\n"
-                    f"EXECUTION START:     {clock.parsed_ns}\n"
-                    f"EXECUTION RESULT:    {'SUCCESS' if (tool_result and tool_result.success) or state == State.SUCCESS else 'FAILED'}\n"
-                    f"VERIFICATION RESULT: {ver_res}\n"
-                    f"FINAL RESPONSE:      {message}\n"
-                    f"TOTAL LATENCY:       {dur:.2f} ms\n"
-                    f"============================================================\n"
-                )
-                print(trace_output, flush=True)
-                logging.getLogger("jarvis.manual_test").info(trace_output)
+                    trace_output = (
+                        f"\n============================================================\n"
+                        f"MANUAL ACCEPTANCE DIAGNOSTIC TRACE\n"
+                        f"INPUT:               {getattr(task, 'raw_text', 'N/A')}\n"
+                        f"FOLLOWUP_TYPE:       {followup_type}\n"
+                        f"ACTIVE_TOPIC:        {active_topic_val}\n"
+                        f"CANDIDATES:          {candidates_str}\n"
+                        f"EXPECTED_SLOT_TYPE:  {slot_type}\n"
+                        f"RESOLVED:            {resolved_ent}\n"
+                        f"CAPABILITY:          {t_name}\n"
+                        f"NORMALIZED:          {norm_text}\n"
+                        f"ROUTE:               {lane_str}\n"
+                        f"ROUTE CONFIDENCE:    {conf}\n"
+                        f"RESOLVED ENTITIES:   {slots}\n"
+                        f"MODEL USED:          {model_used}\n"
+                        f"PLAN USED:           {plan_used}\n"
+                        f"TOOL SELECTED:       {t_name}\n"
+                        f"RISK CLASS:          {risk_class}\n"
+                        f"POLICY RESULT:       {policy_res}\n"
+                        f"EXECUTION START:     {clock.parsed_ns}\n"
+                        f"EXECUTION RESULT:    {'SUCCESS' if (tool_result and tool_result.success) or state == State.SUCCESS else 'FAILED'}\n"
+                        f"VERIFICATION RESULT: {ver_res}\n"
+                        f"FINAL RESPONSE:      {message}\n"
+                        f"TOTAL LATENCY:       {dur:.2f} ms\n"
+                        f"============================================================\n"
+                    )
+                    try:
+                        print(trace_output, flush=True)
+                    except (UnicodeEncodeError, OSError):
+                        try:
+                            import sys
+                            sys.stdout.buffer.write(trace_output.encode("utf-8", errors="replace"))
+                            sys.stdout.buffer.flush()
+                        except Exception:
+                            pass
+                    try:
+                        logging.getLogger("jarvis.manual_test").info(trace_output)
+                    except Exception:
+                        pass
+                except Exception as _trace_err:
+                    logging.getLogger("jarvis.commands").debug("Diagnostic trace error: %s", _trace_err)
             else:
                 self._last_decisions.pop(task.request_id, None)
 

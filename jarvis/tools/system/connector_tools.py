@@ -267,8 +267,9 @@ class AndroidOpenAppTool(Tool):
         if not c:
             return {"success": False, "message": "Android connector disabled"}
         res = c.execute("open_app", app_name=arguments.app_name)
+        success = res.get("success", False) or res.get("status") == "SUCCESS"
         return {
-            "success": res.get("success", False),
+            "success": success,
             "message": res.get("message", f"Launched {arguments.app_name}"),
             "data": res,
         }

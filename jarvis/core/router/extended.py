@@ -22,7 +22,8 @@ from typing import Optional
 from jarvis.core.router.models import ComplexityLevel, ReasonCode, RouteDecision, RouteLane, RouteSource
 
 PHONE_WORDS = r"(?:phone|mobile|android(?!\s+(?:studio|emulator|sdk))|cell ?phone|smartphone)"  # Android Studio is a PC app
-ON_PHONE = rf"(?:\s+(?:on|in|of|from|for)\s+(?:my\s+|the\s+)?{PHONE_WORDS})"
+ON_PHONE = rf"(?:\s+(?:on|in|into|of|from|for|via|with|through)\s+(?:my\s+|the\s+)?{PHONE_WORDS})"
+
 SELF_WORDS = {"me", "myself", "us", "jarvis", "you", "yourself", "him", "her", "them", "everyone", "somebody", "someone"}
 RELATION_WORDS = {
     "mom", "mum", "mother", "amma", "dad", "father", "appa", "papa", "brother", "bro", "sister", "sis", "wife",
@@ -178,9 +179,10 @@ _ACTION_VERBS = (
 _COMPOUND_JOIN = re.compile(rf"(?:,|\band\b|&)\s+(?:then\s+)?(?:also\s+)?(?:{_ACTION_VERBS})\b")
 # An explicit reference to the user's phone (not "mobile app", "phone number", ...).
 PHONE_REF = re.compile(
-    rf"\b(?:my|the|on|from|of|to)\s+(?:android\s+)?{PHONE_WORDS}\b(?!\s+(?:app|apps|number|bill|case|call|charger|plan))"
+    rf"\b(?:my|the|on|in|into|at|from|of|to|for|via|through|using)\s+(?:my\s+|the\s+)?(?:android\s+)?{PHONE_WORDS}\b(?!\s+(?:app|apps|number|bill|case|call|charger|plan))"
     rf"|^{PHONE_WORDS}\b(?!\s+(?:app|apps|number|bill|case|call|charger|plan))|\bandroid\b(?!\s+(?:studio|emulator|sdk))"
     rf"|\b{PHONE_WORDS}(?:'s)?\s+(?:volume|brightness|screen|wi-?fi|bluetooth|battery|settings|notifications?)\b"
+    rf"|\b(?:google\s+)?play\s*store\b"
 )
 
 
@@ -506,8 +508,9 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
     personal memory, voice shortcuts, command history, passwords, recycle bin."""
     from jarvis.tools.system.everyday_tools import quick_answer, split_steps
 
-    if not PHONE_REF.search(t) and quick_answer(raw) is not None:
-        return _decision(request_id, t, "quick_answer", {"query": raw.strip()})
+    clean_raw = raw.strip().strip("\"'“”`")
+    if not PHONE_REF.search(t) and (quick_answer(clean_raw) is not None or quick_answer(raw) is not None):
+        return _decision(request_id, t, "quick_answer", {"query": clean_raw})
     # ---- voice shortcuts (before the compound check: their bodies contain several actions)
     m = re.match(r"^(?:when(?:ever)? i say|if i say)\s+[\"']?(?P<p>[^,\"']{2,60}?)[\"']?(?:\s*(?:,|then|jarvis should|you should|please)\s*|\s+(?=(?:lock|mute|unmute|open|close|turn|set|play|start|shut|launch|show|send|take|dim|pause|stop|switch|minimi[sz]e)\b))(?P<steps>.+)$", t) \
         or re.match(r"^(?:create|make|add|set up|save)\s+(?:a\s+|new\s+)?(?:shortcut|macro|routine|voice command)\s+(?:called|named)\s+[\"']?(?P<p>.+?)[\"']?\s+(?:that|to|which|for)\s+(?P<steps>.+)$", t)
@@ -726,6 +729,7 @@ def match_person(t: str, request_id: str) -> Optional[RouteDecision]:
 
 def match_login(t: str, request_id: str) -> Optional[RouteDecision]:
     """'open chrome and login linkedin', 'login linkedin in chrome' -> the site's sign-in page in that browser."""
+    t = re.sub(r"^(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+|pls\s+|plz\s+)?", "", t)
     m = _LOGIN.match(t)
     if not m or m.group("site").strip() in ("", "it", "there", "here", "again", "now", "the browser"):
         return None
@@ -1441,8 +1445,10 @@ def _match_phone(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
         return _decision(request_id, t, "describe_screen", {"device": "phone", "question": raw})
 
     body = re.sub(ON_PHONE + r"\s*$", "", t).strip()
-    body = re.sub(rf"^(?:on|in)\s+(?:my\s+|the\s+)?{PHONE_WORDS}\s*,?\s*", "", body)
+    body = re.sub(rf"^(?:on|in|into|at|from|for|via|with|through)\s+(?:my\s+|the\s+)?{PHONE_WORDS}\s*,?\s*", "", body)
     body = re.sub(rf"\s+(?:my|the)\s+{PHONE_WORDS}(?:'s)?\b", "", body).strip()
+    body = re.sub(rf"\b(?:on|in|into|at|from|for|via|with|through)\s+(?:my\s+|the\s+)?{PHONE_WORDS}\b", "", body).strip()
+    body = re.sub(r"\s+", " ", body).strip()
 
     if re.search(r"\b(?:screenshot|screen ?shot|screen capture|capture (?:the |my )?screen|snap the screen)\b", t):
         return _decision(request_id, t, "android_screenshot", {})
@@ -1483,6 +1489,8 @@ def _match_phone(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     m = re.match(r"^(?:open|launch|start|run)\s+(?:the\s+)?(?P<app>[a-z0-9 .+&'-]{2,40}?)(?:\s+app)?$", body)
     if m:
         return _decision(request_id, t, "android_open_app", {"app_name": m.group("app").strip()})
+    if body in ("playstore", "play store", "whatsapp", "spotify", "camera", "settings", "youtube", "maps", "chrome", "instagram"):
+        return _decision(request_id, t, "android_open_app", {"app_name": body})
     return None
 
 

@@ -1,7 +1,15 @@
 import importlib.util
 import os
 import socket
+import sys
 import uvicorn
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except Exception:
+        pass
 
 # Default to manual test diagnostic mode for acceptance testing
 os.environ.setdefault("JARVIS_TEST_MODE", "manual")

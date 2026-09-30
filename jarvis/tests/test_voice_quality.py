@@ -67,6 +67,10 @@ def test_engine_auto_model_choice_and_final_pass_uses_vad(monkeypatch):
                                     compression_ratio=2.8, start=0, end=2)]
             return iter(segs), SimpleNamespace(language="en", duration_after_vad=0.4)
 
+    from pathlib import Path
+    orig_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda p: False if "models" in str(p) else orig_exists(p))
+
     import sys
     monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
     eng = fw.FasterWhisperEngine(model="auto", device="auto", beam_size=5)

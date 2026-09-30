@@ -267,6 +267,15 @@ class WhatsAppInbox:
                     item.chat_name,
                 ),
             )
+            if item.is_from_me:
+                conn.execute(
+                    """
+                    UPDATE whatsapp_messages
+                    SET replied = 1, is_read = 1
+                    WHERE (chat_id = ? OR sender_id = ?) AND is_from_me = 0 AND timestamp <= ?
+                    """,
+                    (item.chat_id, item.chat_id, item.timestamp),
+                )
             conn.commit()
 
         logger.info(
@@ -487,7 +496,7 @@ class WhatsAppInbox:
         return t if len(parts) <= words else " ".join(parts[:words]) + "..."
 
     def summarize_inbox(self, include_groups: bool = False, group: Optional[str] = None,
-                        max_people: int = 5) -> Dict[str, Any]:
+                        max_people: int = 5, max_age_hours: Optional[float] = 48.0) -> Dict[str, Any]:
         """Who is waiting for a reply and what each one said - one line per person, attributed exactly.
 
         Personal chats only unless the owner asked about groups (``include_groups``) or one group (``group``).
@@ -496,6 +505,9 @@ class WhatsAppInbox:
         # re-check stored flags with the current rules (older rows marked links with "?" as questions)
         pending = [m for m in self.get_messages_needing_reply(limit=40, include_groups=include_groups, group=group)
                    if UrgencyClassifier.analyze(m.text)[1]]
+        if max_age_hours is not None:
+            now = time.time()
+            pending = [m for m in pending if m.timestamp < 1e8 or (now - m.timestamp) <= max_age_hours * 3600]
         urgent = [m for m in pending if m.urgency == "URGENT"]
         normal = [m for m in pending if m.urgency != "URGENT"]
 
