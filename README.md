@@ -854,7 +854,11 @@ HUD corner brackets, Orbitron titles and Rajdhani text (bundled in `jarvis/ui/qm
 and an icon on every page title. Home shows the reactor as a hologram on its JARVIS pedestal with orbiting rings,
 and a live **LISTEN → UNDERSTAND → PLAN → ACT → SPEAK** strip lit by what JARVIS is doing right now; the Workflows page
 adds a "How JARVIS works" view of its layers (voice, understanding, local AI models, actions, safety, memory) with
-live status. Low resource mode turns the animations off.
+live status. Every other page opens with its own live hologram panel: System (CPU / memory / GPU ring gauges),
+Activity (success rate, failures, last command), Memory (facts, open to-dos, shortcuts), Devices (online count,
+phone link), Integrations (connected / degraded / offline), Diagnostics (health score), WhatsApp (auto-reply minutes
+left, styles learned) and Settings. The voice pop-up and notifications use the same style.
+Low resource mode turns the animations off.
 
 Every page uses the same layout: a title with a one-line explanation, 28 px side padding, cards in a responsive
 grid (columns adapt to the window width; badges never overlap titles), and scrolling when the window is short.

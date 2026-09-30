@@ -275,7 +275,7 @@ Window {
             NumberAnimation { id: pageFade; target: pageStack; property: "opacity"; from: 0.0; to: 1.0; duration: 160; easing.type: Easing.OutQuad }
 
             HomePage { stateModel: uiState; controller: uiController }
-            ActivityPage { activityModel: uiActivityModel; controller: uiController }
+            ActivityPage { activityModel: uiActivityModel; controller: uiController; stateModel: uiState }
             SystemPage { stateModel: uiState; controller: uiController }
             MemoryPage { controller: uiController }
             WorkflowsPage { controller: uiController; stateModel: uiState }

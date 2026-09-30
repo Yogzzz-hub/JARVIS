@@ -18,6 +18,20 @@ Item {
             JButton { text: "SYSTEM REPORT"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("system info") }
         }
 
+        PageHero {
+            width: parent.width
+            icon: "system"
+            caption: "LIVE TELEMETRY"
+            animate: !(root.stateModel && root.stateModel.lowResourceMode)
+            HoloGauge { width: 132; height: 156; label: "CPU"; value: root.stateModel ? root.stateModel.cpuPercent : 0 }
+            HoloGauge { width: 132; height: 156; label: "Memory"; tint: "#00B4D8"; value: root.stateModel ? root.stateModel.ramPercent : 0 }
+            HoloGauge { width: 132; height: 156; label: "GPU"; tint: "#B388FF"; value: root.stateModel ? root.stateModel.gpuPercent : 0 }
+            HoloStat { value: root.stateModel ? root.stateModel.vramMb.toFixed(0) : "0"; label: "GPU memory MB"; tint: "#FFB300"
+                       hint: "Models loaded on the graphics card" }
+            HoloStat { value: root.stateModel ? root.stateModel.pingMs + "" : "0"; label: "Ping ms"; tint: "#00E676"
+                       hint: "Dashboard \u2194 JARVIS core" }
+        }
+
         SectionLabel { text: "HARDWARE"; hint: "sampled every second" }
         CardGrid {
             id: metrics

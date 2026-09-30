@@ -55,6 +55,14 @@ Item {
             title: "Settings"
             subtitle: "How the dashboard looks and behaves. Changes apply immediately."
         }
+        PageHero {
+            width: parent.width
+            icon: "settings"
+            caption: "CONFIGURATION"
+            HoloStat { value: "HOLO"; label: "Theme"; hint: "Orbitron + Rajdhani" }
+            HoloStat { value: root.setting("ui_3d", true) ? "3D" : "2D"; label: "Reactor"; tint: "#B388FF"; hint: "changes when you toggle below" }
+            HoloStat { value: root.setting("low_resource_mode", false) ? "LOW" : "FULL"; label: "Effects"; tint: "#FFB300"; hint: "animations and sampling" }
+        }
         NoticeBar { width: parent.width; text: root.saved; onClosed: root.saved = "" }
 
         Column {

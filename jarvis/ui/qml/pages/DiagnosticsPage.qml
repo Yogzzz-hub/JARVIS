@@ -22,6 +22,19 @@ Item {
             JButton { text: root.checks.length ? "RUN AGAIN" : "RUN DIAGNOSTICS"; busy: root.client ? root.client.busy : false
                       onClicked: if (root.client) root.client.runDiagnostics() }
         }
+
+        PageHero {
+            width: parent.width
+            icon: "diagnostics"
+            caption: "SYSTEM HEALTH"
+            HoloGauge { width: 132; height: 156; label: "Health"; tint: root.count("FAIL") ? "#FF5252" : (root.count("WARN") ? "#FFB300" : "#00E676")
+                        value: root.checks.length ? 100 * root.count("PASS") / root.checks.length : 0
+                        text: root.checks.length ? Math.round(100 * root.count("PASS") / root.checks.length) + "" : "--" }
+            HoloStat { value: root.count("FAIL") + ""; label: "Failed"; tint: "#FF5252"; hint: "must be fixed" }
+            HoloStat { value: root.count("WARN") + ""; label: "Warnings"; tint: "#FFB300"; hint: "optional or degraded" }
+            HoloStat { value: root.client && root.client.diagnosticsMs ? (root.client.diagnosticsMs / 1000).toFixed(1) + "s" : "--"
+                       label: "Check time"; hint: root.checks.length ? root.checks.length + " checks" : "press Run diagnostics" }
+        }
         NoticeBar { width: parent.width; text: root.client && root.client.noticePage === "diagnostics" ? root.client.notice : ""; error: root.client ? root.client.noticeError : false
                     onClosed: if (root.client) root.client.clearNotice() }
 

@@ -3,6 +3,8 @@ import "../components"
 
 Item {
     id: root
+    readonly property var conns: stateModel && stateModel.integrations ? stateModel.integrations : []
+    function countOf(list) { var n = 0; for (var i = 0; i < conns.length; i++) if (list.indexOf(conns[i].status) >= 0) n++; return n }
     property var stateModel
     property var controller
     signal navigate(int index)
@@ -16,6 +18,17 @@ Item {
             icon: "integrations"
             title: "Integrations"
             subtitle: "Services JARVIS talks to. Tokens and secrets are never shown here."
+        }
+
+        PageHero {
+            width: parent.width
+            icon: "integrations"
+            caption: "SERVICE MESH"
+            HoloGauge { width: 132; height: 156; label: "Connected"; unit: ""; max: Math.max(1, root.conns.length)
+                        value: root.countOf(["CONNECTED", "READY", "ONLINE"]); text: root.countOf(["CONNECTED", "READY", "ONLINE"]) + "/" + root.conns.length }
+            HoloStat { value: root.countOf(["DEGRADED"]) + ""; label: "Degraded"; tint: "#FFB300"; hint: "working with limits" }
+            HoloStat { value: root.countOf(["DISCONNECTED", "OFFLINE", "ERROR"]) + ""; label: "Offline"; tint: "#FF5252"; hint: "not reachable right now" }
+            HoloStat { value: root.countOf(["DISABLED"]) + ""; label: "Disabled"; tint: "#94A3B8"; hint: "turned off in config" }
         }
 
         // WhatsApp

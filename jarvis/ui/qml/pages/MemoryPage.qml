@@ -4,6 +4,7 @@ import "../components"
 // What JARVIS remembers about you (only what you told it to remember), your to-do list and saved shortcuts.
 Item {
     id: root
+    function openTodos() { var n = 0; for (var i = 0; i < mem.todos.length; i++) if (!mem.todos[i].done) n++; return n }
     property var controller
     property var client: (typeof uiDashboard !== "undefined") ? uiDashboard : null
     readonly property var mem: client ? client.memory : ({ facts: [], todos: [], shortcuts: [] })
@@ -21,6 +22,15 @@ Item {
             title: "Memory"
             subtitle: "Only what you asked JARVIS to remember. Delete anything, any time."
             JButton { text: "REFRESH"; variant: "ghost"; busy: root.client ? root.client.busy : false; onClicked: if (root.client) root.client.refreshMemory() }
+        }
+
+        PageHero {
+            width: parent.width
+            icon: "memory"
+            caption: "PERSONAL MEMORY"
+            HoloStat { value: root.mem.facts.length + ""; label: "Facts"; hint: "things you asked me to remember" }
+            HoloStat { value: root.openTodos() + ""; label: "To-dos open"; tint: "#FFB300"; hint: root.mem.todos.length + " on the list" }
+            HoloStat { value: root.mem.shortcuts.length + ""; label: "Shortcuts"; tint: "#B388FF"; hint: "one phrase, many steps" }
         }
         NoticeBar { width: parent.width; text: root.client && root.client.noticePage === "memory" ? root.client.notice : ""; error: root.client ? root.client.noticeError : false
                     onClosed: if (root.client) root.client.clearNotice() }

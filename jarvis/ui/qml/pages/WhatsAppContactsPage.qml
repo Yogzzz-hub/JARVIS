@@ -7,6 +7,17 @@ import "../components"
 // Group chats never appear here and can never be auto-replied.
 Item {
     id: root
+    function minutesLeft() {
+        var g = client && client.grants ? client.grants : [];
+        var m = 0;
+        for (var i = 0; i < g.length; i++) m = Math.max(m, g[i].minutes_left || 0);
+        return m;
+    }
+    function countTrained() {
+        var c = client ? client.contacts : [], n = 0;
+        for (var i = 0; i < c.length; i++) if (c[i].profile_status && c[i].profile_status !== "NO PROFILE") n++;
+        return n;
+    }
     property var client: (typeof uiWhatsApp !== "undefined") ? uiWhatsApp : null
     property string selectedId: ""
     property var detail: client ? client.selected : ({})
@@ -74,6 +85,18 @@ Item {
             StatusBadge { status: "BUSY"; text: "GROUPS BLOCKED" }
             StatusBadge { status: root.client && root.client.encryption === "keyring" ? "READY" : "WAITING"
                           text: root.client && root.client.encryption === "keyring" ? "ENCRYPTED" : "NOT ENCRYPTED" }
+        }
+
+        PageHero {
+            width: parent.width
+            icon: "whatsapp"
+            caption: "AUTO-REPLY CORE"
+            HoloGauge { width: 132; height: 156; label: "Auto-reply"; unit: "min"; max: 120; tint: root.minutesLeft() > 0 ? "#00E676" : "#607D8B"
+                        value: root.minutesLeft(); text: root.minutesLeft() > 0 ? root.minutesLeft() + "" : "OFF" }
+            HoloStat { value: root.client ? root.client.contacts.length + "" : "0"; label: "Contacts"; hint: "direct chats only" }
+            HoloStat { value: root.countTrained() + ""; label: "Styles learned"; tint: "#B388FF"; hint: "reply the way you write" }
+            HoloStat { value: root.client && root.client.grants ? root.client.grants.length + "" : "0"; label: "Active grants"; tint: "#FFB300"
+                       hint: "groups are always blocked" }
         }
 
         NoticeBar {

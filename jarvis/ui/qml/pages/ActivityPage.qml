@@ -5,6 +5,9 @@ Item {
     id: root
     property var activityModel
     property var controller
+    property var stateModel
+    readonly property var tasks: stateModel && stateModel.recentTasks ? stateModel.recentTasks : []
+    function countState(list) { var n = 0; for (var i = 0; i < tasks.length; i++) if (list.indexOf(tasks[i].state) >= 0) n++; return n }
 
     Item {
         anchors.fill: parent
@@ -22,9 +25,26 @@ Item {
             JButton { text: "WHAT DID YOU DO?"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("what did you do just now") }
         }
 
+        PageHero {
+            id: hero
+            anchors.top: head.bottom
+            anchors.topMargin: 18
+            width: parent.width
+            icon: "activity"
+            caption: "MISSION LOG"
+            HoloGauge { width: 132; height: 156; label: "Success"; tint: "#00E676"
+                        value: root.tasks.length ? 100 * root.countState(["SUCCESS"]) / root.tasks.length : 0
+                        text: root.tasks.length ? Math.round(100 * root.countState(["SUCCESS"]) / root.tasks.length) + "" : "--" }
+            HoloStat { value: root.tasks.length + ""; label: "Commands"; hint: "this session" }
+            HoloStat { value: root.countState(["ERROR", "FAILED", "TIMEOUT"]) + ""; label: "Failed"; tint: "#FF5252"; hint: "open one to see why" }
+            HoloStat { value: root.countState(["WAITING_CONFIRMATION"]) + ""; label: "Waiting"; tint: "#FFB300"; hint: "need your OK" }
+            HoloStat { value: root.tasks.length ? root.tasks[0].duration : "--"; label: "Last run"; tint: "#B388FF"
+                       hint: root.tasks.length ? root.tasks[0].text : "" }
+        }
+
         ListView {
             id: taskList
-            anchors.top: head.bottom
+            anchors.top: hero.bottom
             anchors.topMargin: 18
             anchors.left: parent.left
             anchors.right: parent.right

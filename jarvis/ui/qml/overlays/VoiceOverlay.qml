@@ -8,8 +8,8 @@ Window {
     property var stateModel
     property var controller
 
-    width: 440
-    height: 120
+    width: 480
+    height: 132
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
     color: "transparent"
     visible: false
@@ -33,18 +33,13 @@ Window {
         }
     }
 
-    // Borderless glass card container
-    Rectangle {
+    // Holographic glass card
+    GlassPanel {
         anchors.fill: parent
-        anchors.margins: 4
-        radius: 16
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#EE101A2A" }
-            GradientStop { position: 1.0; color: "#F0070B13" }
-        }
-        border.color: Palette.stateColor(stateModel ? stateModel.assistantState : "IDLE")
-        border.width: 1.5
-        Behavior on border.color { ColorAnimation { duration: 200 } }
+        anchors.margins: 6
+        radius: 18
+        activeBorder: true
+        glowColor: Palette.stateColor(stateModel ? stateModel.assistantState : "IDLE")
 
         Column {
             anchors.fill: parent
@@ -75,8 +70,10 @@ Window {
                         return stateModel.statusMessage ? stateModel.statusMessage : "Ready";
                     }
                     color: Palette.stateColor(stateModel ? stateModel.assistantState : "IDLE")
+                    font.family: "Orbitron"
                     font.pixelSize: 12
-                    font.bold: true
+                    font.letterSpacing: 2
+                    font.capitalization: Font.AllUppercase
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -84,8 +81,8 @@ Window {
 
                 Text {
                     text: "ESC to close"
-                    color: "#64748B"
-                    font.pixelSize: 10
+                    color: "#6F8AA8"
+                    font.pixelSize: 13
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -112,9 +109,9 @@ Window {
                     if (stateModel.transcriptFinal) return stateModel.transcriptFinal;
                     return "...";
                 }
-                color: "#F0F4F8"
-                font.pixelSize: 13
-                font.bold: true
+                color: "#EAF8FF"
+                font.pixelSize: 17
+                font.weight: Font.DemiBold
                 elide: Text.ElideRight
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
