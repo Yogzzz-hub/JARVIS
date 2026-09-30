@@ -81,6 +81,27 @@ class WhatsAppChannelGateway:
         self._drafts: Dict[str, OutboundMessageDraft] = {}
         self.status = WhatsAppBridgeStatus(mode=self.mode, voice_reply_enabled=self.voice_reply_enabled)
 
+    def _store_history(self, message: NormalizedWhatsAppMessage) -> Dict[str, Any]:
+        if message.message_id in self._processed_message_ids:
+            return {"status": "DUPLICATE_IGNORED", "message_id": message.message_id}
+        self._record_processed(message.message_id)
+        from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat
+        own = bool(message.is_from_me or self.is_owner(message.sender_id))
+        try:
+            self.inbox.add_message(message, is_from_me=own)
+            if own and not is_group_chat(message.chat_id):
+                self.inbox.mark_chat_read(message.chat_id, before_ts=self.inbox._parse_ts(message.timestamp))
+        except Exception as exc:
+            logger.warning("Could not store WhatsApp history message: %s", exc)
+        if (not own and message.sender_display_name and self.contact_resolver
+                and not is_group_chat(message.chat_id)):
+            try:
+                self.contact_resolver.add_contact(jid=message.sender_id, display_name=message.sender_display_name,
+                                                  is_owner=False)
+            except Exception:
+                pass
+        return {"status": "HISTORY_STORED", "message_id": message.message_id}
+
     def is_owner(self, sender_id: str) -> bool:
         """Determines if sender is a configured owner identity."""
         cleaned = sender_id.strip().casefold()
@@ -104,7 +125,12 @@ class WhatsAppChannelGateway:
                 await self.personal_reply.handle_incoming(message)
             return {"status": "PENDING_DECRYPTION", "message_id": message.message_id}
 
-        # 0b. The owner's own messages typed on the phone: recorded and (for direct chats with a style profile)
+        # 0b. Sent while JARVIS was offline (history sync when linking, late delivery on reconnect): stored so the
+        #     owner can ask about it - never answered, announced, drafted, or run as a command.
+        if getattr(message, "history", False):
+            return self._store_history(message)
+
+        # 0c. The owner's own messages typed on the phone: recorded and (for direct chats with a style profile)
         #     learned as real user-authored examples. They are never commands and never trigger a reply.
         if message.is_from_me:
             if message.message_id in self._processed_message_ids:
@@ -114,6 +140,7 @@ class WhatsAppChannelGateway:
                 try:
                     self.inbox.add_message(message, is_from_me=True)
                     self.inbox.mark_as_replied(message.chat_id)
+                    self.inbox.mark_chat_read(message.chat_id)  # writing in a chat reads it
                 except Exception as exc:
                     logger.debug("Could not record own message: %s", exc)
                 if self.personal_reply is not None:

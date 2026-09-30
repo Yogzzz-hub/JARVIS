@@ -10,6 +10,15 @@ const pino = require("pino");
 const { normalizeIncomingMessage, normalizePendingMessage, isPendingDecryption, isGroupJid } = require("./protocol");
 const { saveMediaBuffer } = require("./media");
 const { ConnectionState, ReconnectManager } = require("./reconnect");
+const { ChatIndex, normJid, toSeconds } = require("./chat_index");
+
+// A message delivered on reconnect ("append": sent while the bridge was offline) older than this is history:
+// JARVIS stores it but never answers, announces or runs it as a command.
+const LIVE_WINDOW_S = 120;
+// History sync when linking: unread messages of the last two weeks are stored, at most 5 per chat.
+const HISTORY_MAX_AGE_S = 14 * 24 * 3600;
+const HISTORY_PER_CHAT = 5;
+const HISTORY_FULL = 2; // proto.HistorySync.HistorySyncType.FULL (years of messages: never requested)
 
 // Optional dynamic import of Baileys in case environment is running in mock/test mode
 let baileysModule = null;
@@ -44,7 +53,8 @@ class BaileysClient {
     tempDir,
     onNormalizedMessage = null,
     onStatusChange = null,
-    onQrCode = null
+    onQrCode = null,
+    onChatState = null
   }) {
     this.authDir = authDir || path.resolve(__dirname, "../../../data/whatsapp_auth");
     this.tempDir = tempDir || path.resolve(__dirname, "../../../data/whatsapp_temp");
@@ -52,6 +62,7 @@ class BaileysClient {
     this.onNormalizedMessage = onNormalizedMessage;
     this.onStatusChange = onStatusChange;
     this.onQrCode = onQrCode;
+    this.onChatState = onChatState;
     this.onPairingCode = null;
     this.lastPairingCode = null;
 
@@ -65,6 +76,13 @@ class BaileysClient {
     });
 
     this.logger = pino({ level: "silent" });
+
+    // WhatsApp's own unread badges per chat (what the phone shows), kept current from WhatsApp's events.
+    this.chatIndex = new ChatIndex(path.resolve(this.authDir, "chat_index.json"), {
+      onChange: (state) => {
+        if (this.onChatState) this.onChatState(state);
+      }
+    });
 
     this.messageCache = new Map();
     this.cacheFile = path.resolve(this.authDir, "message_cache.json");
@@ -138,6 +156,9 @@ class BaileysClient {
     this.reconnect.setState(ConnectionState.CONNECTING, "Loading auth state");
 
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
+    // The chat list with unread counts arrives only as a history sync right after linking. An already linked
+    // device is asked a few times, then no longer (waiting for a sync that never comes delays the first messages).
+    this.wantHistory = !this.chatIndex.synced && this.chatIndex.historyAttempts < 3;
 
     try {
       this.sock = makeWASocket({
@@ -145,6 +166,7 @@ class BaileysClient {
         logger: this.logger,
         printQRInTerminal: false,
         syncFullHistory: false,
+        shouldSyncHistoryMessage: (msg) => Boolean(this.wantHistory) && msg && msg.syncType !== HISTORY_FULL,
         getMessage: async (key) => {
           if (key && key.id && this.messageCache.has(key.id)) {
             console.log(`[Baileys] Fulfilling retry request for message ${key.id}`);
@@ -208,6 +230,7 @@ class BaileysClient {
 
         if (isLoggedOut) {
           console.log("[Baileys] Session logged out / expired (code 401). Clearing stale auth files to prompt new pairing...");
+          this.chatIndex.reset();
           try {
             fs.rmSync(this.authDir, { recursive: true, force: true });
           } catch (e) {}
@@ -227,23 +250,42 @@ class BaileysClient {
         console.log("   WHATSAPP CONNECTED & LOGGED IN SUCCESSFULLY!");
         console.log("============================================================\n");
         this.reconnect.onConnected();
+        if (this.wantHistory) {
+          this.chatIndex.historyAttempts += 1;
+          this.chatIndex.touch(null);
+        }
       }
     });
 
-    this.sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      if (type !== "notify") return;
+    this.bindEvents(this.sock, downloadMediaMessage);
+
+    return true;
+  }
+
+  /** Message, chat and receipt events of a socket (separate from start() so it can be tested without WhatsApp). */
+  bindEvents(sock, downloadMediaMessage = null) {
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify" && type !== "append") return;
+      const nowS = Date.now() / 1000;
 
       for (const rawMsg of messages) {
         const fromMe = Boolean(rawMsg.key?.fromMe);
         const remote = rawMsg.key?.remoteJid || "";
+        // "notify" = new; "append" = delivered on reconnect. Recent ones are new messages, older ones history.
+        const live = type === "notify" || nowS - (toSeconds(rawMsg.messageTimestamp) || nowS) <= LIVE_WINDOW_S;
         // The owner's own messages are forwarded only from direct chats (flagged is_from_me) so JARVIS can
-        // learn how the owner writes to each person; they are never treated as commands.
-        if (fromMe && isGroupJid(remote)) continue;
+        // learn how the owner writes to each person; they are never treated as commands. In a group they only
+        // mark the group as read.
+        if (fromMe && isGroupJid(remote)) {
+          const own = normalizeIncomingMessage(rawMsg, null);
+          if (own) this.chatIndex.noteMessage(own);
+          continue;
+        }
 
         // Not decrypted yet ("Waiting for this message"): forward a placeholder, never a body.
         if (isPendingDecryption(rawMsg)) {
           const pending = normalizePendingMessage(rawMsg);
-          if (pending && !fromMe && this.onNormalizedMessage) {
+          if (pending && live && !fromMe && this.onNormalizedMessage) {
             this.onNormalizedMessage(pending);
           }
           continue;
@@ -253,7 +295,9 @@ class BaileysClient {
         const msgType = Object.keys(rawMsg.message || {})[0];
 
         // Group media is never downloaded (JARVIS does not act on group chats unless asked): saves time and disk.
+        // Neither is the media of old messages delivered on reconnect.
         if (
+          live &&
           !isGroupJid(remote) &&
           downloadMediaMessage &&
           (msgType === "imageMessage" ||
@@ -281,13 +325,17 @@ class BaileysClient {
           }
         }
 
-        if (rawMsg.key && rawMsg.key.id && rawMsg.message) {
+        if (live && rawMsg.key && rawMsg.key.id && rawMsg.message) {
           this.saveMessage(rawMsg.key.id, rawMsg.message);
         }
 
         const normalized = normalizeIncomingMessage(rawMsg, mediaRef);
         if (normalized) {
-          if (normalized.is_group) normalized.chat_name = await this.groupName(remote);
+          if (normalized.is_group) {
+            normalized.chat_name = (!live && this.chatIndex.nameOf(normJid(remote))) || (await this.groupName(remote));
+          } else if (!rawMsg.pushName) normalized.sender_display_name = this.chatIndex.nameOf(normJid(remote)) || normalized.sender_display_name;
+          if (!live) normalized.history = true;
+          this.chatIndex.noteMessage(normalized);
           this.rememberNormalized(normalized);
         }
         if (normalized && this.onNormalizedMessage) {
@@ -296,10 +344,42 @@ class BaileysClient {
       }
     });
 
+    // Unread badges: WhatsApp's chat list at link time, then its live updates.
+    sock.ev.on("messaging-history.set", ({ chats, contacts, messages }) => {
+      try {
+        this.onHistory(chats || [], contacts || [], messages || []);
+      } catch (err) {
+        console.error("[Baileys] History sync handling failed:", err.message);
+      }
+    });
+    sock.ev.on("chats.upsert", (chats) => this.chatIndex.applyChats(chats, { absolute: true }));
+    sock.ev.on("chats.update", (updates) => this.chatIndex.applyChats(updates));
+    const onContacts = (list) => {
+      for (const ct of list || []) {
+        if (!ct || !ct.id) continue;
+        if (ct.name) this.chatIndex.setName(ct.id, ct.name);
+        else if (ct.notify || ct.verifiedName) this.chatIndex.setName(ct.id, ct.notify || ct.verifiedName, { weak: true });
+      }
+    };
+    sock.ev.on("contacts.upsert", onContacts);
+    sock.ev.on("contacts.update", onContacts);
+    // The owner read a group on the phone (their own read receipt).
+    sock.ev.on("message-receipt.update", (updates) => {
+      for (const { key, receipt } of updates || []) {
+        if (key && receipt && receipt.readTimestamp && this.isMe(receipt.userJid)) {
+          this.chatIndex.markRead(key.remoteJid);
+        }
+      }
+    });
+
     // A message that was a placeholder can be decrypted later: forward the real body once, same message_id
     // (Python de-duplicates by message_id, so this can never create a second reply).
-    this.sock.ev.on("messages.update", (updates) => {
+    sock.ev.on("messages.update", (updates) => {
       for (const { key, update } of updates || []) {
+        // READ / PLAYED on someone else's message: the owner opened that chat on the phone.
+        if (key && update && !key.fromMe && typeof update.status === "number" && update.status >= 4) {
+          this.chatIndex.markRead(key.remoteJid);
+        }
         if (!key || !update || !update.message || key.fromMe) continue;
         const rawMsg = { key, message: update.message, pushName: update.pushName, messageTimestamp: update.messageTimestamp };
         const normalized = normalizeIncomingMessage(rawMsg, null);
@@ -313,8 +393,58 @@ class BaileysClient {
         }
       }
     });
+  }
 
-    return true;
+  isMe(jid) {
+    const me = this.sock && this.sock.user;
+    if (!jid || !me) return false;
+    const id = normJid(jid);
+    return id === normJid(me.id) || (me.lid ? id === normJid(me.lid) : false);
+  }
+
+  /**
+   * History sync (right after linking): WhatsApp's chat list with exact unread counts, contact names and recent
+   * messages. The unread messages themselves are forwarded flagged ``history`` - stored, never answered.
+   */
+  onHistory(chats, contacts, messages) {
+    for (const ct of contacts) {
+      if (ct && ct.id && (ct.name || ct.notify)) this.chatIndex.setName(ct.id, ct.name || ct.notify, { weak: !ct.name });
+    }
+    this.chatIndex.applyChats(chats, { absolute: true });
+    if (chats.length) this.chatIndex.markSynced();
+
+    const byChat = new Map();
+    for (const m of messages) {
+      const jid = normJid(m && m.key && m.key.remoteJid);
+      if (!jid || !m.message) continue;
+      if (!byChat.has(jid)) byChat.set(jid, []);
+      byChat.get(jid).push(m);
+    }
+    const nowS = Date.now() / 1000;
+    let forwarded = 0;
+    for (const [jid, list] of byChat) {
+      list.sort((a, b) => toSeconds(b.messageTimestamp) - toSeconds(a.messageTimestamp));
+      const newest = normalizeIncomingMessage(list[0], null);
+      if (newest) this.chatIndex.noteMessage(newest, { keepUnread: true });
+      const chat = this.chatIndex.chats.get(jid);
+      const unread = chat ? chat.unread : 0;
+      if (!unread || !this.onNormalizedMessage) continue;
+      const incoming = list.filter((m) => !m.key.fromMe && !isPendingDecryption(m)).slice(0, Math.min(unread, HISTORY_PER_CHAT));
+      for (const m of incoming) {
+        if (nowS - toSeconds(m.messageTimestamp) > HISTORY_MAX_AGE_S || forwarded >= 400) continue;
+        const normalized = normalizeIncomingMessage(m, null);
+        if (!normalized) continue;
+        normalized.history = true;
+        if (normalized.is_group) normalized.chat_name = this.chatIndex.nameOf(jid);
+        else if (!m.pushName) normalized.sender_display_name = this.chatIndex.nameOf(jid) || normalized.sender_display_name;
+        this.onNormalizedMessage(normalized);
+        forwarded += 1;
+      }
+    }
+  }
+
+  getChats() {
+    return this.chatIndex.snapshot();
   }
 
   async ensureRecipient(to) {

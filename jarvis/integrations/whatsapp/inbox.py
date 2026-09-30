@@ -11,6 +11,7 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -30,6 +31,12 @@ PASSIVE_ACKS = frozenset({
     "thanks", "thank you", "thx", "np", "no problem", "haha", "lol", "yep",
     "yeah", "done", "alright", "all right", "bye", "tc", "take care",
 })
+
+# Tanglish questions and requests ("Ena man panra", "eppo varuva", "file anuppu"): as much a question as "what's up?".
+_TANGLISH_QUESTION = re.compile(r"\b(?:enna|ena|yenna|epdi|eppadi|epadi|eppo|epo|eppa|enga|yenga|yen|yaaru|yaru|yaar|evlo|"
+                                r"evvalavu|ethana|edhuku|ethuku|edhukku|ethukku|ennachu|enachu)\b")
+_TANGLISH_REQUEST = re.compile(r"\b(?:anuppu|anupu|anuppunga|sollu|sollunga|kudu|kudunga|call pannu|paaru|paarunga|"
+                               r"pannunga|vaanga|vanga)\b")
 
 QUESTION_STARTERS = (
     "can you", "could you", "would you", "will you", "do you", "did you",
@@ -133,7 +140,8 @@ class UrgencyClassifier:
         # Check question / request intent
         has_question_mark = "?" in clean
         has_question_phrase = any(lower.startswith(qs) or f" {qs}" in lower for qs in QUESTION_STARTERS)
-        is_request = has_question_mark or has_question_phrase or is_urgent
+        tanglish = bool(_TANGLISH_QUESTION.search(lower) or _TANGLISH_REQUEST.search(lower))
+        is_request = has_question_mark or has_question_phrase or tanglish or is_urgent
 
         if is_from_me:
             needs_reply = False
@@ -202,6 +210,27 @@ class WhatsAppInbox:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(whatsapp_messages)").fetchall()}
             if "chat_name" not in cols:
                 conn.execute("ALTER TABLE whatsapp_messages ADD COLUMN chat_name TEXT NOT NULL DEFAULT ''")
+            # WhatsApp's own unread badge per chat, reported by the bridge (what the phone shows).
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS whatsapp_chats (
+                    chat_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL DEFAULT '',
+                    unread INTEGER NOT NULL DEFAULT 0,
+                    last_ts REAL NOT NULL DEFAULT 0,
+                    is_group INTEGER NOT NULL DEFAULT 0,
+                    last_text TEXT NOT NULL DEFAULT '',
+                    last_sender TEXT NOT NULL DEFAULT '',
+                    last_from_me INTEGER NOT NULL DEFAULT 0,
+                    updated REAL NOT NULL DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE TABLE IF NOT EXISTS whatsapp_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+                # Before unread tracking, only answered questions were ever marked read: everything older than a
+                # day would otherwise count as unread forever.
+                conn.execute("UPDATE whatsapp_messages SET is_read = 1 WHERE is_from_me = 0 AND timestamp < ?",
+                             (time.time() - 24 * 3600,))
+                conn.execute("PRAGMA user_version = 1")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_wa_chat ON whatsapp_messages(chat_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_wa_needs_reply ON whatsapp_messages(needs_reply, replied);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_wa_urgency ON whatsapp_messages(urgency);")
@@ -217,12 +246,7 @@ class WhatsAppInbox:
         text = message.text or ""
         urgency, needs_reply, summary = UrgencyClassifier.analyze(text, is_from_me=is_from_me)
 
-        ts = time.time()
-        if message.timestamp:
-            try:
-                ts = float(message.timestamp)
-            except ValueError:
-                ts = time.time()
+        ts = self._parse_ts(message.timestamp)
 
         item = InboxMessage(
             message_id=message.message_id,
@@ -242,13 +266,20 @@ class WhatsAppInbox:
         )
 
         with self._get_conn() as conn:
+            # a message seen again (history sync, late delivery) keeps its read / replied state
             conn.execute(
                 """
-                INSERT OR REPLACE INTO whatsapp_messages (
+                INSERT INTO whatsapp_messages (
                     message_id, chat_id, sender_id, sender_display_name,
                     timestamp, type, text, is_from_me, is_read,
                     needs_reply, urgency, summary, replied, chat_name
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(message_id) DO UPDATE SET
+                    chat_id = excluded.chat_id, sender_id = excluded.sender_id,
+                    sender_display_name = excluded.sender_display_name, timestamp = excluded.timestamp,
+                    type = excluded.type, text = excluded.text, is_from_me = excluded.is_from_me,
+                    needs_reply = excluded.needs_reply, urgency = excluded.urgency, summary = excluded.summary,
+                    chat_name = excluded.chat_name
                 """,
                 (
                     item.message_id,
@@ -274,6 +305,20 @@ class WhatsAppInbox:
             item.message_id, item.sender_display_name, item.urgency, item.needs_reply,
         )
         return item
+
+    @staticmethod
+    def _parse_ts(value: Any) -> float:
+        """Epoch seconds from the bridge's ISO time ("2026-09-29T16:27:00.000Z") or a number; now when missing."""
+        if value in (None, ""):
+            return time.time()
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            pass
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return time.time()
 
     # ------------------------------------------------------------------ chat scope (groups only when asked)
     def _scoped(self, rows: list, limit: int, include_groups: bool, group: Optional[str]) -> List[InboxMessage]:
@@ -335,18 +380,19 @@ class WhatsAppInbox:
             return self._scoped(cursor.fetchall(), limit, include_groups, group)
 
     def get_unread(self, limit: int = 10, include_groups: bool = False, group: Optional[str] = None) -> List[InboxMessage]:
-        """Returns unread incoming messages (personal chats unless asked)."""
-        with self._get_conn() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM whatsapp_messages
-                WHERE is_read = 0 AND is_from_me = 0
-                ORDER BY timestamp DESC
-                LIMIT ?
-                """,
-                (max(limit * 10, 200),),
-            )
-            return self._scoped(cursor.fetchall(), limit, include_groups, group)
+        """Unread incoming messages, newest first (personal chats unless asked).
+
+        A chat WhatsApp shows as unread whose messages JARVIS never received contributes its last message.
+        """
+        out: List[InboxMessage] = []
+        for chat in self.unread_chats(include_groups=include_groups, group=group):
+            msgs = chat["messages"] or ([self._preview_message(chat)] if chat["last_text"] else [])
+            if not chat["is_group"]:
+                for m in msgs:  # the name the phone shows (saved contact name)
+                    m.sender_display_name = chat["name"]
+            out.extend(msgs)
+        out.sort(key=lambda m: m.timestamp, reverse=True)
+        return out[:limit]
 
     def get_recent(self, limit: int = 10, include_groups: bool = True, group: Optional[str] = None) -> List[InboxMessage]:
         """Most recent messages regardless of read status (all chats by default: used for indexing)."""
@@ -472,6 +518,166 @@ class WhatsAppInbox:
             conn.commit()
             return cursor.rowcount
 
+    def mark_chat_read(self, chat_id: str, before_ts: Optional[float] = None) -> int:
+        """The owner wrote in (or opened) the chat: its incoming messages up to ``before_ts`` are read."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "UPDATE whatsapp_messages SET is_read = 1 WHERE chat_id = ? AND is_from_me = 0 AND is_read = 0 "
+                "AND timestamp <= ?", (chat_id, time.time() + 60 if before_ts is None else before_ts))
+            conn.commit()
+            return cursor.rowcount
+
+    # ------------------------------------------------------------------ WhatsApp's own unread badges (from the bridge)
+    def update_chats(self, chats: List[Dict[str, Any]], full: bool = False, synced: bool = False) -> int:
+        """Stores each chat's unread badge as WhatsApp shows it.
+
+        The newest ``unread`` incoming messages of a chat stay unread and older ones become read; a chat at 0 is
+        read. With ``full`` and ``synced`` the list covers every chat that has unread messages, so any other chat
+        is read too. Returns the number of chats stored.
+        """
+        stored: List[str] = []
+        with self._get_conn() as conn:
+            for c in chats or []:
+                cid = str((c or {}).get("chat_id") or "").strip()
+                if not cid:
+                    continue
+                try:
+                    unread = max(0, int(c.get("unread") or 0))
+                    last_ts = float(c.get("last_ts") or 0)
+                except (TypeError, ValueError):
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO whatsapp_chats (chat_id, name, unread, last_ts, is_group, last_text, last_sender,
+                                                last_from_me, updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(chat_id) DO UPDATE SET
+                        name = CASE WHEN excluded.name != '' THEN excluded.name ELSE whatsapp_chats.name END,
+                        unread = excluded.unread, last_ts = MAX(whatsapp_chats.last_ts, excluded.last_ts),
+                        is_group = excluded.is_group, last_text = excluded.last_text,
+                        last_sender = excluded.last_sender, last_from_me = excluded.last_from_me,
+                        updated = excluded.updated
+                    """,
+                    (cid, str(c.get("name") or "").strip(), unread, last_ts,
+                     1 if (c.get("is_group") or not self.is_direct_chat(cid)) else 0,
+                     str(c.get("last_text") or "")[:300], str(c.get("last_sender") or "").strip(),
+                     1 if c.get("last_from_me") else 0, time.time()),
+                )
+                self._sync_read_flags(conn, cid, unread)
+                stored.append(cid)
+            if full and synced:
+                listed = set(stored)
+                for (cid,) in conn.execute("SELECT chat_id FROM whatsapp_chats WHERE unread > 0").fetchall():
+                    if cid not in listed:
+                        conn.execute("UPDATE whatsapp_chats SET unread = 0, updated = ? WHERE chat_id = ?", (time.time(), cid))
+                        self._sync_read_flags(conn, cid, 0)
+            if synced:
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('chats_synced', '1')")
+            conn.commit()
+        return len(stored)
+
+    @staticmethod
+    def _sync_read_flags(conn: sqlite3.Connection, chat_id: str, unread: int) -> None:
+        if unread <= 0:
+            conn.execute("UPDATE whatsapp_messages SET is_read = 1 WHERE chat_id = ? AND is_from_me = 0 AND is_read = 0",
+                         (chat_id,))
+            return
+        conn.execute(
+            """
+            UPDATE whatsapp_messages SET is_read = 1
+            WHERE chat_id = ? AND is_from_me = 0 AND is_read = 0 AND message_id NOT IN (
+                SELECT message_id FROM whatsapp_messages WHERE chat_id = ? AND is_from_me = 0
+                ORDER BY timestamp DESC LIMIT ?)
+            """, (chat_id, chat_id, unread))
+
+    def chats_synced(self) -> bool:
+        """WhatsApp's full chat list has been received: chats without a badge are read."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT value FROM whatsapp_meta WHERE key = 'chats_synced'").fetchone()
+        return bool(row and row[0] == "1")
+
+    def unread_chats(self, include_groups: bool = False, group: Optional[str] = None,
+                     max_messages: int = 10) -> List[Dict[str, Any]]:
+        """Chats with unread messages, most recent first.
+
+        Each entry: chat_id, name, is_group, unread (WhatsApp's badge count), messages (stored unread messages,
+        newest first), last_text / last_sender / last_ts (WhatsApp's last message, even if JARVIS never got it).
+        Chats the bridge has not reported (an older bridge, or messages from before tracking started) use the
+        inbox's own flags, where a later message from the owner in the chat means read.
+        """
+        with self._get_conn() as conn:
+            synced = bool((conn.execute("SELECT value FROM whatsapp_meta WHERE key = 'chats_synced'").fetchone() or ["0"])[0] == "1")
+            badges = {r["chat_id"]: r for r in conn.execute("SELECT * FROM whatsapp_chats").fetchall()}
+            rows = conn.execute("SELECT * FROM whatsapp_messages WHERE is_from_me = 0 AND is_read = 0 "
+                                "ORDER BY timestamp DESC LIMIT 3000").fetchall()
+            own_last = dict(conn.execute("SELECT chat_id, MAX(timestamp) FROM whatsapp_messages WHERE is_from_me = 1 "
+                                         "GROUP BY chat_id").fetchall())
+        stored: Dict[str, List[InboxMessage]] = {}
+        for r in rows:
+            m = self._row_to_msg(r)
+            if own_last.get(m.chat_id, float("-inf")) >= m.timestamp:
+                continue  # the owner wrote after it: read
+            stored.setdefault(m.chat_id, []).append(m)
+
+        def in_scope(chat_id: str, is_group: bool) -> bool:
+            if group:
+                return chat_id == group
+            return include_groups or not is_group
+
+        out: List[Dict[str, Any]] = []
+        for cid, b in badges.items():
+            if b["unread"] <= 0 or not in_scope(cid, bool(b["is_group"])):
+                continue
+            msgs = stored.get(cid, [])[:min(b["unread"], max_messages)]
+            out.append(self._chat_entry(cid, bool(b["is_group"]), b["unread"], msgs, b))
+        if not synced:
+            # without WhatsApp's badges nothing ever says a chat was read on the phone: only the last few days count
+            newest = max((m[0].timestamp for m in stored.values()), default=0.0)
+            for cid, msgs in stored.items():
+                msgs = [m for m in msgs if m.timestamp >= newest - 3 * 24 * 3600]
+                if not msgs or cid in badges or not in_scope(cid, not self.is_direct_chat(cid)):
+                    continue
+                out.append(self._chat_entry(cid, not self.is_direct_chat(cid), len(msgs), msgs[:max_messages], None))
+        out.sort(key=lambda e: max(e["last_ts"], e["messages"][0].timestamp if e["messages"] else 0), reverse=True)
+        return out
+
+    def _chat_entry(self, chat_id: str, is_group: bool, unread: int, msgs: List[InboxMessage],
+                    badge: Optional[sqlite3.Row]) -> Dict[str, Any]:
+        name = (badge["name"] if badge is not None else "") or ""
+        if not name and msgs:
+            name = (msgs[0].chat_name if is_group else msgs[0].sender_display_name) or ""
+        if not name and is_group:
+            label = self._group_label(chat_id)
+            name = "" if label == "selected" else label
+        if not name and badge is not None and not is_group and not badge["last_from_me"]:
+            name = badge["last_sender"]
+        if not name:
+            name = "a group" if is_group else "+" + chat_id.split("@")[0]
+        last_text = ""
+        if badge is not None and not badge["last_from_me"]:
+            last_text = badge["last_text"] or ""
+        return {
+            "chat_id": chat_id,
+            "name": name,
+            "is_group": is_group,
+            "unread": max(int(unread), len(msgs)),
+            "messages": msgs,
+            "last_text": last_text,
+            "last_sender": (badge["last_sender"] if badge is not None else "") or "",
+            "last_ts": float(badge["last_ts"]) if badge is not None else (msgs[0].timestamp if msgs else 0.0),
+        }
+
+    def _preview_message(self, chat: Dict[str, Any]) -> InboxMessage:
+        """WhatsApp's last message of a chat JARVIS has no copy of (reported by the bridge)."""
+        text = chat["last_text"]
+        sender = chat["last_sender"] if chat["is_group"] else chat["name"]
+        urgency, needs_reply, summary = UrgencyClassifier.analyze(text)
+        return InboxMessage(message_id=f"chat:{chat['chat_id']}", chat_id=chat["chat_id"], sender_id=chat["chat_id"],
+                            sender_display_name=sender or chat["name"], timestamp=chat["last_ts"] or time.time(),
+                            type="text", text=text, is_from_me=False, is_read=False, needs_reply=needs_reply,
+                            urgency=urgency, summary=summary, replied=False,
+                            chat_name=chat["name"] if chat["is_group"] else "")
+
     def mark_as_read(self, message_id: str) -> None:
         with self._get_conn() as conn:
             conn.execute(
@@ -488,49 +694,95 @@ class WhatsAppInbox:
 
     def summarize_inbox(self, include_groups: bool = False, group: Optional[str] = None,
                         max_people: int = 5) -> Dict[str, Any]:
-        """Who is waiting for a reply and what each one said - one line per person, attributed exactly.
+        """What is unread, who sent it and what each person said - one line per person, attributed exactly.
 
-        Personal chats only unless the owner asked about groups (``include_groups``) or one group (``group``).
-        Deterministic on purpose: no model can mix up who said what, and it answers instantly.
+        Unread follows WhatsApp's own badges when the bridge reports them. Questions and requests are flagged
+        ("Mom asks ..."), urgent ones come first. Personal chats only unless the owner asked about groups
+        (``include_groups``) or one group (``group``); otherwise groups are only counted. Deterministic on
+        purpose: no model can mix up who said what, and it answers instantly.
         """
-        # re-check stored flags with the current rules (older rows marked links with "?" as questions)
-        pending = [m for m in self.get_messages_needing_reply(limit=40, include_groups=include_groups, group=group)
-                   if UrgencyClassifier.analyze(m.text)[1]]
-        urgent = [m for m in pending if m.urgency == "URGENT"]
-        normal = [m for m in pending if m.urgency != "URGENT"]
-
-        # one entry per person (per chat for personal chats, per sender inside a group), urgent first
-        people: Dict[Tuple[str, str], List[InboxMessage]] = {}
-        for m in urgent + normal:
-            people.setdefault((m.chat_id, m.sender_id), []).append(m)
-
-        lines = []
-        for (chat_id, _), msgs in list(people.items())[:max_people]:
-            latest = max(msgs, key=lambda x: x.timestamp)
-            name = self._spoken_name(latest.sender_display_name or latest.sender_id.split("@")[0])
-            where = f" in {latest.chat_name or 'a group'}" if latest.is_group else ""
-            is_urgent = any(x.urgency == "URGENT" for x in msgs)
-            said = describe_message(latest.text or latest.summary)
-            verb = "sent" if not said.startswith('"') else "says"
-            if len(msgs) > 1:
-                lines.append(f"{'Urgent: ' if is_urgent else ''}{name}{where} sent {len(msgs)} messages; the latest {verb} {said}")
-            else:
-                lines.append(f"{'Urgent: ' if is_urgent else ''}{name}{where} {verb} {said}")
-
-        n_people = len(people)
-        scope = f"the {self._group_label(group)} group" if group else ("your chats" if include_groups else "your personal chats")
-        if n_people == 0:
-            spoken = f"No one is waiting for a reply in {scope}."
+        chats = self.unread_chats(include_groups=True)
+        if group:
+            scoped = [c for c in chats if c["chat_id"] == group]
+        elif include_groups:
+            scoped = chats
         else:
-            head = f"{n_people} {'person is' if n_people == 1 else 'people are'} waiting for a reply in {scope}."
-            more = f" And {n_people - max_people} more." if n_people > max_people else ""
-            spoken = head + " " + " ".join(ln if re.search(r"[.?!]\"?$", ln) else ln + "." for ln in lines) + more
-        if not include_groups and not group:
-            groups_waiting = len({m.chat_id for m in self.get_messages_needing_reply(limit=40, include_groups=True) if m.is_group})
-            if groups_waiting:
-                spoken += (f" {groups_waiting} group chat{'s' if groups_waiting != 1 else ''} also "
-                           f"{'have' if groups_waiting != 1 else 'has'} new messages - ask if you want them.")
+            scoped = [c for c in chats if not c["is_group"]]
 
+        # one entry per person: per chat for personal chats, per sender inside a group
+        entries: List[Dict[str, Any]] = []
+        for chat in scoped:
+            if chat["is_group"] and chat["messages"]:
+                senders: Dict[str, List[InboxMessage]] = {}
+                for m in chat["messages"]:
+                    senders.setdefault(m.sender_id, []).append(m)
+                for msgs in senders.values():
+                    entries.append({"chat": chat, "name": msgs[0].sender_display_name or msgs[0].sender_id.split("@")[0],
+                                    "msgs": msgs, "count": len(msgs), "text": ""})
+            else:
+                entries.append({"chat": chat, "name": chat["name"] if not chat["is_group"] else (chat["last_sender"] or chat["name"]),
+                                "msgs": chat["messages"], "count": chat["unread"], "text": chat["last_text"]})
+        for e in entries:
+            flags = [UrgencyClassifier.analyze(m.text or "") for m in e["msgs"]] or (
+                [UrgencyClassifier.analyze(e["text"])] if e["text"] else [])
+            e["urgent"] = any(f[0] == "URGENT" for f in flags)
+            e["asks"] = any(f[1] for f in flags)
+            e["ts"] = max([m.timestamp for m in e["msgs"]] or [e["chat"]["last_ts"]])
+        entries.sort(key=lambda e: (not e["urgent"], not e["asks"], -e["ts"]))
+
+        lines = [self._unread_line(e, show_group=bool(include_groups and not group)) for e in entries[:max_people]]
+        n_msgs = sum(c["unread"] for c in scoped)
+        n_people = len(entries)
+        label = self._group_label(group) if group else ""
+        if group:
+            named = next((c["name"] for c in scoped), "") or label
+            head = (f"The {named} group has {n_msgs} unread message{'s' if n_msgs != 1 else ''}." if n_msgs
+                    else f"No unread messages in the {label} group.")
+        elif include_groups:
+            n_chats = len(scoped)
+            head = (f"You have {n_msgs} unread WhatsApp message{'s' if n_msgs != 1 else ''} in {n_chats} "
+                    f"chat{'s' if n_chats != 1 else ''}." if n_msgs else "You have no unread WhatsApp messages.")
+        else:
+            head = ("No unread messages in your personal chats." if not n_msgs else
+                    f"You have {n_msgs} unread message{'s' if n_msgs != 1 else ''}"
+                    + (f" from {n_people} people." if n_people > 1 else "."))
+        spoken = head
+        if lines:
+            spoken += " " + " ".join(ln if re.search(r"[.?!]\"?\)?$", ln) else ln + "." for ln in lines)
+            if n_people > max_people:
+                spoken += f" And {n_people - max_people} more {'person' if n_people - max_people == 1 else 'people'}."
+
+        # read on the phone but not answered yet (a question from today)
+        if not group:
+            unread_ids = {c["chat_id"] for c in chats}
+            with self._get_conn() as conn:
+                own_last = dict(conn.execute("SELECT chat_id, MAX(timestamp) FROM whatsapp_messages WHERE is_from_me = 1 "
+                                             "GROUP BY chat_id").fetchall())
+            waiting = []
+            for m in self.get_messages_needing_reply(limit=20, include_groups=include_groups):
+                if (m.chat_id in unread_ids or m.timestamp < time.time() - 24 * 3600
+                        or own_last.get(m.chat_id, float("-inf")) >= m.timestamp
+                        or not UrgencyClassifier.analyze(m.text)[1]):
+                    continue
+                name = self._spoken_name(self._chat_display_name(m))
+                if name not in waiting:
+                    waiting.append(name)
+            if waiting:
+                who = ", ".join(waiting[:3]) + (f" and {len(waiting) - 3} more" if len(waiting) > 3 else "")
+                spoken += f" Still waiting for your reply: {who}."
+
+        groups_unread = [c for c in chats if c["is_group"]] if not include_groups and not group else []
+        if groups_unread:
+            g_msgs = sum(c["unread"] for c in groups_unread)
+            names = ", ".join(f"{c['name']}: {c['unread']}" for c in groups_unread[:3])
+            more = " and more" if len(groups_unread) > 3 else ""
+            spoken += (f" {len(groups_unread)} group chat{'s' if len(groups_unread) != 1 else ''} also "
+                       f"{'have' if len(groups_unread) != 1 else 'has'} {g_msgs} unread message{'s' if g_msgs != 1 else ''} "
+                       f"({names}{more}) - ask if you want them.")
+
+        pending = [m for e in entries for m in e["msgs"] if UrgencyClassifier.analyze(m.text or "")[1]]
+        urgent = [m for m in pending if UrgencyClassifier.analyze(m.text or "")[0] == "URGENT"]
+        normal = [m for m in pending if m not in urgent]
         return {
             "total_pending": len(pending),
             "people": n_people,
@@ -538,8 +790,42 @@ class WhatsAppInbox:
             "normal_count": len(normal),
             "urgent_messages": [m.to_dict() for m in urgent],
             "normal_messages": [m.to_dict() for m in normal],
+            "unread_count": n_msgs,
+            "unread_chats": [{"chat_id": c["chat_id"], "name": c["name"], "unread": c["unread"], "is_group": c["is_group"]}
+                             for c in scoped],
+            "groups_unread": sum(c["unread"] for c in groups_unread),
             "spoken_summary": spoken,
         }
+
+    _MEDIA_WORDS = {"image": "a photo", "voice_note": "a voice note", "audio": "an audio clip", "document": "a document"}
+
+    def _unread_line(self, e: Dict[str, Any], show_group: bool) -> str:
+        """'Urgent: Mom asks "call me"' / 'Sanjana Ssk sent 2 messages; the latest asks "Ena man panra"'."""
+        name = self._spoken_name(e["name"])
+        where = f" in {e['chat']['name']}" if show_group and e["chat"]["is_group"] else ""
+        latest = max(e["msgs"], key=lambda m: m.timestamp) if e["msgs"] else None
+        if latest is not None and not (latest.text or "").strip() and latest.type in self._MEDIA_WORDS:
+            said = self._MEDIA_WORDS[latest.type]
+        elif latest is not None:
+            said = describe_message(latest.text or latest.summary)
+        elif e["text"]:
+            said = describe_message(e["text"])
+        else:
+            n = e["count"]
+            return f"{name}{where}: {n} unread message{'s' if n != 1 else ''}"
+        asks = UrgencyClassifier.analyze((latest.text if latest is not None else e["text"]) or "")[1]
+        verb = ("asks" if asks else "says") if said.startswith('"') else "sent"
+        prefix = "Urgent: " if e["urgent"] else ""
+        if e["count"] > 1:
+            return f"{prefix}{name}{where} sent {e['count']} messages; the latest {verb} {said}"
+        return f"{prefix}{name}{where} {verb} {said}"
+
+    def _chat_display_name(self, m: InboxMessage) -> str:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT name FROM whatsapp_chats WHERE chat_id = ?", (m.chat_id,)).fetchone()
+        if row and row[0] and not m.is_group:
+            return row[0]
+        return m.sender_display_name or m.sender_id.split("@")[0]
 
     @staticmethod
     def _spoken_name(name: str) -> str:

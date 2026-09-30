@@ -343,7 +343,22 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
             slots["count_only"] = True  # "total" / "how many": the exact number, per person
         return _decision(request_id, t, "read_whatsapp_messages", slots)
 
+    # 1b. "what's new on whatsapp", "anything new in whatsapp", "whatsapp updates"
+    if re.fullmatch(r"(?:what(?:'s| is)\s+(?:new|up|happening)|anything\s+new|any\s+updates?|what\s+did\s+i\s+miss)\s+"
+                    r"(?:on|in)\s+(?:my\s+)?whats\s*app|whats\s*app\s+updates?", t):
+        return _decision(request_id, t, "summarize_whatsapp_messages", {})
+
+    # 2b. "read messages waiting for my reply", "who is waiting for my reply", "which messages need a reply"
+    if re.fullmatch(rf"(?:(?:read|show|check|which|what)(?:\s+me)?\s+)?(?:my\s+|the\s+)?{_MSG_WORDS}\s+(?:are\s+)?(?:waiting\s+for|that\s+need|"
+                    r"needing|need)\s+(?:a\s+|my\s+|an\s+)?(?:reply|replies|response|answer)(?:\s+(?:on|in)\s+whats\s*app)?", t) \
+            or re.fullmatch(r"who(?:\s+all)?\s+(?:is|are)\s+(?:still\s+)?waiting\s+for\s+(?:my\s+|a\s+)?(?:reply|response|answer)"
+                            r"(?:\s+(?:on|in)\s+whats\s*app)?", t):
+        return _decision(request_id, t, "read_whatsapp_messages", {"filter": "needs_reply"})
+
     # 3. Reading / counting unread messages without explicitly saying "in whatsapp"
+    # "read my unread messages", "show my new messages"
+    if re.fullmatch(rf"(?:read|check|show)(?:\s+me)?\s+(?:my\s+|the\s+|all\s+(?:my\s+|the\s+)?)?(?:unread|new)\s+{_MSG_WORDS}", t):
+        return _decision(request_id, t, "read_whatsapp_messages", {"filter": "unread"})
     # "tell me the total unread messages", "how many unread messages", "how many unread messages do i have"
     if re.match(rf"^(?:tell me\s+)?(?:the\s+)?(?:total\s+)?unread\s+{_MSG_WORDS}$", t) \
             or re.match(rf"^how many\s+(?:total\s+)?(?:unread\s+|new\s+)?{_MSG_WORDS}(?:\s+(?:do i have|have i got|are there|did i get|i have|i got))?(?:\s+(?:today|now))?$", t) \

@@ -38,17 +38,18 @@ def test_summary_is_personal_chats_only_and_attributed_per_person(tmp_path):
     inbox = _inbox(tmp_path)
     out = wt.SummarizeWhatsAppMessagesTool(inbox=inbox).run({})
     spoken = out["spoken_summary"]
-    assert "2 people are waiting" in spoken and "Mom" in spoken and "Arun" in spoken
+    assert spoken.startswith("You have 2 unread messages from 2 people.") and "Mom" in spoken and "Arun" in spoken
     assert spoken.index("Mom") < spoken.index("Arun")  # urgent first
     assert "Nisha" not in spoken and "Team 62" not in spoken  # group content is not read out
-    assert "1 group chat also has new messages" in spoken
+    assert "1 group chat also has 2 unread messages (CSE A: 2)" in spoken
 
 
 def test_named_group_summary_and_unknown_group(tmp_path):
     inbox = _inbox(tmp_path)
     tool = wt.SummarizeWhatsAppMessagesTool(inbox=inbox)
     spoken = tool.run({"group": "cse a"})["spoken_summary"]
-    assert "Devi in CSE A sent 2 messages" in spoken and "Arun" not in spoken
+    assert spoken.startswith("The CSE A group has 2 unread messages.") and "Devi sent 2 messages" in spoken
+    assert "Arun" not in spoken
     assert "couldn't find" in tool.run({"group": "football"})["spoken_summary"]
 
 
@@ -127,8 +128,10 @@ def test_links_are_not_questions_and_are_described_not_read_out(tmp_path):
     inbox.add_message(_msg("l1", "sush@s.whatsapp.net", "sush@s.whatsapp.net", "sushmitaa mahesh", url, 1000))
     inbox.add_message(_msg("l2", "arun@s.whatsapp.net", "arun@s.whatsapp.net", "Scooby!!", "are you free? " + url, 1001))
     spoken = wt.SummarizeWhatsAppMessagesTool(inbox=inbox).run({})["spoken_summary"]
-    assert "http" not in spoken and "utm_" not in spoken and "Sushmitaa" not in spoken  # link-only: no reply needed
-    assert spoken.startswith("1 person is waiting") and 'Scooby says "are you free?" (with a link from dribbble.com)' in spoken
+    assert "http" not in spoken and "utm_" not in spoken
+    assert spoken.startswith("You have 2 unread messages from 2 people.")
+    assert 'Scooby asks "are you free?" (with a link from dribbble.com)' in spoken  # a question comes first
+    assert "Sushmitaa Mahesh sent a link from dribbble.com" in spoken  # unread, though it needs no reply
 
 
 def test_spoken_text_never_reads_out_links_paths_or_emoji():

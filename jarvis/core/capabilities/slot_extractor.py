@@ -379,8 +379,10 @@ def extract_slots(
                 val = "unread"
             elif "all" in lowered or "recent" in lowered:
                 val = "all"
-            else:
+            elif re.search(r"\b(?:reply|replies|respond|answer|waiting|pending)\b", lowered):
                 val = "needs_reply"
+            else:
+                val = "unread"  # "read my messages": what is unread, as WhatsApp shows it
 
         if val is not None and slot_name not in slots:
             slots[slot_name] = val

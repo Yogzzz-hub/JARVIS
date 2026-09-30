@@ -353,7 +353,7 @@ _COMMAND_ECHO = re.compile(r"^\s*(?:approve|reject|confirm|cancel|yes|no)\b.*\bt
 
 
 class ReadWhatsAppMessagesInput(Contract):
-    filter: str = Field(default="needs_reply", description="Filter: 'needs_reply', 'urgent', 'unread', or 'all'")
+    filter: str = Field(default="unread", description="Filter: 'unread' (as WhatsApp shows it), 'needs_reply', 'urgent', or 'all'")
     limit: int = Field(default=5, ge=1, le=50, description="Max messages to retrieve")
     include_groups: bool = Field(default=False, description="Also read group chats (only when the owner asks about groups)")
     group: str = Field(default="", max_length=80, description="Read only this named group (only when the owner names it)")
@@ -426,6 +426,12 @@ class ReadWhatsAppMessagesTool(Tool):
         count = len(msg_dicts)
 
         where = f" in {label}" if group_id else ("" if arguments.include_groups else " in your personal chats")
+        if arguments.count_only and filt == "unread" and not who_filter and hasattr(self.inbox, "unread_chats"):
+            # WhatsApp's own badge counts (a chat can have more unread messages than JARVIS received)
+            chats = self.inbox.unread_chats(include_groups=arguments.include_groups, group=group_id)
+            total = sum(c["unread"] for c in chats)
+            return {"status": "SUCCESS", "count": total, "filter": filt, "messages": msg_dicts[:arguments.limit],
+                    "spoken_summary": self._badge_count_summary(chats, where, arguments)}
         if arguments.count_only:
             return {"status": "SUCCESS", "count": count, "filter": filt, "messages": msg_dicts[:arguments.limit],
                     "spoken_summary": self._count_summary(msg_dicts, filt, where, arguments)}
@@ -451,6 +457,25 @@ class ReadWhatsAppMessagesTool(Tool):
             "messages": msg_dicts,
             "spoken_summary": spoken,
         }
+
+    def _badge_count_summary(self, chats: list[dict], where: str, arguments: Any) -> str:
+        """'You have 4 unread WhatsApp messages in your personal chats from 3 people: Sanjana Ssk 2, ...' (exact)."""
+        n = sum(c["unread"] for c in chats)
+        if n == 0:
+            text = f"You have no unread WhatsApp messages{where}."
+        else:
+            people = ", ".join(f"{c['name']} {c['unread']}" for c in chats[:5])
+            more = f" and {len(chats) - 5} more chats" if len(chats) > 5 else ""
+            text = (f"You have {n} unread WhatsApp message{'s' if n != 1 else ''}{where}"
+                    + (f" from {len(chats)} chats: {people}{more}." if len(chats) > 1 else f", all from {chats[0]['name']}."))
+            if not arguments.include_groups and not arguments.group.strip():
+                text = text.replace(" chats:", " people:", 1).replace(" more chats", " more people", 1)
+        if not arguments.include_groups and not arguments.group.strip():
+            groups = [c for c in self.inbox.unread_chats(include_groups=True) if c["is_group"]]
+            if groups:
+                g = sum(c["unread"] for c in groups)
+                text += f" Group chats have {g} more in {len(groups)} group{'s' if len(groups) != 1 else ''}."
+        return text
 
     def _count_summary(self, msgs: list[dict], filt: str, where: str, arguments: Any) -> str:
         """'You have 12 unread WhatsApp messages in your personal chats: Sushmitaa 5, Scooby 4, Arun 3.' (exact)"""
@@ -494,6 +519,7 @@ class SummarizeWhatsAppMessagesOutput(Contract):
     spoken_summary: str
     urgent_messages: list[dict]
     normal_messages: list[dict]
+    unread_count: int = 0
 
 
 class SummarizeWhatsAppMessagesTool(Tool):
@@ -539,6 +565,7 @@ class SummarizeWhatsAppMessagesTool(Tool):
             "spoken_summary": spoken,
             "urgent_messages": data["urgent_messages"],
             "normal_messages": data["normal_messages"],
+            "unread_count": data.get("unread_count", 0),
         }
 
 

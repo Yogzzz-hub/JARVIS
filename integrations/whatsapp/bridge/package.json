@@ -4,7 +4,8 @@
   "description": "Minimal Baileys transport bridge adapter for JARVIS EDGE v1.0",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",

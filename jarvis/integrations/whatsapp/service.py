@@ -53,6 +53,7 @@ class BaileysWebSocketTransport:
         on_status: Optional[Callable[[Dict[str, Any]], Any]] = None,
         on_qr: Optional[Callable[[str], Any]] = None,
         on_pairing_code: Optional[Callable[[str], Any]] = None,
+        on_chat_state: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -61,6 +62,7 @@ class BaileysWebSocketTransport:
         self.on_status = on_status
         self.on_qr = on_qr
         self.on_pairing_code = on_pairing_code
+        self.on_chat_state = on_chat_state
 
         self._ws: Any = None
         self._running = False
@@ -169,6 +171,13 @@ class BaileysWebSocketTransport:
             if self.on_pairing_code:
                 self.on_pairing_code(code)
 
+        elif msg_type == "chat_state":
+            # WhatsApp's unread badge per chat, as the phone shows it
+            if self.on_chat_state:
+                res = self.on_chat_state(data.get("payload") or {})
+                if asyncio.iscoroutine(res):
+                    asyncio.create_task(res)
+
     async def _send(self, data: Dict[str, Any]) -> None:
         if self._ws and self.is_connected:
             await self._ws.send(json.dumps(data))
@@ -220,6 +229,11 @@ class BaileysWebSocketTransport:
         res = await self._call("get_message", {"message_id": message_id, "chat_id": chat_id}, timeout=5.0)
         payload = res.get("result") if res.get("success") else None
         return NormalizedWhatsAppMessage(**payload) if payload else None
+
+    async def get_chats(self) -> Dict[str, Any]:
+        """WhatsApp's unread badge per chat from the bridge ({"synced", "full", "chats": [...]})."""
+        res = await self._call("get_chats", timeout=5.0)
+        return (res.get("result") or {}) if res.get("success") else {}
 
     async def get_status(self) -> Dict[str, Any]:
         """Query real-time status from bridge."""
@@ -282,6 +296,7 @@ class WhatsAppIntegrationService:
             on_status=self._on_bridge_status,
             on_qr=self._on_qr_code,
             on_pairing_code=self._on_pairing_code,
+            on_chat_state=self._on_chat_state,
         )
 
         # Multimodal media pipeline
@@ -371,8 +386,23 @@ class WhatsAppIntegrationService:
             await self.personal_reply.close()
         await self.transport.stop()
 
+    async def _on_chat_state(self, payload: Dict[str, Any]) -> None:
+        """Store WhatsApp's unread badges (what the phone shows) so summaries and counts match it."""
+        chats = payload.get("chats") or []
+        if not chats and not payload.get("synced"):
+            return
+        try:
+            await asyncio.to_thread(self.gateway.inbox.update_chats, chats, bool(payload.get("full")),
+                                    bool(payload.get("synced")))
+        except Exception as exc:
+            logger.warning("Could not store WhatsApp chat state: %s", exc)
+
     async def _on_incoming_message(self, message: NormalizedWhatsAppMessage) -> None:
         """Handle incoming message routed from transport."""
+        if message.history:  # missed while JARVIS was offline: stored only (no announcement, reply or command)
+            await self.gateway.handle_incoming(message)
+            self._remember_chat(message.chat_id)
+            return
         logger.info("Received WhatsApp message from %s (%s)", message.sender_display_name, message.sender_id)
         if self.event_bus:
             self.event_bus.emit(

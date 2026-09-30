@@ -14,6 +14,9 @@ const HOST = process.env.JARVIS_WHATSAPP_HOST || "127.0.0.1";
 let activeJarvisSocket = null;
 let lastQrCode = null;
 let lastPairingCode = null;
+// Messages that arrive while JARVIS (Python) is not connected are kept and delivered when it connects.
+const MAX_PENDING = 500;
+const pendingMessages = [];
 
 const baileys = new BaileysClient({
   onNormalizedMessage: (normalizedMsg) => {
@@ -38,6 +41,9 @@ const baileys = new BaileysClient({
       type: "qr_code",
       payload: { qr }
     });
+  },
+  onChatState: (state) => {
+    broadcastToJarvis({ type: "chat_state", payload: state });
   }
 });
 
@@ -53,8 +59,27 @@ function broadcastToJarvis(eventObj) {
   if (activeJarvisSocket && activeJarvisSocket.readyState === WebSocket.OPEN) {
     try {
       activeJarvisSocket.send(JSON.stringify(eventObj));
+      return;
     } catch (e) {
       console.error("[Bridge] Failed to send to Jarvis:", e.message);
+    }
+  }
+  if (eventObj.type === "incoming_message") {
+    pendingMessages.push({ event: eventObj, at: Date.now() });
+    if (pendingMessages.length > MAX_PENDING) pendingMessages.shift();
+  }
+}
+
+/** Deliver what arrived while JARVIS was away. Anything older than two minutes is history: stored, never acted on. */
+function flushPending(ws) {
+  while (pendingMessages.length) {
+    const { event, at } = pendingMessages.shift();
+    if (Date.now() - at > 120 * 1000) event.payload = { ...event.payload, history: true };
+    try {
+      ws.send(JSON.stringify(event));
+    } catch (e) {
+      pendingMessages.unshift({ event, at });
+      return;
     }
   }
 }
@@ -83,6 +108,9 @@ wss.on("connection", (ws, req) => {
       }
     })
   );
+  // WhatsApp's unread badges as they are now, then the messages that came in meanwhile.
+  ws.send(JSON.stringify({ type: "chat_state", payload: baileys.getChats() }));
+  flushPending(ws);
 
   ws.on("message", async (data) => {
     try {
@@ -107,6 +135,8 @@ wss.on("connection", (ws, req) => {
         // Bounded retry for messages that arrived undecrypted: return the body only once it exists.
         const found = baileys.getNormalizedMessage((payload || {}).message_id);
         ws.send(JSON.stringify({ id, action, success: Boolean(found), result: found }));
+      } else if (action === "get_chats") {
+        ws.send(JSON.stringify({ id, action, success: true, result: baileys.getChats() }));
       } else if (action === "get_status") {
         ws.send(JSON.stringify({ id, action, success: true, result: baileys.getStatus() }));
       } else if (action === "ping") {

@@ -186,6 +186,13 @@ def to_english_command(text: str) -> str:
     if re.fullmatch(r"whats?\s*app\s*(?:la|le|il)\s+(?:yaar|yaaru|yar|yaru|evan|evanga)\s+(?:message|msg|text)\s+"
                     r"(?:pannirukka|pannirukanga|panniruka|pannanga|anupirukka|anupirukanga|anupichirukanga)", body):
         return "who messaged me on whatsapp"
+    # "whatsapp la evlo message vandhirukku" / "evlo unread message iruku": how many unread messages
+    if re.fullmatch(r"(?:whats?\s*app\s*(?:la|le|il)\s+)?(?:(?:evlo|evalo|evvalavu|ethana|eththana)\s+(?:unread\s+|new\s+|puthu\s+)?"
+                    r"(?:message|messages|msg|msgs|text)|(?:unread\s+)?(?:message|messages|msg|msgs)\s+(?:evlo|evalo|ethana))\s+"
+                    r"(?:vandhirukku|vandhiruku|vanthirukku|vanthiruku|vandhuruku|iruku|irukku|irukka|pending)(?:\s+(?:whats?\s*app\s*(?:la|le|il)))?", body):
+        return "how many unread whatsapp messages"
+    if re.fullmatch(r"whats?\s*app\s*(?:la|le|il)\s+(?:enna|yenna)\s+(?:puthusa|pudhusa|new\s*ah|new)(?:\s+(?:iruku|irukku|vandhirukku))?", body):
+        return "summarize my whatsapp"
     m = re.fullmatch(r"(?P<p>[a-z][a-z .]{1,30}?)\s+(?:enna|yenna)\s+(?:message|msg|text)\s+(?:pannirukanga|pannirukka|panniruka|pannaru|"
                      r"pannanga|anupirukanga|anupichirukanga|anupirukka)", body)
     if m:

@@ -25,6 +25,9 @@ class NormalizedWhatsAppMessage(BaseModel):
     chat_name: str = ""          # group subject for group chats (so the owner can name a group explicitly)
     # READY, or PENDING_DECRYPTION for a "Waiting for this message" placeholder (never replied to)
     state: str = "READY"
+    # Sent while JARVIS was offline (history sync at link time, or delivered late on reconnect): stored so the owner
+    # can ask about it, but never answered, announced or run as a command.
+    history: bool = False
 
 
 class WhatsAppBridgeStatus(BaseModel):

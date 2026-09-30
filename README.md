@@ -724,6 +724,16 @@ intelligence stays in Python.
   out, summarised or answered. Say the group to use it: "summarize the CSE group", "read my group messages",
   "reply in the CSE group saying I'll be there", "send a message to the family group saying happy diwali" (always
   confirmed first). "Summarize my WhatsApp" covers personal chats only, one line per person.
+- **Unread means what your phone shows.** "Summarize my WhatsApp" / "what's new on WhatsApp" lists everyone with
+  unread messages and what they said, questions first ("You have 4 unread messages from 3 people. Sanjana sent 2
+  messages; the latest asks "Ena man panra". Ashok Kumar says "OK, I will check"…"), then who you read but have not
+  answered, then how many group messages wait (named, never read out). The bridge follows WhatsApp's own unread
+  badges: counts from the chat list, cleared when you read a chat on the phone or write in it, saved in
+  `data/whatsapp_auth/chat_index.json` across restarts. Messages sent while the bridge or JARVIS was off are no
+  longer lost: they are stored (so you can ask about them) but never answered, announced or run as commands.
+  WhatsApp sends its chat list with the exact counts only when a device is linked, so after updating, unlink JARVIS
+  once (phone: **Linked devices → JARVIS → Log out**) and pair again to import the unread counts you already have;
+  without that, counts are exact for everything that arrives from now on.
 - **Owner remote control.** Messages from the owner numbers run as commands, and replies go back to WhatsApp.
 - **Personal replies in your style.** Import a chat (or learn from history) on **Dashboard → WhatsApp → Contacts**.
   JARVIS learns how *you* write to each person (Tanglish or English, length, emojis, tone) from your own messages
@@ -754,8 +764,9 @@ intelligence stays in Python.
   - **Faster:** a greeting or quick "ok" that you have answered the same way before ("gm" → "gm da ☀️") gets your own
     usual reply instantly, without the language model; everything else still goes through the model and the
     quality checks. Your own new messages keep teaching the profile; JARVIS's messages never do.
-- **Questions about your WhatsApp** are answered, never sent: "tell me the total unread messages" gives the exact
-  count per person (plus how many group messages wait, without reading them), "what did Arun say" / "messages from
+- **Questions about your WhatsApp** are answered, never sent: "tell me the total unread messages" (or "whatsapp la
+  evlo message vandhirukku") gives the exact count per person (plus how many group messages wait, without reading
+  them), "who is waiting for my reply" lists open questions, "what did Arun say" / "messages from
   Priya" read that person's messages, "who messaged me" summarises. "Me", "you", "him", "it" are never treated as
   contacts - JARVIS asks who you mean.
 - **JARVIS remembers what it did.** Every finished action is recorded (what, to whom, result, when). "Who did you

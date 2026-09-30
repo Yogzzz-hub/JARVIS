@@ -1,3 +1,4 @@
+import re
 from typing import Any
 from jarvis.core.router.catalog import IntentCatalog, IntentDefinition
 from jarvis.core.router.models import RouteDecision, RouteLane, RouteSource, ComplexityLevel, ReasonCode
@@ -83,8 +84,10 @@ def match_patterns(
                         parsed_slots["filter"] = "urgent"
                     elif "all" in text_clean:
                         parsed_slots["filter"] = "all"
-                    else:
+                    elif re.search(r"\b(?:reply|replies|respond|answer|waiting|pending)\b", text_clean):
                         parsed_slots["filter"] = "needs_reply"
+                    else:
+                        parsed_slots["filter"] = "unread"
 
                 if missing_slots:
                     return RouteDecision(
