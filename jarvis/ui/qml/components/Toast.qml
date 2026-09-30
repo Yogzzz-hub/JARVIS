@@ -1,49 +1,30 @@
 import QtQuick
 
-Rectangle {
+// Pop-up notice in the corner (pairing code, task errors). Holographic like the rest of the app.
+GlassPanel {
     id: root
     property string title: "Notification"
     property string message: ""
     property bool showing: false
 
-    width: 320
-    height: 70
-    radius: 8
-    color: "#161E2E"
-    border.color: "#00E5FF"
-    border.width: 1
+    width: 360
+    height: col.implicitHeight + 28
+    activeBorder: true
     opacity: showing ? 1.0 : 0.0
     visible: opacity > 0.0
+    y: showing ? 0 : 12
+    Behavior on opacity { NumberAnimation { duration: 250 } }
 
-    Behavior on opacity {
-        NumberAnimation { duration: 250 }
-    }
-
-    Timer {
-        id: hideTimer
-        interval: 3500
-        running: root.showing
-        onTriggered: root.showing = false
-    }
+    Timer { interval: 4500; running: root.showing; onTriggered: root.showing = false }
 
     Column {
-        anchors.fill: parent
-        anchors.margins: 12
+        id: col
+        x: 18; y: 14
+        width: parent.width - 36
         spacing: 4
-
-        Text {
-            text: root.title
-            color: "#00E5FF"
-            font.pixelSize: 12
-            font.bold: true
-        }
-
-        Text {
-            text: root.message
-            color: "#F0F4F8"
-            font.pixelSize: 12
-            elide: Text.ElideRight
-            width: parent.width
-        }
+        Text { text: root.title; color: "#7FEFFF"; font.family: "Orbitron"; font.pixelSize: 11; font.letterSpacing: 2.2
+               font.capitalization: Font.AllUppercase }
+        Text { text: root.message; color: "#EAF8FF"; font.pixelSize: 16; wrapMode: Text.WordWrap; width: parent.width; maximumLineCount: 3; elide: Text.ElideRight }
     }
+    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showing = false }
 }

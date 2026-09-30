@@ -17,8 +17,9 @@ Item {
         id: titleText
         text: root.title
         color: root.titleColor
-        font.pixelSize: 14
-        font.bold: true
+        font.pixelSize: 17
+        font.weight: Font.Bold
+        font.letterSpacing: 0.5
         elide: Text.ElideRight
         width: root.stacked || !root.status.length ? root.width : root.width - badge.width - 14
         y: root.stacked ? 0 : (root.implicitHeight - implicitHeight) / 2

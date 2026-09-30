@@ -27,14 +27,14 @@ GlassPanel {
             Text {
                 text: "⚠ " + root.title
                 color: "#FFB300"
-                font.pixelSize: 14
+                font.pixelSize: 16
                 font.bold: true
             }
             Item { width: Math.max(0, parent.width - 320); height: 1 }
             Text {
                 text: "ID: " + root.ticketId
                 color: "#64748B"
-                font.pixelSize: 11
+                font.pixelSize: 13
             }
         }
 
@@ -47,14 +47,14 @@ GlassPanel {
         Text {
             text: root.target
             color: "#F0F4F8"
-            font.pixelSize: 16
+            font.pixelSize: 18
             font.bold: true
         }
 
         Text {
             text: root.details
             color: "#94A3B8"
-            font.pixelSize: 12
+            font.pixelSize: 14
             wrapMode: Text.Wrap
             width: parent.width
         }
@@ -78,7 +78,7 @@ GlassPanel {
                     anchors.centerIn: parent
                     text: "REJECT"
                     color: "#F0F4F8"
-                    font.pixelSize: 12
+                    font.pixelSize: 14
                     font.bold: true
                 }
                 MouseArea {
@@ -99,7 +99,7 @@ GlassPanel {
                     anchors.centerIn: parent
                     text: "APPROVE"
                     color: "#0A0D12"
-                    font.pixelSize: 12
+                    font.pixelSize: 14
                     font.bold: true
                 }
                 MouseArea {

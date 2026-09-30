@@ -51,8 +51,10 @@ class ActionEntry:
         if self.tool == "open_app":
             return f"{'opened' if self.ok else 'tried to open'} {a.get('name') or ' and '.join(a.get('apps') or [])}"
         if self.tool == "compound":
-            return f"ran {len(a.get('steps') or [])} steps: {', '.join(s.replace('_', ' ') for s in a.get('steps') or [])}"
-        name = self.tool.replace("_", " ")
+            from jarvis.core.commands.introspection import tool_words
+            return f"ran {len(a.get('steps') or [])} steps: {', '.join(tool_words(s) for s in a.get('steps') or [])}"
+        from jarvis.core.commands.introspection import tool_words
+        name = tool_words(self.tool)
         detail = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in list(a.items())[:3] if v not in (None, "", [], {}))
         return f"{'did' if self.ok else 'tried'}: {name}" + (f" ({detail})" if detail else "")
 

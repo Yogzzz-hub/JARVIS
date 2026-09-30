@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -43,6 +44,17 @@ class Task:
     timestamps: dict = field(default_factory=dict)
     result: object = None
     cancellation: asyncio.Event = field(default_factory=asyncio.Event)
+    # Background jobs (request metadata {"background": true}) are cancelled only when the owner says so.
+    background: bool = False
+    intent: str = ""
+    # Real step progress, filled by the plan scheduler as steps finish: node id -> {label, state, error}.
+    steps: dict = field(default_factory=dict)
+    steps_total: int = 0
+    started_monotonic: float = field(default_factory=time.monotonic)
+
+    @property
+    def active(self) -> bool:
+        return self.result is None and self.state not in (State.SUCCESS, State.FAILED, State.CANCELLED, State.RESPONDING)
 
     def snapshot(self):
         return {"request_id": self.request_id, "source": self.source, "raw_text": self.raw_text,
@@ -62,7 +74,8 @@ class TaskManager:
             if completed is None:
                 raise RuntimeError("active task capacity reached")
             del self.tasks[completed]
-        task = Task(request.request_id, request.source, request.text, clock)
+        task = Task(request.request_id, request.source, request.text, clock,
+                    background=bool((getattr(request, "metadata", None) or {}).get("background")))
         task.timestamps[State.IDLE] = now_ns()
         self.tasks[task.request_id] = task
         return task
@@ -81,6 +94,11 @@ class TaskManager:
 
     def recent(self, limit=20):
         return tuple(reversed(tuple(self.tasks.values())))[:limit]
+
+    def active_tasks(self, exclude=None, background=None):
+        """Tasks still running (not finished), optionally only foreground / only background."""
+        return [t for t in self.tasks.values() if t is not exclude and t.active
+                and (background is None or t.background == background)]
 
     def cancel(self, request_id):
         task = self.tasks[request_id]

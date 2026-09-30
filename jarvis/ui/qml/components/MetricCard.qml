@@ -10,12 +10,12 @@ Card {
     padding: 16
     spacing: 6
 
-    Text { text: root.title; color: "#8193AB"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.1
+    Text { text: root.title; color: "#8193AB"; font.pixelSize: 13; font.bold: true; font.letterSpacing: 1.1
            font.capitalization: Font.AllUppercase; elide: Text.ElideRight; width: parent.width }
     Row {
         spacing: 4
         Text { text: root.value; color: "#F0F4F8"; font.pixelSize: 26; font.bold: true }
-        Text { text: root.unit; color: root.accentColor; font.pixelSize: 13; font.bold: true
+        Text { text: root.unit; color: root.accentColor; font.pixelSize: 15; font.bold: true
                anchors.baseline: parent.children[0].baseline }
     }
     Item {

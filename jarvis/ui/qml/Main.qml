@@ -46,28 +46,10 @@ Window {
     readonly property string st: uiState ? uiState.assistantState : "IDLE"
     readonly property color tint: Palette.stateColor(st)
 
-    Rectangle {
+    HoloBackdrop {
         anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#0B1220" }
-            GradientStop { position: 0.55; color: "#070B13" }
-            GradientStop { position: 1.0; color: "#05070C" }
-        }
-    }
-    // faint grid
-    Canvas {
-        anchors.fill: parent
-        opacity: 0.05
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            ctx.strokeStyle = "#7FDBFF"
-            ctx.lineWidth = 1
-            for (var x = 0; x < width; x += 40) { ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, height); ctx.stroke() }
-            for (var y = 0; y < height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(width, y + 0.5); ctx.stroke() }
-        }
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
+        tint: mainWindow.tint
+        animate: !(uiState && uiState.lowResourceMode)
     }
 
     // ------------------------------------------------------------------ header
@@ -76,14 +58,14 @@ Window {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 56
+        height: 64
 
         // frosted header background
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(0.06, 0.09, 0.14, 0.95) }
-                GradientStop { position: 1.0; color: Qt.rgba(0.04, 0.07, 0.12, 0.75) }
+                GradientStop { position: 0.0; color: Qt.rgba(0.02, 0.05, 0.10, 0.92) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.02, 0.06, 0.12, 0.55) }
             }
         }
 
@@ -126,19 +108,21 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
                 Text {
-                    text: "J.A.R.V.I.S"
-                    color: "#F0F4F8"
-                    font.pixelSize: 16
-                    font.bold: true
-                    font.letterSpacing: 5
-                    font.family: "Segoe UI"
+                    text: "JARVIS"
+                    color: "#EAF8FF"
+                    font.family: "Orbitron"
+                    font.pixelSize: 22
+                    font.weight: Font.Medium
+                    font.letterSpacing: 9
+                    style: Text.Outline
+                    styleColor: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.25)
                 }
                 Text {
-                    text: "EDGE  \u00B7  LOCAL AI"
+                    text: "INTELLIGENCE FOR A BRIGHTER TOMORROW"
                     color: mainWindow.tint
-                    font.pixelSize: 9
-                    font.bold: true
-                    font.letterSpacing: 3
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 3.2
                     opacity: 0.85
                 }
             }
@@ -161,17 +145,19 @@ Window {
                     id: clockText
                     text: Qt.formatTime(new Date(), "hh:mm")
                     color: "#E6F7FF"
-                    font.pixelSize: 18
-                    font.bold: true
-                    font.family: "Segoe UI"
+                    font.pixelSize: 20
+                    font.family: "Orbitron"
+                    font.weight: Font.Medium
+                    font.letterSpacing: 2
                     anchors.right: parent.right
                 }
                 Text {
                     id: dateText
                     text: Qt.formatDate(new Date(), "ddd, d MMM")
                     color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.6)
-                    font.pixelSize: 10
-                    font.letterSpacing: 0.5
+                    font.pixelSize: 13
+                    font.letterSpacing: 1.5
+                    font.capitalization: Font.AllUppercase
                     anchors.right: parent.right
                 }
                 Timer {
@@ -192,11 +178,26 @@ Window {
         Item {
             id: sidebar
             readonly property bool compact: mainWindow.width < 1040
-            width: compact ? 64 : 190
+            width: compact ? 68 : 208
             height: parent.height
             Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Qt.rgba(1, 1, 1, 0.06) }
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: Qt.rgba(0.01, 0.04, 0.09, 0.80) }
+                    GradientStop { position: 1.0; color: Qt.rgba(0.02, 0.06, 0.12, 0.45) }
+                }
+            }
+            Rectangle {
+                anchors.right: parent.right; width: 1; height: parent.height
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 0.4; color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.35) }
+                    GradientStop { position: 1.0; color: "transparent" }
+                }
+            }
 
             Column {
                 anchors.fill: parent
@@ -274,10 +275,10 @@ Window {
             NumberAnimation { id: pageFade; target: pageStack; property: "opacity"; from: 0.0; to: 1.0; duration: 160; easing.type: Easing.OutQuad }
 
             HomePage { stateModel: uiState; controller: uiController }
-            ActivityPage { activityModel: uiActivityModel; controller: uiController }
+            ActivityPage { activityModel: uiActivityModel; controller: uiController; stateModel: uiState }
             SystemPage { stateModel: uiState; controller: uiController }
             MemoryPage { controller: uiController }
-            WorkflowsPage { controller: uiController }
+            WorkflowsPage { controller: uiController; stateModel: uiState }
             DevicesPage { stateModel: uiState; controller: uiController }
             IntegrationsPage { stateModel: uiState; controller: uiController; onNavigate: function(i) { pageStack.currentIndex = i } }
             SettingsPage { controller: uiController }
@@ -292,8 +293,9 @@ Window {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 34
+        height: 36
 
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0.01, 0.03, 0.07, 0.78) }
         // gradient separator line
         Rectangle {
             anchors.top: parent.top; width: parent.width; height: 1
@@ -320,8 +322,8 @@ Window {
                 ]
                 delegate: Row {
                     spacing: 6
-                    Text { text: modelData.k; color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.55); font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.2 }
-                    Text { text: modelData.v; color: "#A9BCD3"; font.pixelSize: 10; font.bold: true }
+                    Text { text: modelData.k; color: Qt.rgba(mainWindow.tint.r, mainWindow.tint.g, mainWindow.tint.b, 0.55); font.pixelSize: 12; font.bold: true; font.letterSpacing: 1.6 }
+                    Text { text: modelData.v; color: "#CFE9FF"; font.pixelSize: 13; font.bold: true }
                 }
             }
         }
@@ -364,7 +366,7 @@ Window {
                             }
                         }
                     }
-                    Text { text: modelData.k; color: c; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1 }
+                    Text { text: modelData.k; color: c; font.pixelSize: 12; font.bold: true; font.letterSpacing: 1.6 }
                 }
             }
         }

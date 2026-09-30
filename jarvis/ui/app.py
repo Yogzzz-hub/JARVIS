@@ -49,6 +49,8 @@ def run_app(argv: list[str] | None = None) -> int:
     app.setApplicationName("JARVIS EDGE")
     app.setOrganizationName("JarvisTeam")
     app.setQuitOnLastWindowClosed(False)
+    from jarvis.ui.fonts import load_fonts
+    load_fonts(app)
     from PySide6.QtCore import QLockFile, QStandardPaths
     lock = QLockFile(str(Path(QStandardPaths.writableLocation(QStandardPaths.TempLocation)) / "jarvis-edge-ui.lock"))
     if not lock.tryLock(0):

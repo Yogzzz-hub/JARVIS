@@ -25,7 +25,8 @@ Rectangle {
         anchors { left: parent.left; right: closeBtn.left; verticalCenter: parent.verticalCenter; leftMargin: 20; rightMargin: 10 }
         text: root.text
         color: root.error ? "#FFB4B4" : "#DDF8FF"
-        font.pixelSize: 12
+        font.pixelSize: 15
+        font.weight: Font.Medium
         wrapMode: Text.WordWrap
     }
     Text {

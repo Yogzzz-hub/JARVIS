@@ -4,6 +4,7 @@ import "../components"
 // What JARVIS remembers about you (only what you told it to remember), your to-do list and saved shortcuts.
 Item {
     id: root
+    function openTodos() { var n = 0; for (var i = 0; i < mem.todos.length; i++) if (!mem.todos[i].done) n++; return n }
     property var controller
     property var client: (typeof uiDashboard !== "undefined") ? uiDashboard : null
     readonly property var mem: client ? client.memory : ({ facts: [], todos: [], shortcuts: [] })
@@ -17,9 +18,19 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "memory"
             title: "Memory"
             subtitle: "Only what you asked JARVIS to remember. Delete anything, any time."
             JButton { text: "REFRESH"; variant: "ghost"; busy: root.client ? root.client.busy : false; onClicked: if (root.client) root.client.refreshMemory() }
+        }
+
+        PageHero {
+            width: parent.width
+            icon: "memory"
+            caption: "PERSONAL MEMORY"
+            HoloStat { value: root.mem.facts.length + ""; label: "Facts"; hint: "things you asked me to remember" }
+            HoloStat { value: root.openTodos() + ""; label: "To-dos open"; tint: "#FFB300"; hint: root.mem.todos.length + " on the list" }
+            HoloStat { value: root.mem.shortcuts.length + ""; label: "Shortcuts"; tint: "#B388FF"; hint: "one phrase, many steps" }
         }
         NoticeBar { width: parent.width; text: root.client && root.client.noticePage === "memory" ? root.client.notice : ""; error: root.client ? root.client.noticeError : false
                     onClosed: if (root.client) root.client.clearNotice() }
@@ -27,7 +38,7 @@ Item {
         // add a fact
         Card {
             width: parent.width
-            Text { text: "Teach JARVIS something"; color: "#F0F4F8"; font.pixelSize: 14; font.bold: true }
+            Text { text: "Teach JARVIS something"; color: "#F0F4F8"; font.pixelSize: 16; font.bold: true }
             Item {
                 width: parent.width
                 height: 34
@@ -51,9 +62,9 @@ Item {
                     Item {
                         width: parent.width
                         height: Math.max(factText.implicitHeight, 26)
-                        Text { id: factText; text: modelData.fact; color: "#E2E8F0"; font.pixelSize: 13; wrapMode: Text.WordWrap
+                        Text { id: factText; text: modelData.fact; color: "#E2E8F0"; font.pixelSize: 15; wrapMode: Text.WordWrap
                                anchors.left: parent.left; anchors.right: dateText.left; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter }
-                        Text { id: dateText; text: root.when(modelData.created_at); color: "#64748B"; font.pixelSize: 11
+                        Text { id: dateText; text: root.when(modelData.created_at); color: "#64748B"; font.pixelSize: 13
                                anchors.right: forget.left; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
                         JButton { id: forget; text: "FORGET"; variant: "danger"; small: true; anchors.right: parent.right
                                   anchors.verticalCenter: parent.verticalCenter; onClicked: root.client.forgetFact(modelData.id) }
@@ -74,7 +85,7 @@ Item {
                     spacing: 10
                     Rectangle { width: 16; height: 16; radius: 4; color: modelData.done ? "#00E676" : "transparent"
                                 border.width: 1; border.color: modelData.done ? "#00E676" : "#4A5B73"; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: modelData.text; color: modelData.done ? "#64748B" : "#E2E8F0"; font.pixelSize: 13
+                    Text { text: modelData.text; color: modelData.done ? "#64748B" : "#E2E8F0"; font.pixelSize: 15
                            font.strikeout: modelData.done }
                 }
             }
@@ -98,8 +109,8 @@ Item {
                             id: scCol
                             anchors.left: parent.left; anchors.right: del.left; anchors.rightMargin: 14
                             spacing: 3
-                            Text { text: "“" + modelData.phrase + "”"; color: "#F0F4F8"; font.pixelSize: 13; font.bold: true }
-                            Text { text: (modelData.steps || []).join("  →  "); color: "#8193AB"; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { text: "“" + modelData.phrase + "”"; color: "#F0F4F8"; font.pixelSize: 15; font.bold: true }
+                            Text { text: (modelData.steps || []).join("  →  "); color: "#8193AB"; font.pixelSize: 14; wrapMode: Text.WordWrap; width: parent.width }
                         }
                         JButton { id: del; text: "DELETE"; variant: "danger"; small: true; anchors.right: parent.right
                                   anchors.verticalCenter: parent.verticalCenter; onClicked: root.client.deleteShortcut(modelData.phrase) }

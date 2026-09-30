@@ -87,9 +87,9 @@ Item {
         Text {
             text: root.text
             color: root.statusColor
-            font.pixelSize: 11
+            font.pixelSize: 13
             font.bold: true
-            font.letterSpacing: 0.8
+            font.letterSpacing: 1.2
             anchors.verticalCenter: parent.verticalCenter
         }
     }

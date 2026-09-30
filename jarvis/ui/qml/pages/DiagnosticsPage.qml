@@ -16,10 +16,24 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "diagnostics"
             title: "Diagnostics"
             subtitle: "Checks every part JARVIS needs and says how to fix what is missing."
             JButton { text: root.checks.length ? "RUN AGAIN" : "RUN DIAGNOSTICS"; busy: root.client ? root.client.busy : false
                       onClicked: if (root.client) root.client.runDiagnostics() }
+        }
+
+        PageHero {
+            width: parent.width
+            icon: "diagnostics"
+            caption: "SYSTEM HEALTH"
+            HoloGauge { width: 132; height: 156; label: "Health"; tint: root.count("FAIL") ? "#FF5252" : (root.count("WARN") ? "#FFB300" : "#00E676")
+                        value: root.checks.length ? 100 * root.count("PASS") / root.checks.length : 0
+                        text: root.checks.length ? Math.round(100 * root.count("PASS") / root.checks.length) + "" : "--" }
+            HoloStat { value: root.count("FAIL") + ""; label: "Failed"; tint: "#FF5252"; hint: "must be fixed" }
+            HoloStat { value: root.count("WARN") + ""; label: "Warnings"; tint: "#FFB300"; hint: "optional or degraded" }
+            HoloStat { value: root.client && root.client.diagnosticsMs ? (root.client.diagnosticsMs / 1000).toFixed(1) + "s" : "--"
+                       label: "Check time"; hint: root.checks.length ? root.checks.length + " checks" : "press Run diagnostics" }
         }
         NoticeBar { width: parent.width; text: root.client && root.client.noticePage === "diagnostics" ? root.client.notice : ""; error: root.client ? root.client.noticeError : false
                     onClosed: if (root.client) root.client.clearNotice() }
@@ -35,7 +49,7 @@ Item {
                     color: root.filter === modelData[0] ? Qt.rgba(0, 0.9, 1, 0.14) : "transparent"
                     border.width: 1; border.color: root.filter === modelData[0] ? "#00E5FF" : "#2A3A52"
                     Text { id: chip; anchors.centerIn: parent; text: modelData[0] + "  " + modelData[1]; color: modelData[2]
-                           font.pixelSize: 11; font.bold: true }
+                           font.pixelSize: 13; font.bold: true }
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.filter = modelData[0] }
                 }
             }
@@ -57,11 +71,11 @@ Item {
                         height: Math.max(nameText.implicitHeight, badge.height)
                         StatusBadge { id: badge; status: modelData.status === "PASS" ? "READY" : (modelData.status === "WARN" ? "WAITING" : "ERROR")
                                       text: modelData.status; anchors.verticalCenter: parent.verticalCenter }
-                        Text { id: nameText; text: modelData.name; color: "#F0F4F8"; font.pixelSize: 13; font.bold: true
+                        Text { id: nameText; text: modelData.name; color: "#F0F4F8"; font.pixelSize: 15; font.bold: true
                                anchors.left: badge.right; anchors.leftMargin: 14; anchors.right: parent.right; elide: Text.ElideRight
                                anchors.verticalCenter: parent.verticalCenter }
                     }
-                    Text { text: modelData.detail; visible: text.length > 0; color: "#8193AB"; font.pixelSize: 12
+                    Text { text: modelData.detail; visible: text.length > 0; color: "#8193AB"; font.pixelSize: 14
                            wrapMode: Text.WrapAnywhere; maximumLineCount: 3; elide: Text.ElideRight; width: parent.width
                            leftPadding: badge.width + 14 }
                 }

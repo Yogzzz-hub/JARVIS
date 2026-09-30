@@ -71,13 +71,22 @@ Item {
                 id: stage
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumHeight: 220
+                Layout.minimumHeight: 260
+
+                ReactorStage {
+                    id: holo
+                    anchors.fill: parent
+                    z: -2
+                    assistantState: root.st
+                    animate: !root.lowRes
+                }
 
                 ReactorView {
                     id: reactor
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width, parent.height)
+                    width: holo.core * 0.84
                     height: width
+                    x: holo.cx - width / 2
+                    y: holo.cy - height / 2
                     assistantState: root.st
                     level: stateModel ? stateModel.audioLevel : 0
                     lowResourceMode: root.lowRes
@@ -174,7 +183,7 @@ Item {
                     anchors.topMargin: -reactor.height * 0.12
                     text: "SYSTEMS ONLINE"
                     color: root.tint
-                    font.pixelSize: 12
+                    font.pixelSize: 14
                     font.bold: true
                     font.letterSpacing: 6
                     opacity: 0
@@ -232,7 +241,7 @@ Item {
                         Text {
                             text: Palette.label(root.st).toUpperCase()
                             color: "#E6F7FF"
-                            font.pixelSize: 11
+                            font.pixelSize: 13
                             font.bold: true
                             font.letterSpacing: 1.6
                         }
@@ -245,7 +254,7 @@ Item {
                     anchors.margins: 16
                     text: reactor.showing3D ? "3D" : "2D"
                     color: "#4B6584"
-                    font.pixelSize: 10
+                    font.pixelSize: 12
                     font.bold: true
                     font.letterSpacing: 2
                 }
@@ -263,7 +272,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     text: stateModel ? (root.listening ? (stateModel.transcriptPartial || "Listening...") : (stateModel.transcriptFinal || "")) : ""
                     color: root.listening ? "#E6F7FF" : "#7F93AD"
-                    font.pixelSize: root.listening ? 18 : 13
+                    font.pixelSize: root.listening ? 21 : 15
                     font.italic: root.listening
                     elide: Text.ElideLeft
                     Behavior on font.pixelSize { NumberAnimation { duration: 150 } }
@@ -275,10 +284,25 @@ Item {
                     text: stateModel && stateModel.response ? stateModel.response
                           : (stateModel && stateModel.transcriptFinal ? "" : "Say “Hey Jarvis”, click the reactor, or press Ctrl+Space")
                     color: stateModel && stateModel.response ? "#F0F4F8" : "#56708F"
-                    font.pixelSize: 15
+                    font.pixelSize: 17
                     wrapMode: Text.WordWrap
                     maximumLineCount: 3
                     elide: Text.ElideRight
+                }
+            }
+            GlassPanel {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 800
+                Layout.preferredHeight: pipeline.implicitHeight + 16
+                Layout.alignment: Qt.AlignHCenter
+                brackets: false
+                radius: 12
+                WorkflowPipeline {
+                    id: pipeline
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    assistantState: root.st
+                    animate: !root.lowRes
                 }
             }
             VoiceWaveform {
@@ -310,8 +334,8 @@ Item {
                         width: chipRow2.implicitWidth + 38
                         radius: 17
                         color: chipMouse.containsMouse
-                               ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.16)
-                               : Qt.rgba(1, 1, 1, 0.035)
+                               ? Qt.rgba(root.tint.r * 0.3, 0.2 + root.tint.g * 0.2, 0.25 + root.tint.b * 0.2, 0.92)
+                               : Qt.rgba(0.03, 0.08, 0.15, 0.85)
                         border.color: chipMouse.containsMouse
                                       ? Qt.rgba(root.tint.r, root.tint.g, root.tint.b, 0.55)
                                       : Qt.rgba(1, 1, 1, 0.09)
@@ -338,8 +362,8 @@ Item {
                             Text {
                                 text: modelData.label
                                 color: chipMouse.containsMouse ? "#F0F4F8" : "#CFE3F7"
-                                font.pixelSize: 12
-                                font.family: "Segoe UI"
+                                font.pixelSize: 14
+                                font.family: "Rajdhani"
                                 anchors.verticalCenter: parent.verticalCenter
                                 Behavior on color { ColorAnimation { duration: 150 } }
                             }
@@ -403,14 +427,14 @@ Item {
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignVCenter
                         color: "#F0F4F8"
-                        font.pixelSize: 14
+                        font.pixelSize: 16
                         clip: true
                         selectByMouse: true
                         selectionColor: root.tint
                         Text {
                             text: "Ask or tell JARVIS anything...   (Ctrl+K)"
                             color: "#56708F"
-                            font.pixelSize: 14
+                            font.pixelSize: 16
                             visible: !cmdInput.text && !cmdInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -436,7 +460,7 @@ Item {
                         visible: stateModel ? stateModel.isSpeaking || stateModel.isTaskRunning : false
                         color: stopMouse.containsMouse ? "#3A1A22" : Qt.rgba(1, 1, 1, 0.04)
                         border.color: "#FF5252"
-                        Text { anchors.centerIn: parent; text: "✕"; color: "#FF8A80"; font.pixelSize: 13 }
+                        Text { anchors.centerIn: parent; text: "✕"; color: "#FF8A80"; font.pixelSize: 15 }
                         MouseArea {
                             id: stopMouse
                             anchors.fill: parent
@@ -471,16 +495,16 @@ Item {
                             Text {
                                 text: "SEND"
                                 color: "#05101A"
-                                font.pixelSize: 12
+                                font.pixelSize: 14
                                 font.bold: true
                                 font.letterSpacing: 1.5
-                                font.family: "Segoe UI"
+                                font.family: "Rajdhani"
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
                                 text: "→"
                                 color: "#05101A"
-                                font.pixelSize: 14
+                                font.pixelSize: 16
                                 font.bold: true
                                 anchors.verticalCenter: parent.verticalCenter
                             }
@@ -542,7 +566,7 @@ Item {
                         Text {
                             text: "CONVERSATION"
                             color: "#8FB3D9"
-                            font.pixelSize: 11
+                            font.pixelSize: 13
                             font.bold: true
                             font.letterSpacing: 2.5
                             Layout.fillWidth: true
@@ -560,7 +584,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: "Clear"
                                 color: clearMouse.containsMouse ? "#FF8A80" : "#56708F"
-                                font.pixelSize: 10
+                                font.pixelSize: 12
                                 font.bold: true
                                 Behavior on color { ColorAnimation { duration: 120 } }
                             }
@@ -650,7 +674,7 @@ Item {
                             anchors.right: mine ? parent.right : undefined
                             text: (mine ? "You" : "JARVIS") + "  \u00B7  " + model.time
                             color: "#4B6584"
-                            font.pixelSize: 9
+                            font.pixelSize: 11
                             font.bold: true
                         }
                         Rectangle {
@@ -672,7 +696,7 @@ Item {
                                 width: Math.min(implicitWidth, chat.width * 0.88 - 24)
                                 text: model.text + (model.streaming ? " \u258D" : "")
                                 color: "#E8F1FA"
-                                font.pixelSize: 13
+                                font.pixelSize: 15
                                 wrapMode: Text.Wrap
                                 textFormat: Text.PlainText
                             }
@@ -686,8 +710,8 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                         text: "Your conversation with JARVIS appears here.\nTry “explain black holes simply” or “remind me to stretch in 20 minutes”."
-                        color: "#4B6584"
-                        font.pixelSize: 12
+                        color: "#7F9CBC"
+                        font.pixelSize: 16
                         lineHeight: 1.3
                     }
                 }
