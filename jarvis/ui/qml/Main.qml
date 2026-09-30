@@ -279,7 +279,7 @@ Window {
             MemoryPage { controller: uiController }
             WorkflowsPage { controller: uiController }
             DevicesPage { stateModel: uiState; controller: uiController }
-            IntegrationsPage { stateModel: uiState; controller: uiController }
+            IntegrationsPage { stateModel: uiState; controller: uiController; onNavigate: function(i) { pageStack.currentIndex = i } }
             SettingsPage { controller: uiController }
             DiagnosticsPage { stateModel: uiState; controller: uiController }
             WhatsAppContactsPage { }
@@ -392,6 +392,10 @@ Window {
         stateModel: uiState
         controller: uiController
         visible: uiController ? uiController.getSetting("floating_orb_enabled") === true : false
+        Connections {
+            target: uiController
+            function onSettingChanged(key, value) { if (key === "floating_orb_enabled") floatingOrb.visible = value === true }
+        }
         x: Screen.width - 80
         y: 120
     }

@@ -46,7 +46,7 @@ class AutoReplyPolicy:
 
     # ------------------------------------------------------------------ grants
     def grant(self, scope: GrantScope, contact_ids: list[str], expires_at: float, now: Optional[float] = None,
-              include_untrained: bool = False) -> AutoReplyGrant:
+              include_untrained: bool = False, note: str = "") -> AutoReplyGrant:
         now = time.time() if now is None else now
         if expires_at <= now:
             raise ValueError("The auto-reply window must end in the future.")
@@ -59,7 +59,7 @@ class AutoReplyPolicy:
         g = AutoReplyGrant(grant_id=f"grant_{uuid.uuid4().hex[:10]}", scope=scope,
                            contact_ids=list(dict.fromkeys(contact_ids)) if scope != GrantScope.ALL_DIRECT_CONTACTS else [],
                            enabled_at=now, expires_at=expires_at, mode=ReplyMode.AUTO_REPLY_UNTIL, granted_by_user=True,
-                           include_untrained=include_untrained)
+                           include_untrained=include_untrained, note=(note or "").strip()[:300])
         self.store.add_grant(g)
         return g
 
@@ -118,7 +118,9 @@ class AutoReplyPolicy:
         grants = [g for g in self.active_grants(now) if g.covers(contact_id)]
         if grants:
             g = max(grants, key=lambda x: x.expires_at)
-            if g.scope == GrantScope.ALL_DIRECT_CONTACTS and not has_profile and not (self.auto_reply_untrained or g.include_untrained):
+            # a dictated away message needs no learned style; a drafted reply does
+            if (g.scope == GrantScope.ALL_DIRECT_CONTACTS and not has_profile and not g.note
+                    and not (self.auto_reply_untrained or g.include_untrained)):
                 return PolicyDecision(ReplyMode.SUGGEST_ONLY, "UNTRAINED_CONTACT_EVERYONE_MODE", g)
             return PolicyDecision(ReplyMode.AUTO_REPLY_UNTIL, "GRANT_ACTIVE", g)
         base = self.store.get_mode(contact_id)
@@ -142,5 +144,5 @@ class AutoReplyPolicy:
         for g in self.active_grants(now):
             out.append({"grant_id": g.grant_id, "scope": g.scope.value, "contact_ids": g.contact_ids,
                         "expires_at": g.expires_at, "minutes_left": max(0, round((g.expires_at - now) / 60)),
-                        "groups": "BLOCKED"})
+                        "groups": "BLOCKED", "note": g.note})
         return out

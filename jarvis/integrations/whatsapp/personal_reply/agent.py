@@ -57,6 +57,28 @@ def _fmt_until(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%I:%M %p").lstrip("0")
 
 
+_AWAY_FIX = {"metting": "meeting", "meting": "meeting", "mtg": "meeting", "meetin": "meeting", "gng": "going",
+             "goin": "going", "bzy": "busy", "wrk": "work", "clg": "college", "ofc": "office", "msg": "message",
+             "ur": "your", "u": "you", "r": "are", "tmrw": "tomorrow", "l8r": "later"}
+
+
+def away_text(note: str) -> str:
+    """The owner's dictated away message as it is sent: "i am busy at mettting" -> "I'm busy at meeting. I'll get back
+    to you soon." (first person, typos fixed, a promise to reply added when the owner did not give one)."""
+    t = " ".join((note or "").split()).strip(" .,!")
+    t = re.sub(r"^(?:that|saying|to say|say|tell (?:them|him|her|everyone)(?: that)?)\s+", "", t, flags=re.I)
+    t = re.sub(r"(\w)\1{2,}", r"\1\1", t)
+    t = " ".join(_AWAY_FIX.get(w.lower(), w) for w in t.split(" "))
+    t = re.sub(r"\bi am\b", "I'm", t, flags=re.I)
+    t = re.sub(r"\bi(?=['\s]|$)", "I", t)
+    if not t:
+        return "I'm busy right now. I'll get back to you soon."
+    t = t[0].upper() + t[1:]
+    if not re.search(r"\b(?:later|soon|call you|get back|reply|text you|ping you)\b", t, re.I):
+        t += ". I'll get back to you soon"
+    return t + "."
+
+
 def _duration_words(seconds: float) -> str:
     mins = max(1, round(seconds / 60))
     if mins % 60 == 0:
@@ -88,6 +110,7 @@ class PersonalReplyAgent:
         self.notifier = notifier
         self.index = ContactExampleIndex(self.store)
         self._buffers: dict[str, IncomingBatch] = {}
+        self._noted: set[tuple[str, str]] = set()  # (grant, contact) already sent the away message
         self._flush_tasks: dict[str, asyncio.Task] = {}
         self._owner_replied_at: dict[str, float] = {}
         self._last_contact: str = ""
@@ -214,6 +237,18 @@ class PersonalReplyAgent:
                                           decision.grant.grant_id if decision.grant else None, batch.text)
         if reply_id is None:
             return {"status": Outcome.DUPLICATE.value}
+        if decision.auto and decision.grant is not None and decision.grant.note:
+            # the owner dictated what to say ("tell them I'm in a meeting"): said once per person, no model involved
+            key = (decision.grant.grant_id, cid)
+            if key in self._noted:
+                self.store.update_reply(reply_id, status=Outcome.NEEDS_USER_REVIEW.value, reason="away message already sent")
+                self._activity(cid, name, "Not sent", "already told them you're away")
+                return {"status": Outcome.NEEDS_USER_REVIEW.value, "reply_id": reply_id, "reason": "away message already sent"}
+            self._noted.add(key)
+            text = away_text(decision.grant.note)
+            self.store.update_reply(reply_id, text=text, draft_hash=text_hash(text))
+            self._activity(cid, name, "Away message")
+            return await self._send(reply_id, cid, batch.chat_id, name, text, decision, batch.last_message_id)
         self._activity(cid, name, "Analyzing")
         draft = await self.draft(cid, batch.texts, exclude_message_ids=set(batch.message_ids), name=name)
         cand, quality, profile, ctx, und = draft["candidate"], draft["quality"], draft["profile"], draft["context"], draft["understanding"]
@@ -685,15 +720,16 @@ class PersonalReplyAgent:
                 "sent": False}
 
     # ------------------------------------------------------------------ grants / modes
-    def enable(self, contact_ids: list[str], expires_at: float, everyone: bool = False, names: Optional[list[str]] = None) -> dict[str, Any]:
+    def enable(self, contact_ids: list[str], expires_at: float, everyone: bool = False, names: Optional[list[str]] = None,
+               note: str = "") -> dict[str, Any]:
         now = self.clock()
         if everyone:
-            g = self.policy.grant(GrantScope.ALL_DIRECT_CONTACTS, [], expires_at, now=now)
+            g = self.policy.grant(GrantScope.ALL_DIRECT_CONTACTS, [], expires_at, now=now, note=note)
             msg = (f"Auto replies to all direct contacts are on for the next {_duration_words(expires_at - now)} "
                    f"(until {_fmt_until(expires_at)}). Group chats remain disabled.")
         else:
             scope = GrantScope.CONTACT if len(contact_ids) == 1 else GrantScope.CONTACTS
-            g = self.policy.grant(scope, contact_ids, expires_at, now=now)
+            g = self.policy.grant(scope, contact_ids, expires_at, now=now, note=note)
             who = ", ".join(names or [self.store.display_name(c) for c in contact_ids])
             msg = (f"Auto replies to {who} are enabled for {_duration_words(expires_at - now)} "
                    f"(until {_fmt_until(expires_at)}). Group chats remain disabled.")
@@ -701,7 +737,12 @@ class PersonalReplyAgent:
                 self.store.upsert_contact(c)
             self._last_contact = contact_ids[-1]
         self._emit("grant", contact_id=",".join(contact_ids) or "ALL_DIRECT", grant_id=g.grant_id, expires_at=g.expires_at)
-        untrained = [] if everyone else [c for c in contact_ids if self.store.load_profile(c) is None]
+        untrained = [] if everyone or g.note else [c for c in contact_ids if self.store.load_profile(c) is None]
+        if g.note:
+            msg += f' Each person gets: "{away_text(g.note)}"'
+        elif everyone and not (self.policy.auto_reply_untrained or g.include_untrained):
+            msg += (" People whose style I haven't learned yet get a draft for your OK instead - or tell me what to say, "
+                    "like: auto reply to everyone for an hour saying I'm in a meeting.")
         if untrained:
             msg += " I haven't learned your style with them yet, so I'll use your general style."
         return {"status": "ENABLED", "grant_id": g.grant_id, "expires_at": g.expires_at, "message": msg}

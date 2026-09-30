@@ -88,6 +88,8 @@ class PersonalReplyStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as con:
             con.executescript(SCHEMA)
+            if "note" not in {r[1] for r in con.execute("PRAGMA table_info(wa_pr_grants)").fetchall()}:
+                con.execute("ALTER TABLE wa_pr_grants ADD COLUMN note TEXT NOT NULL DEFAULT ''")
 
     def _conn(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.path, timeout=10)
@@ -233,9 +235,10 @@ class PersonalReplyStore:
     def add_grant(self, grant: AutoReplyGrant) -> None:
         with self._lock, self._conn() as con:
             con.execute("INSERT INTO wa_pr_grants(grant_id, scope, contact_ids, mode, enabled_at, expires_at, granted_by_user, "
-                        "revoked_at, include_untrained) VALUES (?,?,?,?,?,?,?,?,?)",
+                        "revoked_at, include_untrained, note) VALUES (?,?,?,?,?,?,?,?,?,?)",
                         (grant.grant_id, grant.scope.value, json.dumps(grant.contact_ids), grant.mode.value, grant.enabled_at,
-                         grant.expires_at, 1 if grant.granted_by_user else 0, grant.revoked_at, 1 if grant.include_untrained else 0))
+                         grant.expires_at, 1 if grant.granted_by_user else 0, grant.revoked_at, 1 if grant.include_untrained else 0,
+                         grant.note or ""))
 
     def grants(self, include_inactive: bool = False) -> list[AutoReplyGrant]:
         q = "SELECT * FROM wa_pr_grants" + ("" if include_inactive else " WHERE revoked_at IS NULL") + " ORDER BY enabled_at"
@@ -244,7 +247,8 @@ class PersonalReplyStore:
         return [AutoReplyGrant(grant_id=r["grant_id"], scope=GrantScope(r["scope"]), contact_ids=json.loads(r["contact_ids"]),
                                enabled_at=r["enabled_at"], expires_at=r["expires_at"], mode=ReplyMode(r["mode"]),
                                granted_by_user=bool(r["granted_by_user"]), revoked_at=r["revoked_at"],
-                               include_untrained=bool(r["include_untrained"])) for r in rows]
+                               include_untrained=bool(r["include_untrained"]),
+                               note=(r["note"] if "note" in r.keys() else "") or "") for r in rows]
 
     def revoke_grant(self, grant_id: str, at: Optional[float] = None) -> None:
         with self._lock, self._conn() as con:

@@ -179,7 +179,9 @@ class SmartRouter:
                                                          "battery_status", "network_info", "recent_actions", "quick_answer"})
         return intent in self._READ_ONLY_CACHE
 
-    _STATE_QUESTION = re.compile(r"^(?:(?:um+|uh+|hey|jarvis|so|wait)\s*,?\s+)*(?:is|are|was|were|does|do|did|has|have|should|am|isn'?t|doesn'?t)\b"
+    # "do" is only a question with a subject after it ("do i have...", "do my files..."); "do auto reply" is a command
+    _STATE_QUESTION = re.compile(r"^(?:(?:um+|uh+|hey|jarvis|so|wait)\s*,?\s+)*(?:is|are|was|were|does|did|has|have|should|am|isn'?t|doesn'?t|"
+                                 r"do(?=\s+(?:i|you|u|we|they|he|she|it|my|your|our|their|his|her|these|those|any|all|people)\b))\b"
                                  r"(?!\s+(?:not|n't)\b)", re.I)
 
     def _sanity(self, decision: RouteDecision, text: str) -> RouteDecision:
@@ -191,6 +193,11 @@ class SmartRouter:
                                      confidence=0.6, source=decision.source, complexity=ComplexityLevel.SIMPLE,
                                      normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
         clean = clean_for_matching(text).strip().lower()
+        # "I need python 3.12 is open": a sentence is never an app name to open or close
+        app = str((decision.slots or {}).get("name") or (decision.slots or {}).get("app") or "").strip().lower()
+        if decision.intent in ("open_app", "close_app") and (re.match(r"(?:i|we|my|me)\b", app)
+                                                            or len(app.split()) > 5):
+            return chat()
         if decision.intent == "forget_fact" and not re.match(r"^(?:please\s+)?(?:forget|delete|remove|erase|clear|wipe)\b", clean):
             return chat()
         looks_up = re.match(r"^(?:read|list|find|search|get|check|show|recall|summari[sz]e|diagnose|describe)_", decision.intent) or \

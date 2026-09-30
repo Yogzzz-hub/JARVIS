@@ -426,6 +426,14 @@ def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
         return _decision(request_id, t, "check_app_installed", {"name": c.group("app").strip()})
     if m and m.group("app").strip() not in ("it", "that", "this", "them", "updates", "all updates"):
         return _decision(request_id, t, "install_software", {"name": m.group("app").strip()})
+    # "i need python 3.12", "i want node 20", "get me jdk 17": a specific version (or a developer tool) is an install
+    n = re.fullmatch(r"(?:i\s+(?:need|want|require)|get\s+me|give\s+me|i\s+need\s+to\s+(?:get|have))\s+(?:the\s+)?"
+                     r"(?P<app>(?:[a-z][a-z0-9+#.-]*\s+){0,2}v?\d+(?:\.\d+){0,2}|python|python3|node\s*js|nodejs|java|jdk|git|"
+                     r"docker(?:\s+desktop)?|android\s+studio|vs\s*code|visual\s+studio(?:\s+code)?|postman|mongodb|mysql|"
+                     r"postgres(?:ql)?|flutter|go(?:lang)?|rust)(?:\s+(?:installed|on\s+(?:my|this)\s+(?:pc|laptop|computer)))?", t)
+    if n and re.match(r"[a-z]", n.group("app")) and not re.match(r"(?:rs|rupees?|minutes?|mins?|hours?|days?|percent|gb|mb)\b",
+                                                              n.group("app").split()[-1] if len(n.group("app").split()) > 1 else ""):
+        return _decision(request_id, t, "install_software", {"name": n.group("app").strip()})
     m = re.match(rf"^(?:uninstall|un install|remove|delete)\s+(?:the\s+)?(?:app\s+|application\s+|program\s+|software\s+)?{_APP}(?P<kind>\s+(?:app|application|program|software))?{_ON_PC}$", t)
     if m and (t.startswith(("uninstall", "un install")) or m.group("kind") or re.search(r"\bfrom (?:my|this|the) (?:pc|laptop|computer|system)", t)):
         return _decision(request_id, t, "uninstall_software", {"name": m.group("app").strip()})

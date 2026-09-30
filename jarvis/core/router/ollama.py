@@ -34,6 +34,25 @@ CLASSIFIER_SCHEMA = {
     ],
 }
 
+_SLOT_QUESTIONS = {
+    "name": "Which app or program do you mean?", "app": "Which app do you mean?", "recipient": "Who should I send it to?",
+    "message": "What should the message say?", "query": "What should I search for?", "path": "Which file or folder?",
+    "url": "Which website?", "text": "What should it say?", "percent": "What level, in percent?", "seconds": "For how long?",
+    "time": "At what time?", "city": "Which city?", "folder": "Which folder?", "who": "Who do you mean?",
+}
+_INTENT_QUESTIONS = {
+    "whatsapp_auto_reply": "Should I turn WhatsApp auto reply on or off? For example: auto reply to everyone for 30 minutes "
+                           "saying I'm in a meeting.",
+}
+
+
+def clarify_question(intent: str, slot: str) -> str:
+    """A natural follow-up question for a missing detail ("Who should I send it to?"), never "the action for that"."""
+    if intent in _INTENT_QUESTIONS:
+        return _INTENT_QUESTIONS[intent]
+    return _SLOT_QUESTIONS.get(slot, f"What {slot.replace('_', ' ')} should I use?")
+
+
 class LLMProvider(Protocol):
     async def classify(
         self,
@@ -347,7 +366,7 @@ class OllamaProvider:
                     source=RouteSource.TINY_MODEL,
                     complexity=ComplexityLevel.SIMPLE,
                     missing_slots=missing_slots,
-                    clarification=f"Please tell me the {pretty} for that.",
+                    clarification=clarify_question(intent, missing_slots[0]),
                     normalized_text=text,
                     model_used=model_used,
                     routing_ms=total_ms,

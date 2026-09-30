@@ -84,6 +84,8 @@ def create_app(runtime=None):
 
     from jarvis.integrations.whatsapp.personal_reply.api import register as register_personal_reply
     register_personal_reply(app, runtime)
+    from jarvis.core.gateway.dashboard_api import register as register_dashboard
+    register_dashboard(app, runtime)
 
     @app.get("/tasks/{request_id}", response_model=TaskSnapshot)
     async def task(request_id: str):

@@ -6,74 +6,37 @@ Item {
     property var stateModel
     property var controller
 
-    Column {
+    PageScroll {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 16
 
-        Row {
+        PageHeader {
             width: parent.width
-            Text {
-                text: "CONNECTED HARDWARE & PERIPHERALS"
-                color: "#F0F4F8"
-                font.pixelSize: 18
-                font.bold: true
-            }
-            Item { width: Math.max(0, parent.width - 520); height: 1 }
-            Text {
-                text: "Zero Polling Overhead"
-                color: "#64748B"
-                font.pixelSize: 11
-                anchors.verticalCenter: parent.verticalCenter
-            }
+            title: "Devices"
+            subtitle: "Your phone and the hardware JARVIS can use."
+            JButton { text: "PHONE STATUS"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("phone status") }
+            JButton { text: "CONNECT PHONE"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("connect my phone") }
+            JButton { text: "MIRROR SCREEN"; onClicked: if (root.controller) root.controller.sendCommand("mirror my phone screen") }
         }
 
-        Rectangle {
+        CardGrid {
+            id: grid
             width: parent.width
-            height: 1
-            color: "#222D3E"
-        }
-
-        Flow {
-            width: parent.width
-            spacing: 14
-
+            minCardWidth: 250
             Repeater {
-                model: stateModel ? stateModel.devices : []
-                delegate: GlassPanel {
-                    width: 250
-                    height: 75
-
-                    Column {
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 6
-
-                        Row {
-                            width: parent.width
-                            Text {
-                                text: modelData.name || "Device"
-                                color: "#F0F4F8"
-                                font.pixelSize: 13
-                                font.bold: true
-                                width: parent.width - devBadge.width - 4
-                                elide: Text.ElideRight
-                            }
-                            StatusBadge {
-                                id: devBadge
-                                status: modelData.status || "OFFLINE"
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-                        }
-
-                        Text {
-                            text: "Type: " + (modelData.type || "peripheral")
-                            color: "#64748B"
-                            font.pixelSize: 11
-                        }
-                    }
+                model: root.stateModel ? root.stateModel.devices : []
+                delegate: Card {
+                    width: grid.cellWidth
+                    padding: 16
+                    CardTitle { width: parent.width; title: modelData.name || "Device"; status: modelData.status || "OFFLINE" }
+                    Text { text: "Type: " + (modelData.type || "peripheral"); color: "#8193AB"; font.pixelSize: 12 }
                 }
             }
+        }
+        EmptyState {
+            width: parent.width
+            visible: !root.stateModel || !root.stateModel.devices || root.stateModel.devices.length === 0
+            title: "No devices reported yet"
+            hint: "Connect your phone with USB debugging (or say \"connect my phone\") and it shows up here."
         }
     }
 }

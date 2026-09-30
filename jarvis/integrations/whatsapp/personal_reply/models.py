@@ -175,6 +175,7 @@ class AutoReplyGrant:
     granted_by_user: bool = True
     revoked_at: Optional[float] = None
     include_untrained: bool = False
+    note: str = ""  # away message the owner dictated ("I'm in a meeting"): sent once to each person instead of a draft
 
     def active(self, now: Optional[float] = None) -> bool:
         now = time.time() if now is None else now

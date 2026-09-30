@@ -6,109 +6,82 @@ Item {
     property var activityModel
     property var controller
 
-    Column {
+    Item {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 16
+        anchors.leftMargin: root.width < 900 ? 20 : 28
+        anchors.rightMargin: root.width < 900 ? 20 : 28
+        anchors.topMargin: 24
+        anchors.bottomMargin: 16
 
-        // Page Header
-        Row {
+        PageHeader {
+            id: head
             width: parent.width
-            Text {
-                text: "ACTIVITY & RECENT TASKS"
-                color: "#F0F4F8"
-                font.pixelSize: 18
-                font.bold: true
-            }
-            Item { width: Math.max(0, parent.width - 380); height: 1 }
-            Text {
-                text: "Bounded history (Max 50)"
-                color: "#64748B"
-                font.pixelSize: 12
-                anchors.verticalCenter: parent.verticalCenter
-            }
+            title: "Activity"
+            subtitle: "Everything you asked JARVIS to do, newest first (last 50)."
+            JButton { text: "WHAT DID YOU DO?"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("what did you do just now") }
         }
 
-        Rectangle {
-            width: parent.width
-            height: 1
-            color: "#222D3E"
-        }
-
-        // Tasks ListView
         ListView {
             id: taskList
-            width: parent.width
-            height: parent.height - 60
+            anchors.top: head.bottom
+            anchors.topMargin: 18
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
             clip: true
-            spacing: 8
+            spacing: 10
             model: root.activityModel
+            boundsBehavior: Flickable.StopAtBounds
 
-            delegate: GlassPanel {
+            delegate: Card {
                 width: taskList.width
-                height: 72
-
-                Column {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 4
-
-                    Row {
-                        width: parent.width
-                        spacing: 10
-
-                        Text {
-                            text: model.requestText || "Command"
-                            color: "#F0F4F8"
-                            font.pixelSize: 13
-                            font.bold: true
-                            elide: Text.ElideRight
-                            width: parent.width - statusBadge.width - 90
-                        }
-
-                        StatusBadge {
-                            id: statusBadge
-                            status: model.taskState || "SUCCESS"
-                        }
-
-                        Text {
-                            text: model.taskTimestamp || "00:00:00"
-                            color: "#64748B"
-                            font.pixelSize: 11
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                padding: 16
+                spacing: 6
+                Item {
+                    width: parent.width
+                    height: Math.max(req.implicitHeight, badge.height)
+                    Text {
+                        id: req
+                        text: model.requestText || "Command"
+                        color: "#F0F4F8"
+                        font.pixelSize: 14
+                        font.bold: true
+                        elide: Text.ElideRight
+                        width: parent.width - badge.width - time.implicitWidth - 28
+                        anchors.verticalCenter: parent.verticalCenter
                     }
-
-                    Row {
-                        spacing: 12
-                        Text {
-                            text: "Source: " + (model.taskSource || "desktop")
-                            color: "#94A3B8"
-                            font.pixelSize: 11
-                        }
-                        Text {
-                            text: "•  Route: " + (model.taskRoute || "SmartRouter")
-                            color: "#94A3B8"
-                            font.pixelSize: 11
-                        }
-                        Text {
-                            text: "•  Result: " + (model.taskMessage || "Completed")
-                            color: "#64748B"
-                            font.pixelSize: 11
-                            elide: Text.ElideRight
-                            width: parent.width - 240
-                        }
+                    Text {
+                        id: time
+                        text: model.taskTimestamp || ""
+                        color: "#64748B"
+                        font.pixelSize: 11
+                        anchors.right: badge.left
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
                     }
+                    StatusBadge { id: badge; status: model.taskState || "SUCCESS"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter }
+                }
+                Text {
+                    width: parent.width
+                    text: (model.taskMessage || "Completed")
+                    color: "#B8C6D8"
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                }
+                Text {
+                    text: "From " + (model.taskSource || "desktop") + "  ·  " + (model.taskRoute || "router")
+                    color: "#64748B"
+                    font.pixelSize: 11
                 }
             }
 
-            // Empty state placeholder
-            Text {
+            EmptyState {
                 anchors.centerIn: parent
-                text: "No recent tasks executed yet."
-                color: "#64748B"
-                font.pixelSize: 13
                 visible: taskList.count === 0
+                title: "Nothing yet"
+                hint: "Say \"Hey Jarvis\" or type a command on Home - it appears here with its result."
             }
         }
     }

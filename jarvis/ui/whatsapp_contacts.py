@@ -23,6 +23,7 @@ class WhatsAppContactsClient(QObject):
     historyChanged = Signal()
     statusChanged = Signal()
     busyChanged = Signal()
+    noticeChanged = Signal()
     _done = Signal(str, object)  # (kind, result) delivered on the UI thread
 
     def __init__(self, http_url: str = "http://127.0.0.1:8765", opener: Optional[Callable[..., Any]] = None,
@@ -40,6 +41,8 @@ class WhatsAppContactsClient(QObject):
         self._status = ""
         self._encryption = ""
         self._busy = 0
+        self._notice = ""
+        self._notice_error = False
         self._done.connect(self._on_done)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -87,6 +90,23 @@ class WhatsAppContactsClient(QObject):
     def busy(self) -> bool:
         return self._busy > 0
 
+    @Property(str, notify=noticeChanged)
+    def notice(self) -> str:
+        """Outcome of the last button (kept until the next one; the auto-reply status line is separate)."""
+        return self._notice
+
+    @Property(bool, notify=noticeChanged)
+    def noticeError(self) -> bool:
+        return self._notice_error
+
+    def _set_notice(self, text: str, error: bool = False) -> None:
+        self._notice, self._notice_error = text, error
+        self.noticeChanged.emit()
+
+    @Slot()
+    def clearNotice(self) -> None:
+        self._set_notice("")
+
     # ------------------------------------------------------------------ HTTP plumbing
     def _request(self, kind: str, method: str, path: str, body: Optional[dict] = None, timeout: float = 60.0) -> None:
         self._busy += 1
@@ -123,7 +143,7 @@ class WhatsAppContactsClient(QObject):
         self._busy = max(0, self._busy - 1)
         self.busyChanged.emit()
         if isinstance(result, dict) and result.get("error"):
-            self._set_status(str(result["error"]))
+            self._set_notice(str(result["error"]), error=True)
             return
         if kind == "contacts":
             self._contacts = result.get("contacts", [])
@@ -147,15 +167,32 @@ class WhatsAppContactsClient(QObject):
             self._history = result.get("history", [])
             self.historyChanged.emit()
         else:
-            msg = result.get("message") if isinstance(result, dict) else None
-            if kind == "import" and isinstance(result, dict):
-                msg = (f"Imported {result.get('user_messages', 0)} of your messages and "
-                       f"{result.get('contact_messages', 0)} of theirs; profile v{result.get('profile_version', 0)}.")
-            self._set_status(msg or "Done.")
+            self._set_notice(self._describe(kind, result if isinstance(result, dict) else {}))
             self.refresh()
             cid = (self._selected.get("contact") or {}).get("contact_id") if self._selected else None
             if cid:
                 self.select(cid)
+
+    _MODE_WORDS = {"OFF": "Replies are off", "SUGGEST_ONLY": "Suggest only: drafts appear here, nothing is sent",
+                   "ASK_BEFORE_SEND": "Ask before send: each draft waits for your OK"}
+
+    def _describe(self, kind: str, r: dict) -> str:
+        """A sentence for what the button did (the API returns data, not always a message)."""
+        if r.get("message"):
+            return str(r["message"])
+        if kind in ("import", "rebuild"):
+            n = int(r.get("messages_analyzed") or 0)
+            if n == 0:
+                return ("Nothing to learn from yet: JARVIS has no messages from you to this person. Import a chat export, "
+                        "or chat on WhatsApp for a while and press Refresh profile.")
+            return f"Learned from {n} of your messages ({r.get('examples', 0)} reply examples); profile v{r.get('profile_version', 0)}."
+        if kind == "mode":
+            return self._MODE_WORDS.get(str(r.get("mode")), "Mode updated.") + "."
+        if kind == "clear":
+            return "Style profile deleted. Imported chats stay unless you delete them too."
+        if kind == "add":
+            return f"Added {r.get('display_name') or 'the contact'}."
+        return "Done."
 
     # ------------------------------------------------------------------ slots used by QML
     @Slot()
@@ -205,12 +242,20 @@ class WhatsAppContactsClient(QObject):
 
     @Slot(str, str, float)
     def setMode(self, contact_id: str, mode: str, minutes: float) -> None:
-        body = {"mode": mode, "minutes": minutes if minutes > 0 else None}
+        self.setModeWithNote(contact_id, mode, minutes, "")
+
+    @Slot(str, str, float, str)
+    def setModeWithNote(self, contact_id: str, mode: str, minutes: float, note: str) -> None:
+        body = {"mode": mode, "minutes": minutes if minutes > 0 else None, "note": note.strip()}
         self._request("mode", "POST", f"/contacts/{self._q(contact_id)}/mode", body)
 
     @Slot(float)
     def enableEveryone(self, minutes: float) -> None:
-        self._request("everyone", "POST", "/everyone", {"minutes": minutes})
+        self.enableEveryoneWithNote(minutes, "")
+
+    @Slot(float, str)
+    def enableEveryoneWithNote(self, minutes: float, note: str) -> None:
+        self._request("everyone", "POST", "/everyone", {"minutes": minutes, "note": note.strip()})
 
     @Slot(str)
     def stop(self, contact_id: str) -> None:

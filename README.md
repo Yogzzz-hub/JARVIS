@@ -166,7 +166,7 @@ Tickets expire after 30 seconds.
 | **Form autofill** | `fill this form with my details`, `autofill this page` (JARVIS browser; details from `config/profile.toml`; never passwords/OTPs; you press Submit) |
 | **Phone ⇄ PC files** | `get the latest photo from my phone`, `copy my last 3 screenshots from my phone`, `copy report.pdf to my phone`, `send this file to my phone` (LocalSend) |
 | **People & logins** | `who is Yoga?` (answered from your contacts and chats), `open chrome and login linkedin`, `sign in to my github account` (opens the real sign-in page; your browser's saved password fills in) |
-| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting` (personal chats only; groups are skipped), `reply to Yoga automatically for the next hour`, `stop WhatsApp auto reply` |
+| **WhatsApp** | `tell mom I'll be late`, `ask rahul if he is free tonight`, `reply to rahul saying yes at 10`, `summarize my whatsapp`, `tell everyone who messaged me that I'm in a meeting` (personal chats only; groups are skipped), `reply to Yoga automatically for the next hour`, `auto reply to everyone for 30 minutes saying I'm in a meeting`, `stop WhatsApp auto reply` |
 | **Google** | `check my emails`, `draft an email to priya about the report`, `what's on my calendar tomorrow`, `schedule a meeting with arun at 11 tomorrow` |
 | **Developer** | `git status`, `run the project tests`, `what's causing this stack trace` |
 | **Multi-step** | `find the latest invoice and send it to my phone`, `look up train timings to madurai and email them to dad`, or anything else in plain words. The planner or agent works it out and asks before any risky step. |
@@ -735,6 +735,10 @@ intelligence stays in Python.
   once (phone: **Linked devices → JARVIS → Log out**) and pair again to import the unread counts you already have;
   without that, counts are exact for everything that arrives from now on.
 - **Owner remote control.** Messages from the owner numbers run as commands, and replies go back to WhatsApp.
+- **Away message.** "I'm going to a meeting, so auto reply to whoever messages me that I'm busy" turns on auto-reply for
+  your direct chats and sends each person your words once ("I'm busy at a meeting. I'll get back to you soon."),
+  without the AI model and even for contacts whose style is not learned yet. No time given = one hour (always
+  time-boxed); "do autoreply in whatsapp for 10 min" works too. The dashboard has the same message box.
 - **Personal replies in your style.** Import a chat (or learn from history) on **Dashboard → WhatsApp → Contacts**.
   JARVIS learns how *you* write to each person (Tanglish or English, length, emojis, tone) from your own messages
   only, with a separate profile and example index per contact.
@@ -842,6 +846,16 @@ Playwright runs on one dedicated event-loop thread.
   and fill in your details. "Fill this form" then fills the empty fields of the page open in the JARVIS browser by
   their labels (name, email, phone, address, college, ...). It never fills passwords, OTPs, card numbers or
   captchas, never overwrites what is already typed, and never submits.
+
+### Dashboard
+
+Every page uses the same layout: a title with a one-line explanation, 28 px side padding, cards in a responsive
+grid (columns adapt to the window width; badges never overlap titles), and scrolling when the window is short.
+Every button shows its result in a notice bar - including "JARVIS is not running yet" when the backend is down.
+**Memory** lists what you asked JARVIS to remember, your to-dos and shortcuts (forget / delete in one click;
+`GET /dashboard/memory`). **Diagnostics** runs the real checks (`GET /dashboard/diagnostics`) with PASS / WARN / FAIL
+filters. **WhatsApp** has auto-reply for everyone or one person with an optional away message, reply modes that show
+which one is active, style learning, a try-it box that never sends, and drafts waiting for your Send.
 
 ### Desktop apps and the screen
 

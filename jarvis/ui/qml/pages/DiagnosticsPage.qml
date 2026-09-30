@@ -1,105 +1,77 @@
 import QtQuick
 import "../components"
 
+// Real checks (python -m jarvis.diagnostics): Python, packages, models, Ollama, FFmpeg, database, gateway.
 Item {
     id: root
     property var stateModel
     property var controller
+    property var client: (typeof uiDashboard !== "undefined") ? uiDashboard : null
+    property string filter: "ALL"
+    readonly property var checks: client ? client.diagnostics : []
+    function count(s) { var n = 0; for (var i = 0; i < checks.length; i++) if (checks[i].status === s) n++; return n }
 
-    Column {
+    PageScroll {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 16
+
+        PageHeader {
+            width: parent.width
+            title: "Diagnostics"
+            subtitle: "Checks every part JARVIS needs and says how to fix what is missing."
+            JButton { text: root.checks.length ? "RUN AGAIN" : "RUN DIAGNOSTICS"; busy: root.client ? root.client.busy : false
+                      onClicked: if (root.client) root.client.runDiagnostics() }
+        }
+        NoticeBar { width: parent.width; text: root.client && root.client.noticePage === "diagnostics" ? root.client.notice : ""; error: root.client ? root.client.noticeError : false
+                    onClosed: if (root.client) root.client.clearNotice() }
 
         Row {
-            width: parent.width
-            Text {
-                text: "SYSTEM DIAGNOSTICS & SUBSYSTEM AUDIT"
-                color: "#F0F4F8"
-                font.pixelSize: 18
-                font.bold: true
-            }
-            Item { width: Math.max(0, parent.width - 560); height: 1 }
-            Rectangle {
-                width: 130
-                height: 28
-                radius: 4
-                color: "#1A2230"
-                border.color: "#00E5FF"
-                border.width: 1
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "RUN DIAGNOSTICS"
-                    color: "#00E5FF"
-                    font.pixelSize: 10
-                    font.bold: true
-                }
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: if (controller) controller.sendCommand("diagnostics")
+            spacing: 10
+            visible: root.checks.length > 0
+            Repeater {
+                model: [["ALL", root.checks.length, "#94A3B8"], ["FAIL", root.count("FAIL"), "#FF5252"],
+                        ["WARN", root.count("WARN"), "#FFB300"], ["PASS", root.count("PASS"), "#00E676"]]
+                delegate: Rectangle {
+                    width: chip.implicitWidth + 26; height: 30; radius: 15
+                    color: root.filter === modelData[0] ? Qt.rgba(0, 0.9, 1, 0.14) : "transparent"
+                    border.width: 1; border.color: root.filter === modelData[0] ? "#00E5FF" : "#2A3A52"
+                    Text { id: chip; anchors.centerIn: parent; text: modelData[0] + "  " + modelData[1]; color: modelData[2]
+                           font.pixelSize: 11; font.bold: true }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.filter = modelData[0] }
                 }
             }
         }
 
-        Rectangle {
+        Column {
             width: parent.width
-            height: 1
-            color: "#222D3E"
-        }
-
-        ListView {
-            id: diagList
-            width: parent.width
-            height: parent.height - 70
-            clip: true
             spacing: 8
-
-            model: [
-                {"name": "FastAPI Gateway Service", "status": "ONLINE", "desc": "Port 8765 HTTP/REST API endpoints"},
-                {"name": "WebSocket Realtime Stream", "status": "ONLINE", "desc": "Persistent bi-directional command socket"},
-                {"name": "SmartRouter Subsystem", "status": "READY", "desc": "Sub-millisecond intent classification"},
-                {"name": "SQLite Persistence Store", "status": "READY", "desc": "Zero-drop background event journaling"},
-                {"name": "Speech-to-Text Pipeline", "status": "READY", "desc": "Faster-Whisper on-demand worker"},
-                {"name": "Voice Audio Hub", "status": "READY", "desc": "16kHz canonical audio buffer with Silero VAD"},
-                {"name": "Piper Neural TTS Engine", "status": "READY", "desc": "Natural speech generation engine"},
-                {"name": "Security & Policy Ledger", "status": "READY", "desc": "Phase-5 confirmation and hash idempotency"},
-            ]
-
-            delegate: GlassPanel {
-                width: diagList.width
-                height: 54
-
-                Row {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 14
-
-                    StatusBadge {
-                        status: modelData.status
-                        anchors.verticalCenter: parent.verticalCenter
+            Repeater {
+                model: root.checks
+                delegate: Card {
+                    width: parent.width
+                    visible: root.filter === "ALL" || modelData.status === root.filter
+                    height: visible ? implicitHeight : 0
+                    padding: 14
+                    spacing: 4
+                    Item {
+                        width: parent.width
+                        height: Math.max(nameText.implicitHeight, badge.height)
+                        StatusBadge { id: badge; status: modelData.status === "PASS" ? "READY" : (modelData.status === "WARN" ? "WAITING" : "ERROR")
+                                      text: modelData.status; anchors.verticalCenter: parent.verticalCenter }
+                        Text { id: nameText; text: modelData.name; color: "#F0F4F8"; font.pixelSize: 13; font.bold: true
+                               anchors.left: badge.right; anchors.leftMargin: 14; anchors.right: parent.right; elide: Text.ElideRight
+                               anchors.verticalCenter: parent.verticalCenter }
                     }
-
-                    Column {
-                        width: parent.width - 200
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 2
-
-                        Text {
-                            text: modelData.name
-                            color: "#F0F4F8"
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                        Text {
-                            text: modelData.desc
-                            color: "#94A3B8"
-                            font.pixelSize: 11
-                        }
-                    }
+                    Text { text: modelData.detail; visible: text.length > 0; color: "#8193AB"; font.pixelSize: 12
+                           wrapMode: Text.WrapAnywhere; maximumLineCount: 3; elide: Text.ElideRight; width: parent.width
+                           leftPadding: badge.width + 14 }
                 }
             }
+        }
+        EmptyState {
+            width: parent.width
+            visible: root.checks.length === 0
+            title: "No results yet"
+            hint: "Press Run diagnostics. It takes a few seconds and changes nothing on your PC."
         }
     }
 }

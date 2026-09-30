@@ -25,6 +25,7 @@ class JarvisUIController(QObject):
     showDashboardRequested = Signal()
     hideDashboardRequested = Signal()
     showToastRequested = Signal(str, str)  # title, message
+    settingChanged = Signal(str, "QVariant")  # key, new value (lets QML apply a toggle immediately)
     whatsappPersonalEvent = Signal(str, dict)  # event name, payload (Dashboard -> WhatsApp -> Contacts)
 
     def __init__(
@@ -172,6 +173,7 @@ class JarvisUIController(QObject):
                 self.metrics.set_interval(2000)
             else:
                 self.metrics.set_interval(1000)
+        self.settingChanged.emit(key, value)
 
     @Slot(str, result="QVariant")
     def getSetting(self, key: str) -> Any:

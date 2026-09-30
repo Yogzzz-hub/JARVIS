@@ -448,7 +448,7 @@ def normalize_text(text: str) -> tuple[str, str]:
 # Words that start / shape a command, and app names. A misspelt one ("launsh chrom", "mut volum") is repaired only
 # when the token is not a real English word and is very close to exactly one of these.
 COMMAND_VOCAB = frozenset("""
-open launch start run close quit exit find search show hide mute unmute check where install uninstall update play pause
+node nodejs jdk python java open launch start run close quit exit find search show hide mute unmute check where install uninstall update play pause
 resume stop skip next previous set turn increase decrease raise lower take lock unlock minimize maximize restore switch
 snap move copy rename delete organize list read send reply summarize remind timer screenshot volume brightness desktop
 window windows files file folder downloads documents pictures music videos installed applications apps phone android

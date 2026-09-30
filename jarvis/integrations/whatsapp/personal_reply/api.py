@@ -35,10 +35,12 @@ class TextBody(BaseModel):
 class ModeBody(BaseModel):
     mode: str
     minutes: Optional[float] = None
+    note: str = ""  # optional away message ("I'm in a meeting") sent once instead of a drafted reply
 
 
 class MinutesBody(BaseModel):
     minutes: float
+    note: str = ""
 
 
 class FeedbackBody(BaseModel):
@@ -152,7 +154,7 @@ def register(app: FastAPI, runtime: Any) -> None:
             if body.mode == ReplyMode.AUTO_REPLY_UNTIL.value:
                 if not body.minutes or body.minutes <= 0:
                     raise HTTPException(400, "Auto-reply needs a duration.")
-                return a.enable([cid], a.clock() + body.minutes * 60)
+                return a.enable([cid], a.clock() + body.minutes * 60, note=body.note)
             return a.set_mode(cid, ReplyMode(body.mode))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -165,7 +167,7 @@ def register(app: FastAPI, runtime: Any) -> None:
     async def everyone(body: MinutesBody) -> dict[str, Any]:
         a = _agent(runtime)
         try:
-            return a.enable([], a.clock() + body.minutes * 60, everyone=True)
+            return a.enable([], a.clock() + body.minutes * 60, everyone=True, note=body.note)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

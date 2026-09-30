@@ -6,108 +6,49 @@ Item {
     property var stateModel
     property var controller
 
-    Flickable {
+    PageScroll {
         anchors.fill: parent
-        anchors.margins: 20
-        contentHeight: contentCol.height + 40
-        clip: true
 
-        Column {
-            id: contentCol
+        PageHeader {
             width: parent.width
-            spacing: 20
+            title: "System"
+            subtitle: "Live hardware load and which AI models are loaded right now."
+            StatusBadge { status: root.stateModel ? root.stateModel.connectionStatus : "OFFLINE" }
+            JButton { text: "SYSTEM REPORT"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("system info") }
+        }
 
-            // Header
-            Row {
-                width: parent.width
-                Text {
-                    text: "SYSTEM HARDWARE & MODEL RESIDENCY"
-                    color: "#F0F4F8"
-                    font.pixelSize: 18
-                    font.bold: true
-                }
-                Item { width: Math.max(0, parent.width - 480); height: 1 }
-                StatusBadge {
-                    status: stateModel ? stateModel.connectionStatus : "OFFLINE"
-                }
-            }
+        SectionLabel { text: "HARDWARE"; hint: "sampled every second" }
+        CardGrid {
+            id: metrics
+            width: parent.width
+            minCardWidth: 190
+            MetricCard { width: metrics.cellWidth; title: "CPU load"; unit: "%"; accentColor: "#00E5FF"
+                value: root.stateModel ? root.stateModel.cpuPercent.toFixed(0) : "0"
+                history: root.stateModel ? root.stateModel.getCpuHistory() : [] }
+            MetricCard { width: metrics.cellWidth; title: "Memory (RAM)"; unit: "%"; accentColor: "#00B4D8"
+                value: root.stateModel ? root.stateModel.ramPercent.toFixed(0) : "0"
+                history: root.stateModel ? root.stateModel.getRamHistory() : [] }
+            MetricCard { width: metrics.cellWidth; title: "GPU load"; unit: "%"; accentColor: "#B388FF"
+                value: root.stateModel ? root.stateModel.gpuPercent.toFixed(0) : "0"
+                history: root.stateModel ? root.stateModel.getGpuHistory() : [] }
+            MetricCard { width: metrics.cellWidth; title: "GPU memory"; unit: "MB"; accentColor: "#FFB300"
+                value: root.stateModel ? root.stateModel.vramMb.toFixed(0) : "0" }
+            MetricCard { width: metrics.cellWidth; title: "Gateway ping"; unit: "ms"; accentColor: "#00E676"
+                value: root.stateModel ? root.stateModel.pingMs.toString() : "0" }
+        }
 
-            Rectangle {
-                width: parent.width
-                height: 1
-                color: "#222D3E"
-            }
-
-            // Metric Cards Grid
-            Text {
-                text: "HARDWARE TELEMETRY (1 HZ SAMPLING)"
-                color: "#94A3B8"
-                font.pixelSize: 12
-                font.bold: true
-            }
-
-            Flow {
-                width: parent.width
-                spacing: 16
-
-                MetricCard {
-                    title: "CPU Load"
-                    value: stateModel ? stateModel.cpuPercent.toFixed(1) : "0"
-                    unit: "%"
-                    accentColor: "#00E5FF"
-                    history: stateModel ? stateModel.getCpuHistory() : []
-                }
-
-                MetricCard {
-                    title: "System RAM"
-                    value: stateModel ? stateModel.ramPercent.toFixed(1) : "0"
-                    unit: "%"
-                    accentColor: "#00B4D8"
-                    history: stateModel ? stateModel.getRamHistory() : []
-                }
-
-                MetricCard {
-                    title: "GPU Load"
-                    value: stateModel ? stateModel.gpuPercent.toFixed(1) : "0"
-                    unit: "%"
-                    accentColor: "#7C4DFF"
-                    history: stateModel ? stateModel.getGpuHistory() : []
-                }
-
-                MetricCard {
-                    title: "VRAM Used"
-                    value: stateModel ? stateModel.vramMb.toFixed(0) : "0"
-                    unit: "MB"
-                    accentColor: "#FFB300"
-                }
-
-                MetricCard {
-                    title: "Gateway Ping"
-                    value: stateModel ? stateModel.pingMs.toString() : "0"
-                    unit: "ms"
-                    accentColor: "#00E676"
-                }
-            }
-
-            // Model Residency Section
-            Text {
-                text: "MODEL RESIDENCY (RESOURCE GOVERNOR)"
-                color: "#94A3B8"
-                font.pixelSize: 12
-                font.bold: true
-            }
-
-            Flow {
-                width: parent.width
-                spacing: 12
-
-                Repeater {
-                    model: stateModel ? stateModel.models : []
-                    delegate: ModelStatus {
-                        modelName: modelData.name || "Model"
-                        status: modelData.status || "READY"
-                        details: modelData.details || ""
-                    }
+        SectionLabel { text: "AI MODELS"; hint: "loaded on demand, unloaded when idle" }
+        CardGrid {
+            id: modelsGrid
+            width: parent.width
+            minCardWidth: 240
+            Repeater {
+                model: root.stateModel ? root.stateModel.models : []
+                delegate: ModelStatus {
+                    width: modelsGrid.cellWidth
+                    modelName: modelData.name || "Model"
+                    status: modelData.status || "READY"
+                    details: modelData.details || ""
                 }
             }
         }

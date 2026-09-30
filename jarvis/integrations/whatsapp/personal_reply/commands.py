@@ -76,6 +76,39 @@ def parse_window(text: str, now: Optional[datetime] = None) -> Optional[datetime
     return None
 
 
+_AUTO_WORD = re.compile(r"\bauto[- ]?(?:reply|replies|replying|respond|responder)\b|\bautomatically\b|\bon my behalf\b")
+_NOTE = re.compile(r"(?:\s*,)?\s+(?:saying|that says|to say|and say|and tell (?:them|him|her|everyone|people)|"
+                   r"tell (?:them|him|her|everyone|people)|with (?:the |this )?message)\s+(?:that\s+)?(?P<n>.+)$")
+_NOTE_THAT = re.compile(r"\s+that\s+(?P<n>(?:i|i'm|im|i am|am|we|we're|my|currently|busy|in a)\b.+)$")
+_ANYONE = re.compile(r"\s*\b(?:to\s+)?(?:who(?:ever)?|anyone who|anybody who|everyone who|people who|whoever)\s+(?:is\s+|are\s+)?"
+                     r"(?:sending|sends|send|me?s+a?g\w*|msg\w*|text\w*|ping\w*|writ\w*|calls?)\b(?:\s+(?:me?s+a?g\w*|texts?|msgs?)\b)?"
+                     r"(?:\s+(?:to\s+)?me\b)?")
+
+
+def _auto_rewrite(t: str) -> tuple[str, str, bool]:
+    """Spoken auto-reply requests -> (plain command, dictated away message, "anyone who messages me").
+
+    "i am going to a meeting so do auto reply who is messaging me that i am busy" ->
+    ("turn on auto reply", "i am busy", True).
+    """
+    note = ""
+    m = _NOTE.search(t) or _NOTE_THAT.search(t)
+    if m:
+        note, t = m.group("n").strip(), t[:m.start()].strip()
+    # a reason before the request: "i'm going to a meeting so / and / , do auto reply ..."
+    m = re.search(r"(?:^|\b(?:so|and|pls|please|then)\s+|,\s*)((?:(?:do|set|put|keep|turn on|enable|start|switch on|activate)\s+)?"
+                  r"(?:an?\s+|the\s+)?(?:whatsapp\s+)?auto[- ]?(?:reply|replies|replying|respond)\b.*)$", t)
+    if m:
+        t = m.group(1)
+    anyone = bool(_ANYONE.search(t))
+    t = " ".join(_ANYONE.sub(" ", t).split())
+    t = re.sub(r"\s+(?:in|on|for)\s+(?:my\s+)?whats\s*app\b", "", t)
+    t = re.sub(r"^(?:do|set|put|keep|activate)\s+(?:an?\s+|the\s+)?(?=(?:whatsapp\s+)?auto)", "turn on ", t)
+    t = re.sub(r"^(?=(?:whatsapp\s+)?auto[- ]?(?:reply|replies|replying)\b(?!\s+(?:to\s+)?\w))", "turn on ", t)
+    t = re.sub(r"^(?=(?:whatsapp\s+)?auto[- ]?(?:reply|replies|replying)\s+(?:for|until|till)\b)", "turn on ", t)
+    return " ".join(t.split()), note, anyone
+
+
 def parse_command(text: str) -> Optional[dict[str, Any]]:
     """Structure of an auto-reply command, or None if the text is something else."""
     t = re.sub(r"\s+", " ", (text or "").strip().lower()).strip(" .!?")
@@ -98,6 +131,9 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
         who = m.group("who").strip()
         return {"action": "disable_all"} if _EVERYONE.match(who) else {"action": "disable", "who": who}
     # ---- enable (needs a time window, or an explicit "automatically")
+    note, anyone = "", False
+    if _AUTO_WORD.search(t):
+        t, note, anyone = _auto_rewrite(t)
     explicit_auto = re.search(r"\b(?:automatically|auto[- ]?(?:reply|replies|replying|respond)|on my behalf)\b", t)
     if not explicit_auto and re.search(r"\b(?:saying|that says|to say|with)\s+\S", t):
         return None  # "respond to anand with don't wait for me": one reply with those words, not an auto-reply window
@@ -127,11 +163,12 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
             return None
         if not who and not pat.startswith("^(?:turn on"):
             continue
-        everyone = bool(who) and bool(_EVERYONE.match(who))  # "everyone" must be said explicitly
+        # "turn on auto reply" without a name, or "whoever messages me": all direct chats (groups never)
+        everyone = (bool(who) and bool(_EVERYONE.match(who))) or (not who and (anyone or pat.startswith("^(?:turn on")))
         if re.search(r"\bgroups?\b", who):
             return {"action": "refuse_groups"}
         return {"action": "enable", "who": "" if everyone else who, "everyone": everyone, "window_text": t,
-                "has_window": window_present}
+                "has_window": window_present, "note": note}
     return None
 
 
@@ -141,6 +178,7 @@ class AutoReplyInput(Contract):
     everyone: bool = Field(default=False, description="All DIRECT contacts (groups are always excluded)")
     window_text: str = Field(default="", max_length=300, description="Original wording with the duration / end time")
     has_window: bool = False
+    note: str = Field(default="", max_length=300, description="What to tell people (away message), if the owner said it")
 
 
 class AutoReplyOutput(Contract):
@@ -210,13 +248,13 @@ class WhatsAppAutoReplyTool(Tool):
         if action == "enable":
             now = datetime.fromtimestamp(agent.clock())  # one time source for parsing and enforcement
             until = parse_window(arguments.window_text, now) if arguments.window_text else None
-            if until is None:
-                return {"status": "NEEDS_CLARIFICATION",
-                        "message": "For how long? For example: for the next hour, or until 6 PM."}
+            defaulted = until is None
+            if defaulted:  # no time said: one hour (always time-boxed; "stop WhatsApp auto reply" ends it sooner)
+                until = now + timedelta(hours=1)
             expires = until.timestamp()
             try:
                 if arguments.everyone:
-                    res = agent.enable([], expires, everyone=True)
+                    res = agent.enable([], expires, everyone=True, note=arguments.note)
                 elif not arguments.who.strip():
                     return {"status": "NEEDS_CLARIFICATION",
                             "message": "Who should I auto-reply to? Name a contact, or say everyone (direct chats only)."}
@@ -224,10 +262,12 @@ class WhatsAppAutoReplyTool(Tool):
                     cid, name, err = self._resolve(arguments.who)
                     if err:
                         return {"status": "NEEDS_CLARIFICATION", "message": err}
-                    res = agent.enable([cid], expires, names=[name])
+                    res = agent.enable([cid], expires, names=[name], note=arguments.note)
             except ValueError as exc:
                 return {"status": "REFUSED", "message": str(exc)}
-            return {"status": "ENABLED", "message": res["message"], "expires_at": res["expires_at"]}
+            msg = res["message"] + (" You didn't say for how long, so it's one hour - say 'stop WhatsApp auto reply' to end "
+                                    "it sooner." if defaulted else "")
+            return {"status": "ENABLED", "message": msg, "expires_at": res["expires_at"]}
         return {"status": "UNKNOWN", "message": "Say, for example: reply to Yoga for the next hour."}
 
 
