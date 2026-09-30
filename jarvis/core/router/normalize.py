@@ -296,7 +296,7 @@ def normalize_text(text: str) -> tuple[str, str]:
     # 1. Unicode normalization (NFKC decomposes combined chars, normalizes spaces)
     normalized = unicodedata.normalize("NFKC", text)
     # 2. Lowercase / casefold
-    cleaned = normalized.strip().casefold().replace("’", "'").rstrip(".?!")
+    cleaned = normalized.strip().strip("\"'“”`").casefold().replace("’", "'").rstrip(".?!").strip("\"'“”`")
     # 2a. Spoken rambles around the command
     cleaned = strip_ramble(cleaned) or cleaned
     # 2b. Discourse self-correction resolution
@@ -633,7 +633,7 @@ _CONTRACTIONS = re.compile(r"\b(?:" + "|".join(_CONTRACTION_FIX) + r")\b", re.I)
 def clean_for_matching(text: str) -> str:
     """The command with wake words, hesitations, trailing thanks/address and typos in the first words removed,
     keeping the owner's casing (message text and names stay exactly as said). Used by pattern matchers."""
-    t = unicodedata.normalize("NFKC", text or "").strip().replace("\u2019", "'")
+    t = unicodedata.normalize("NFKC", text or "").strip().strip("\"'“”`").replace("\u2019", "'")
     t = strip_ramble(t) or t
     for _ in range(4):
         new = _LEAD.sub("", t, count=1).strip()

@@ -236,6 +236,10 @@ class AppResolver:
 
     def resolve(self, name):
         norm = normalize(name)
+        if re.search(r"\b(?:on|in|into|at|from|for|via|using|through)\s+(?:my\s+|the\s+)?(?:phone|mobile|android)\b", norm):
+            raise ValueError(f"{name!r} refers to a mobile/phone application, not a Windows application")
+        if re.search(r"\b(?:google\s+)?play\s*store\b", norm):
+            raise ValueError(f"{name!r} refers to Google Play Store on Android, not a Windows application")
         if norm in self.cache:
             return self.cache[norm]
 
