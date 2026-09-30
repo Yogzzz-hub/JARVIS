@@ -9,9 +9,9 @@ Rectangle {
     signal accepted()
 
     implicitWidth: 180
-    implicitHeight: 34
+    implicitHeight: 36
     radius: 9
-    color: "#0C121C"
+    color: Qt.rgba(0.02, 0.06, 0.12, 0.75)
     border.width: 1
     border.color: input.activeFocus ? "#00E5FF" : (hover.containsMouse ? "#33475F" : "#243044")
     Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -23,7 +23,8 @@ Rectangle {
         anchors.rightMargin: 12
         verticalAlignment: TextInput.AlignVCenter
         color: "#F0F4F8"
-        font.pixelSize: 13
+        font.pixelSize: 16
+        font.weight: Font.Medium
         clip: true
         selectByMouse: true
         selectionColor: "#0091A8"
@@ -38,8 +39,8 @@ Rectangle {
         anchors.rightMargin: 12
         verticalAlignment: Text.AlignVCenter
         text: root.placeholder
-        color: "#546178"
-        font.pixelSize: 13
+        color: "#58708E"
+        font.pixelSize: 15
         elide: Text.ElideRight
         visible: input.text.length === 0 && !input.activeFocus
     }

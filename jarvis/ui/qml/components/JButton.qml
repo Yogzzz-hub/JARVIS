@@ -15,8 +15,8 @@ Rectangle {
                                  : variant === "danger" ? "#FF5252" : variant === "ghost" ? "#94A3B8" : "#00E5FF"
     readonly property bool live: enabledButton && !busy
 
-    implicitWidth: Math.max(small ? 64 : 86, label.implicitWidth + (busy ? 44 : 30))
-    implicitHeight: small ? 26 : 34
+    implicitWidth: Math.max(small ? 64 : 92, label.implicitWidth + (busy ? 48 : 34))
+    implicitHeight: small ? 28 : 36
     width: implicitWidth
     height: implicitHeight
     radius: small ? 7 : 9
@@ -50,9 +50,10 @@ Rectangle {
             id: label
             text: btn.text
             color: btn.tone
-            font.pixelSize: btn.small ? 11 : 12
-            font.bold: true
-            font.letterSpacing: 0.6
+            font.pixelSize: btn.small ? 13 : 15
+            font.weight: Font.Bold
+            font.letterSpacing: 1.4
+            font.capitalization: Font.AllUppercase
             anchors.verticalCenter: parent.verticalCenter
         }
     }

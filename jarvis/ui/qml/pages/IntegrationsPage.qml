@@ -13,6 +13,7 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "integrations"
             title: "Integrations"
             subtitle: "Services JARVIS talks to. Tokens and secrets are never shown here."
         }
@@ -35,8 +36,8 @@ Item {
                     ]
                     delegate: Column {
                         spacing: 4
-                        Text { text: modelData.k; color: "#64748B"; font.pixelSize: 11 }
-                        Text { text: modelData.v; color: "#E2E8F0"; font.pixelSize: 13; font.bold: true }
+                        Text { text: modelData.k; color: "#64748B"; font.pixelSize: 13 }
+                        Text { text: modelData.v; color: "#E2E8F0"; font.pixelSize: 15; font.bold: true }
                     }
                 }
             }
@@ -53,7 +54,7 @@ Item {
                 width: parent.width
                 wrapMode: Text.WordWrap
                 color: "#64748B"
-                font.pixelSize: 11
+                font.pixelSize: 13
                 text: "Auto-replies are time-boxed and set per contact on the WhatsApp page, or by voice: \"auto reply to everyone "
                       + "for 30 minutes saying I'm in a meeting\". Group chats are never auto-replied."
             }

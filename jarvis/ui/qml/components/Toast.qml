@@ -34,14 +34,14 @@ Rectangle {
         Text {
             text: root.title
             color: "#00E5FF"
-            font.pixelSize: 12
+            font.pixelSize: 14
             font.bold: true
         }
 
         Text {
             text: root.message
             color: "#F0F4F8"
-            font.pixelSize: 12
+            font.pixelSize: 14
             elide: Text.ElideRight
             width: parent.width
         }

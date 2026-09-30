@@ -16,6 +16,7 @@ Item {
         PageHeader {
             id: head
             width: parent.width
+            icon: "activity"
             title: "Activity"
             subtitle: "Everything you asked JARVIS to do, newest first (last 50)."
             JButton { text: "WHAT DID YOU DO?"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("what did you do just now") }
@@ -44,7 +45,7 @@ Item {
                         id: req
                         text: model.requestText || "Command"
                         color: "#F0F4F8"
-                        font.pixelSize: 14
+                        font.pixelSize: 16
                         font.bold: true
                         elide: Text.ElideRight
                         width: parent.width - badge.width - time.implicitWidth - 28
@@ -54,7 +55,7 @@ Item {
                         id: time
                         text: model.taskTimestamp || ""
                         color: "#64748B"
-                        font.pixelSize: 11
+                        font.pixelSize: 13
                         anchors.right: badge.left
                         anchors.rightMargin: 12
                         anchors.verticalCenter: parent.verticalCenter
@@ -65,7 +66,7 @@ Item {
                     width: parent.width
                     text: (model.taskMessage || "Completed")
                     color: "#B8C6D8"
-                    font.pixelSize: 12
+                    font.pixelSize: 14
                     wrapMode: Text.WordWrap
                     maximumLineCount: 3
                     elide: Text.ElideRight
@@ -73,7 +74,7 @@ Item {
                 Text {
                     text: "From " + (model.taskSource || "desktop") + "  ·  " + (model.taskRoute || "router")
                     color: "#64748B"
-                    font.pixelSize: 11
+                    font.pixelSize: 13
                 }
             }
 

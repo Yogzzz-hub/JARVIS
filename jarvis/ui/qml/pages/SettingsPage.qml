@@ -30,8 +30,8 @@ Item {
                 anchors.rightMargin: 20
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
-                Text { text: row.title; color: "#F0F4F8"; font.pixelSize: 14; font.bold: true }
-                Text { text: row.desc; color: "#8193AB"; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: row.title; color: "#F0F4F8"; font.pixelSize: 16; font.bold: true }
+                Text { text: row.desc; color: "#8193AB"; font.pixelSize: 14; wrapMode: Text.WordWrap; width: parent.width }
             }
             Toggle {
                 id: toggle
@@ -51,6 +51,7 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "settings"
             title: "Settings"
             subtitle: "How the dashboard looks and behaves. Changes apply immediately."
         }
@@ -73,14 +74,14 @@ Item {
             Card {
                 width: parent.width
                 padding: 16
-                Text { text: "Keyboard shortcuts"; color: "#F0F4F8"; font.pixelSize: 14; font.bold: true }
+                Text { text: "Keyboard shortcuts"; color: "#F0F4F8"; font.pixelSize: 16; font.bold: true }
                 Grid {
                     columns: 2
                     columnSpacing: 24
                     rowSpacing: 6
                     Repeater {
                         model: ["Talk (anywhere)", "Ctrl + Shift + J", "Open the dashboard", "Ctrl + Shift + D", "Talk (dashboard open)", "Ctrl + Space", "Type a command", "Ctrl + K", "Wake word", "“Hey Jarvis”"]
-                        delegate: Text { text: modelData; color: index % 2 ? "#00E5FF" : "#B8C6D8"; font.pixelSize: 12; font.bold: index % 2 === 1 }
+                        delegate: Text { text: modelData; color: index % 2 ? "#00E5FF" : "#B8C6D8"; font.pixelSize: 14; font.bold: index % 2 === 1 }
                     }
                 }
             }

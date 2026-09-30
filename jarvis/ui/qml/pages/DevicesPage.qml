@@ -11,6 +11,7 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "devices"
             title: "Devices"
             subtitle: "Your phone and the hardware JARVIS can use."
             JButton { text: "PHONE STATUS"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("phone status") }
@@ -28,7 +29,7 @@ Item {
                     width: grid.cellWidth
                     padding: 16
                     CardTitle { width: parent.width; title: modelData.name || "Device"; status: modelData.status || "OFFLINE" }
-                    Text { text: "Type: " + (modelData.type || "peripheral"); color: "#8193AB"; font.pixelSize: 12 }
+                    Text { text: "Type: " + (modelData.type || "peripheral"); color: "#8193AB"; font.pixelSize: 14 }
                 }
             }
         }

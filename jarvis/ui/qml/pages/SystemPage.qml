@@ -11,6 +11,7 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "system"
             title: "System"
             subtitle: "Live hardware load and which AI models are loaded right now."
             StatusBadge { status: root.stateModel ? root.stateModel.connectionStatus : "OFFLINE" }

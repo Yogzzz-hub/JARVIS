@@ -57,7 +57,7 @@ Item {
         color: active ? Qt.rgba(tone.r, tone.g, tone.b, 0.22) : (m.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
         border.width: 1
         border.color: active ? tone : "#2A3A52"
-        Text { id: t; anchors.centerIn: parent; text: mb.text; color: mb.active ? mb.tone : "#B8C6D8"; font.pixelSize: 12; font.bold: true }
+        Text { id: t; anchors.centerIn: parent; text: mb.text; color: mb.active ? mb.tone : "#B8C6D8"; font.pixelSize: 14; font.bold: true }
         MouseArea { id: m; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: mb.clicked() }
     }
 
@@ -68,6 +68,7 @@ Item {
 
         PageHeader {
             width: parent.width
+            icon: "whatsapp"
             title: "WhatsApp"
             subtitle: root.client ? (root.client.status || "Loading...") : "JARVIS backend not connected"
             StatusBadge { status: "BUSY"; text: "GROUPS BLOCKED" }
@@ -86,9 +87,9 @@ Item {
         Card {
             width: parent.width
             spacing: 12
-            Text { text: "Auto-reply to everyone"; color: root.fg; font.pixelSize: 15; font.bold: true }
+            Text { text: "Auto-reply to everyone"; color: root.fg; font.pixelSize: 17; font.bold: true }
             Text {
-                width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 12
+                width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 14
                 text: "Direct chats only, for a set time. Type what to tell people (sent once to each person), or leave it "
                       + "empty and JARVIS drafts replies in your style."
             }
@@ -96,7 +97,7 @@ Item {
                 width: parent.width
                 spacing: 10
                 JInput { id: everyoneMinutes; width: 90; text: "60"; numeric: true; placeholder: "minutes" }
-                Text { text: "minutes"; color: root.dim; font.pixelSize: 12; height: 34; verticalAlignment: Text.AlignVCenter }
+                Text { text: "minutes"; color: root.dim; font.pixelSize: 14; height: 34; verticalAlignment: Text.AlignVCenter }
                 JInput { id: everyoneNote; width: Math.min(360, page.contentW - 460); placeholder: "Message (optional): I'm in a meeting" }
                 JButton { text: "TURN ON"; variant: "warning"; busy: root.busy
                           onClicked: if (root.client) root.client.enableEveryoneWithNote(parseFloat(everyoneMinutes.text) || 60, everyoneNote.text) }
@@ -147,9 +148,9 @@ Item {
                             }
                             Text { text: (modelData.profile_status === "NO PROFILE" ? "Style not learned yet" : modelData.profile_status + " · "
                                           + modelData.samples + " messages · " + modelData.language_style)
-                                   color: root.dim; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                                   color: root.dim; font.pixelSize: 13; elide: Text.ElideRight; width: parent.width }
                             Text { text: modelData.last_incoming ? "“" + modelData.last_incoming + "”" : "No messages yet"
-                                   color: root.faint; font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
+                                   color: root.faint; font.pixelSize: 13; elide: Text.ElideRight; width: parent.width }
                         }
                     }
                 }
@@ -184,9 +185,9 @@ Item {
                         statusText: root.contact && root.contact.auto_reply === "ON" ? "AUTO-REPLY UNTIL " + root.timeText(root.contact.auto_reply_expiry)
                                                                                     : "AUTO-REPLY OFF"
                     }
-                    Text { text: root.contact ? "+" + root.contact.contact_id.split("@")[0] : ""; color: root.faint; font.pixelSize: 12 }
+                    Text { text: root.contact ? "+" + root.contact.contact_id.split("@")[0] : ""; color: root.faint; font.pixelSize: 14 }
                     Text {
-                        width: parent.width; wrapMode: Text.WordWrap; color: root.fg; font.pixelSize: 13
+                        width: parent.width; wrapMode: Text.WordWrap; color: root.fg; font.pixelSize: 15
                         text: root.summary ? (root.summary.language + "  ·  " + root.summary.tone + " tone  ·  "
                                               + root.summary.typical_length + "  ·  emoji " + root.summary.emoji.toLowerCase())
                                            : "Style not learned yet. Import a chat below, or JARVIS learns as you chat."
@@ -195,7 +196,7 @@ Item {
                         width: parent.width; height: 6; radius: 3; color: "#1E293B"; visible: root.profile !== null
                         Rectangle { width: parent.width * (root.profile ? root.profile.tanglish_ratio : 0); height: parent.height; radius: 3; color: "#B388FF" }
                     }
-                    Text { visible: root.summary !== null; color: root.faint; font.pixelSize: 11
+                    Text { visible: root.summary !== null; color: root.faint; font.pixelSize: 13
                            text: root.summary ? root.summary.messages_analyzed + " of your messages analysed · profile v"
                                                 + ((root.contact && root.contact.profile_version) || 0) + " · updated "
                                                 + (root.profile ? root.timeText(root.profile.updated_at) : "-") : "" }
@@ -206,7 +207,7 @@ Item {
                     width: parent.width
                     visible: root.contact !== null
                     spacing: 12
-                    Text { text: "How JARVIS answers them"; color: root.fg; font.pixelSize: 14; font.bold: true }
+                    Text { text: "How JARVIS answers them"; color: root.fg; font.pixelSize: 16; font.bold: true }
                     Flow {
                         width: parent.width
                         spacing: 8
@@ -218,7 +219,7 @@ Item {
                                      onClicked: root.client.setMode(root.selectedId, "ASK_BEFORE_SEND", 0) }
                     }
                     Text {
-                        width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 12
+                        width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 14
                         text: root.contact && root.contact.reply_mode === "SUGGEST_ONLY" ? "Drafts show up in History below; nothing is sent."
                               : root.contact && root.contact.reply_mode === "ASK_BEFORE_SEND" ? "Each draft waits in History for your Send."
                               : "No drafts. Turn on auto-reply below for a set time, or choose Suggest / Ask first."
@@ -227,9 +228,9 @@ Item {
                     Flow {
                         width: parent.width
                         spacing: 10
-                        Text { text: "Auto-reply for"; color: root.fg; font.pixelSize: 13; height: 34; verticalAlignment: Text.AlignVCenter }
+                        Text { text: "Auto-reply for"; color: root.fg; font.pixelSize: 15; height: 34; verticalAlignment: Text.AlignVCenter }
                         JInput { id: autoMinutes; width: 76; text: "45"; numeric: true }
-                        Text { text: "min"; color: root.dim; font.pixelSize: 12; height: 34; verticalAlignment: Text.AlignVCenter }
+                        Text { text: "min"; color: root.dim; font.pixelSize: 14; height: 34; verticalAlignment: Text.AlignVCenter }
                         JInput { id: autoNote; width: Math.max(200, Math.min(320, detailCol.width - 420)); placeholder: "Message (optional)" }
                         JButton { text: "START"; variant: "success"; busy: root.busy
                                   onClicked: root.client.setModeWithNote(root.selectedId, "AUTO_REPLY_UNTIL", parseFloat(autoMinutes.text) || 45, autoNote.text) }
@@ -243,8 +244,8 @@ Item {
                     width: parent.width
                     visible: root.contact !== null
                     spacing: 12
-                    Text { text: "Teach JARVIS how you write to them"; color: root.fg; font.pixelSize: 14; font.bold: true }
-                    Text { width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 12
+                    Text { text: "Teach JARVIS how you write to them"; color: root.fg; font.pixelSize: 16; font.bold: true }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 14
                            text: "Import a WhatsApp chat export (Chat → More → Export chat → Without media), or learn from the messages JARVIS already has. Only your own messages teach it." }
                     Flow {
                         width: parent.width
@@ -264,7 +265,7 @@ Item {
                     width: parent.width
                     visible: root.contact !== null
                     spacing: 12
-                    Text { text: "Try it (nothing is sent)"; color: root.fg; font.pixelSize: 14; font.bold: true }
+                    Text { text: "Try it (nothing is sent)"; color: root.fg; font.pixelSize: 16; font.bold: true }
                     Item {
                         width: parent.width
                         height: 34
@@ -290,7 +291,7 @@ Item {
                         Text {
                             id: resultText
                             x: 14; y: 12; width: parent.width - 28
-                            wrapMode: Text.WordWrap; color: root.fg; font.pixelSize: 12; lineHeight: 1.25
+                            wrapMode: Text.WordWrap; color: root.fg; font.pixelSize: 14; lineHeight: 1.25
                             text: {
                                 var c = root.client;
                                 if (!c) return "";
@@ -311,7 +312,7 @@ Item {
                     Flow {
                         width: parent.width; spacing: 6
                         visible: !!(root.client && root.client.preview && root.client.preview.has_profile)
-                        Text { text: "Tune:"; color: root.dim; font.pixelSize: 12; height: 26; verticalAlignment: Text.AlignVCenter }
+                        Text { text: "Tune:"; color: root.dim; font.pixelSize: 14; height: 26; verticalAlignment: Text.AlignVCenter }
                         Repeater {
                             model: [["Looks right", "looks_right"], ["Too formal", "too_formal"], ["Too casual", "too_casual"],
                                     ["More English", "more_english"], ["More Tanglish", "more_tanglish"], ["Shorter", "shorter"], ["Longer", "longer"]]
@@ -328,11 +329,11 @@ Item {
                     Item {
                         width: parent.width
                         height: 34
-                        Text { text: "Replies and drafts"; color: root.fg; font.pixelSize: 14; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: "Replies and drafts"; color: root.fg; font.pixelSize: 16; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                         JButton { text: "RELOAD"; variant: "ghost"; small: true; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                   onClicked: root.client.loadHistory(root.selectedId) }
                     }
-                    Text { visible: !root.client || root.client.history.length === 0; color: root.faint; font.pixelSize: 12
+                    Text { visible: !root.client || root.client.history.length === 0; color: root.faint; font.pixelSize: 14
                            text: "Nothing yet. Drafts that need your OK and every reply JARVIS sends show up here." }
                     Repeater {
                         model: root.client ? root.client.history : []
@@ -351,9 +352,9 @@ Item {
                                 Text { text: root.timeText(modelData.created_at) + "  ·  " + modelData.status.replace(/_/g, " ").toLowerCase()
                                              + (modelData.reason ? "  ·  " + modelData.reason : "")
                                        color: modelData.status === "VERIFIED" ? root.ok : (modelData.status === "UNCERTAIN" || modelData.status === "FAILED" ? root.danger : root.dim)
-                                       font.pixelSize: 11; elide: Text.ElideRight; width: parent.width }
-                                Text { text: "They: " + modelData.incoming; color: root.dim; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: "You: " + (modelData.text || "-"); color: root.fg; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
+                                       font.pixelSize: 13; elide: Text.ElideRight; width: parent.width }
+                                Text { text: "They: " + modelData.incoming; color: root.dim; font.pixelSize: 14; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { text: "You: " + (modelData.text || "-"); color: root.fg; font.pixelSize: 14; wrapMode: Text.WordWrap; width: parent.width }
                                 Flow {
                                     width: parent.width; spacing: 8; visible: pending
                                     JButton { text: "SEND"; variant: "success"; small: true; onClicked: root.client.approve(modelData.id, "", false) }
@@ -372,18 +373,18 @@ Item {
             width: parent.width
             spacing: 6
             SectionLabel { text: "LIVE ACTIVITY" }
-            Text { visible: !root.client || root.client.activity.length === 0; color: root.faint; font.pixelSize: 12
+            Text { visible: !root.client || root.client.activity.length === 0; color: root.faint; font.pixelSize: 14
                    text: "Quiet. When a message arrives you will see JARVIS read it, draft, and send or hold the reply." }
             Repeater {
                 model: root.client ? root.client.activity.slice(0, 12) : []
                 delegate: Row {
                     spacing: 12
-                    Text { text: root.timeText(modelData.ts); color: root.faint; font.pixelSize: 11; width: 64 }
-                    Text { text: modelData.stage; font.pixelSize: 11; font.bold: true; width: 120; elide: Text.ElideRight
+                    Text { text: root.timeText(modelData.ts); color: root.faint; font.pixelSize: 13; width: 64 }
+                    Text { text: modelData.stage; font.pixelSize: 13; font.bold: true; width: 120; elide: Text.ElideRight
                            color: modelData.stage === "NOT SENT" || modelData.stage === "UNCERTAIN" ? root.danger
                                   : (modelData.stage === "Verified" ? root.ok : "#B8C6D8") }
                     Text { text: modelData.display_name + (modelData.detail ? "  ·  " + modelData.detail : ""); color: root.dim
-                           font.pixelSize: 11; elide: Text.ElideRight; width: page.contentW - 240 }
+                           font.pixelSize: 13; elide: Text.ElideRight; width: page.contentW - 240 }
                 }
             }
         }

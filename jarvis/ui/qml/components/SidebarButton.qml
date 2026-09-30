@@ -11,7 +11,7 @@ Item {
     signal clicked()
 
     width: parent ? parent.width : 180
-    height: 44
+    height: 48
 
     // ─── background ───
     Rectangle {
@@ -78,9 +78,9 @@ Item {
             text: root.text
             color: root.selected ? "#F0F4F8"
                  : (mouseArea.containsMouse ? "#E2E8F0" : "#8FA3BC")
-            font.pixelSize: 13
-            font.bold: root.selected
-            font.family: "Segoe UI"
+            font.pixelSize: 17
+            font.weight: root.selected ? Font.Bold : Font.DemiBold
+            font.family: "Rajdhani"
             anchors.verticalCenter: parent.verticalCenter
             Behavior on color { ColorAnimation { duration: 150 } }
         }
@@ -104,7 +104,7 @@ Item {
             anchors.centerIn: parent
             text: root.text
             color: "#E2E8F0"
-            font.pixelSize: 11
+            font.pixelSize: 13
             font.bold: true
         }
     }
