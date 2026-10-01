@@ -15,6 +15,7 @@ import asyncio
 from collections import defaultdict
 import inspect
 import os
+from pathlib import Path
 import re
 import time
 from typing import Any, Optional
@@ -241,17 +242,69 @@ class DAGScheduler:
             else 1.0
         )
 
-        successful = [nid for nid, r in node_results.items() if r.state == NodeState.SUCCESS]
-        failed = [nid for nid, r in node_results.items() if r.state in (NodeState.FAILED, NodeState.TIMEOUT)]
-        skipped = [
-            nid
-            for nid, r in node_results.items()
-            if r.state in (
-                NodeState.SKIPPED_DEPENDENCY_FAILED,
-                NodeState.SKIPPED_CONDITION_FALSE,
-                NodeState.BLOCKED_AMBIGUOUS_INPUT,
+        # Construct ActionOutcome records for every step
+        from jarvis.core.scheduler.outcomes import ActionOutcome, ActionStatus, ResultAggregator, CommandStatus
+        action_outcomes: list[ActionOutcome] = []
+        for node in graph.nodes:
+            r = node_results.get(node.id)
+            if r is None:
+                st = ActionStatus.SKIPPED
+                err = "Step was not reached"
+                v_res = None
+            elif r.state in (NodeState.SUCCESS, NodeState.VERIFIED_SUCCESS):
+                st = ActionStatus.VERIFIED_SUCCESS
+                err = None
+                v_res = r.output if isinstance(r.output, dict) else None
+            elif r.state in (NodeState.FAILED, NodeState.TIMEOUT):
+                st = ActionStatus.FAILED
+                err = r.error
+                v_res = None
+            elif r.state == NodeState.SKIPPED_DEPENDENCY_FAILED:
+                st = ActionStatus.SKIPPED
+                err = r.error
+                v_res = None
+            elif r.state in (NodeState.SKIPPED_CONDITION_FALSE, NodeState.BLOCKED_AMBIGUOUS_INPUT, NodeState.BLOCKED):
+                st = ActionStatus.BLOCKED
+                err = r.error
+                v_res = None
+            elif r.state == NodeState.CANCELLED:
+                st = ActionStatus.CANCELLED
+                err = r.error
+                v_res = None
+            else:
+                st = ActionStatus.UNCERTAIN
+                err = r.error
+                v_res = None
+
+            cap_label = node.tool
+            if isinstance(node.args, dict):
+                if node.tool == "open_app" and node.args.get("name"):
+                    cap_label = str(node.args["name"]).capitalize()
+                elif "query" in node.args:
+                    cap_label = f"Search for {node.args['query']}"
+                elif "path" in node.args:
+                    cap_label = f"File {Path(str(node.args['path'])).name or node.args['path']}"
+
+            action_outcomes.append(
+                ActionOutcome(
+                    step_id=node.id,
+                    capability=cap_label,
+                    status=st,
+                    dependency=list(node.depends_on),
+                    reason=err,
+                    verified_result=v_res,
+                )
             )
-        ]
+
+        outcome_summary = ResultAggregator.aggregate(
+            action_outcomes,
+            command_id=graph.graph_id,
+            waiting_confirmation=needs_policy_confirmation,
+        )
+
+        successful = [a.step_id for a in action_outcomes if a.status == ActionStatus.VERIFIED_SUCCESS]
+        failed = [a.step_id for a in action_outcomes if a.status == ActionStatus.FAILED]
+        skipped = [a.step_id for a in action_outcomes if a.status in (ActionStatus.SKIPPED, ActionStatus.BLOCKED)]
 
         # Determine overall graph status
         if clarification_needed:
@@ -260,24 +313,27 @@ class DAGScheduler:
         elif needs_policy_confirmation:
             status = GraphStatus.NEEDS_CONFIRMATION
             msg = "This operation involves external or destructive changes and requires confirmation."
-        elif len(successful) == len(graph.nodes):
+        elif outcome_summary.status == CommandStatus.COMPLETED:
             status = GraphStatus.SUCCESS
-            msg = f"Completed all {len(successful)} steps successfully."
-        elif len(successful) > 0 and (failed or skipped):
+            msg = outcome_summary.message
+        elif outcome_summary.status == CommandStatus.PARTIAL_SUCCESS:
             status = GraphStatus.PARTIAL
-            msg = f"Completed {len(successful)} of {len(graph.nodes)} steps. Some actions failed or were skipped."
+            msg = outcome_summary.message
         elif any(r.state == NodeState.CANCELLED for r in node_results.values()):
             status = GraphStatus.CANCELLED
             msg = "Task graph execution was cancelled."
+        elif outcome_summary.status == CommandStatus.UNCERTAIN:
+            status = GraphStatus.UNCERTAIN
+            msg = outcome_summary.message
         else:
             status = GraphStatus.FAILED
-            first_fail = next((r.error for r in node_results.values() if r.error), "Execution failed.")
-            msg = f"Task graph execution failed: {first_fail}"
+            msg = outcome_summary.message
 
         return GraphResult(
             graph_id=graph.graph_id,
             status=status,
             node_results=node_results,
+            action_outcomes=action_outcomes,
             successful_nodes=successful,
             failed_nodes=failed,
             skipped_nodes=skipped,

@@ -16,9 +16,13 @@ class State(StrEnum):
     VERIFYING = "VERIFYING"
     WAITING_CONFIRMATION = "WAITING_CONFIRMATION"
     SUCCESS = "SUCCESS"
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     RESPONDING = "RESPONDING"
     CANCELLED = "CANCELLED"
+    UNCERTAIN = "UNCERTAIN"
+    WAITING_FOR_USER = "WAITING_FOR_USER"
 
 TRANSITIONS = {
     State.IDLE: {State.LISTENING, State.UNDERSTANDING, State.CANCELLED},
@@ -27,10 +31,16 @@ TRANSITIONS = {
     State.ACKNOWLEDGED: {State.PLANNING, State.EXECUTING, State.FAILED, State.CANCELLED},
     State.PLANNING: {State.EXECUTING, State.FAILED, State.CANCELLED},
     State.EXECUTING: {State.VERIFYING, State.WAITING_CONFIRMATION, State.FAILED, State.CANCELLED},
-    State.VERIFYING: {State.SUCCESS, State.FAILED, State.CANCELLED},
+    State.VERIFYING: {State.SUCCESS, State.PARTIAL_SUCCESS, State.COMPLETED, State.FAILED, State.CANCELLED, State.UNCERTAIN},
     State.WAITING_CONFIRMATION: {State.EXECUTING, State.RESPONDING, State.FAILED, State.CANCELLED},
-    State.SUCCESS: {State.RESPONDING}, State.FAILED: {State.RESPONDING},
-    State.CANCELLED: {State.RESPONDING}, State.RESPONDING: {State.FAILED},
+    State.SUCCESS: {State.RESPONDING},
+    State.PARTIAL_SUCCESS: {State.RESPONDING},
+    State.COMPLETED: {State.RESPONDING},
+    State.FAILED: {State.RESPONDING},
+    State.CANCELLED: {State.RESPONDING},
+    State.UNCERTAIN: {State.RESPONDING},
+    State.WAITING_FOR_USER: {State.EXECUTING, State.RESPONDING, State.FAILED, State.CANCELLED},
+    State.RESPONDING: {State.FAILED},
 }
 
 @dataclass(slots=True)
@@ -51,10 +61,14 @@ class Task:
     steps: dict = field(default_factory=dict)
     steps_total: int = 0
     started_monotonic: float = field(default_factory=time.monotonic)
+    finalized: bool = False
+    outcome_version: int = 1
 
     @property
     def active(self) -> bool:
-        return self.result is None and self.state not in (State.SUCCESS, State.FAILED, State.CANCELLED, State.RESPONDING)
+        return self.result is None and not self.finalized and self.state not in (
+            State.SUCCESS, State.PARTIAL_SUCCESS, State.COMPLETED, State.FAILED, State.CANCELLED, State.RESPONDING, State.UNCERTAIN
+        )
 
     def snapshot(self):
         return {"request_id": self.request_id, "source": self.source, "raw_text": self.raw_text,

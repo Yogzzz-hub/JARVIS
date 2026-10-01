@@ -12,7 +12,7 @@ from jarvis.core.metrics.clock import Clock, now_ns
 from jarvis.core.router.models import ComplexityLevel, RouteLane
 from jarvis.core.router.router import SmartRouter
 from jarvis.core.router.control import match_control
-from jarvis.core.tasks.manager import State
+from jarvis.core.tasks.manager import State, TRANSITIONS
 from jarvis.tools.base import ToolResult, VerificationResult
 
 class CommandService:
@@ -96,17 +96,88 @@ class CommandService:
         return request
 
     def _dictation(self, request):
-        """While dictation mode is on, spoken words are typed into the chosen text box instead of run as commands."""
-        if getattr(request, "source", "") != "voice":
-            return None
+        """Unified dictation interceptor: handles active dictation and start typing directly."""
         try:
             from jarvis.tools.productivity.dictation import get_dictation_manager, handle_dictation_utterance
-            if not get_dictation_manager().is_active():
+            dm_active = False
+            try:
+                dm_active = get_dictation_manager().active_dictation_mode
+            except Exception:
+                pass
+
+            from jarvis.core.desktop.dictation_controller import (
+                get_dictation_controller,
+                classify_dictation_turn,
+                DictationTurnType,
+                DictationState,
+            )
+            controller = get_dictation_controller()
+            text = (request.text or "").strip()
+            if not text:
                 return None
-            _, message = handle_dictation_utterance(request.text or "")
+
+            if getattr(request, "source", "") != "voice":
+                turn = classify_dictation_turn(text, controller.state)
+                if not (turn and turn.turn_type == DictationTurnType.START_DICTATION):
+                    return None
+
+            if dm_active and not controller.is_active:
+                success, message = handle_dictation_utterance(text)
+                return CommandResult(
+                    request_id=request.request_id,
+                    state="SUCCESS" if success else "FAILED",
+                    message=message,
+                    metrics={},
+                )
+
+            # 1. Active dictation handling
+            if controller.is_active:
+                turn = classify_dictation_turn(text, controller.state)
+                if turn:
+                    if turn.turn_type == DictationTurnType.GLOBAL_EMERGENCY_COMMAND:
+                        if turn.escape_command and turn.escape_command != "cancel":
+                            controller.stop()
+                            # Escaped command: rewrite text and fall through to normal router
+                            return None
+                        else:
+                            controller.stop()
+                            return CommandResult(
+                                request_id=request.request_id,
+                                state="SUCCESS",
+                                message="Dictation cancelled.",
+                                metrics={},
+                            )
+
+                    # Execute locally with ultra-low latency (<5 ms)
+                    success, message = controller.execute_turn(turn)
+                    return CommandResult(
+                        request_id=request.request_id,
+                        state="SUCCESS" if success else "FAILED",
+                        message=message,
+                        metrics={},
+                    )
+
+            # 2. Start dictation from IDLE
+            turn = classify_dictation_turn(text, controller.state)
+            if turn and turn.turn_type == DictationTurnType.START_DICTATION:
+                if not controller.has_editable_target() and not turn.slots.get("app"):
+                    return CommandResult(
+                        request_id=request.request_id,
+                        state="WAITING_FOR_USER",
+                        message="Where should I type?",
+                        metrics={},
+                    )
+                success, message = controller.execute_turn(turn)
+                return CommandResult(
+                    request_id=request.request_id,
+                    state="SUCCESS" if success else "FAILED",
+                    message=message,
+                    metrics={},
+                )
         except Exception as exc:
-            return CommandResult(request_id=request.request_id, state="FAILED", message=f"Dictation failed: {exc}", metrics={})
-        return CommandResult(request_id=request.request_id, state="SUCCESS", message=message, metrics={})
+            logging.getLogger("jarvis.commands").warning("Dictation handling error: %s", exc)
+            return None
+        return None
 
     def _language(self, request):
         """English or Thanglish: pick the reply language and turn a Thanglish command into the English one the
@@ -287,6 +358,17 @@ class CommandService:
 
             # Handle CONTROL bypass
             if decision.lane == RouteLane.CONTROL:
+                if decision.intent in ("response_policy", "meta_instruction"):
+                    if self.working_memory and hasattr(self.working_memory, "set_response_policy"):
+                        self.working_memory.set_response_policy(decision.slots or {})
+                    self.tasks.transition(task, State.EXECUTING)
+                    self.tasks.transition(task, State.VERIFYING)
+                    message = decision.clarification or "Response policy updated."
+                    tool_result = ToolResult(success=True, data={"policy_updated": True, "slots": decision.slots}, tool_name="meta_instruction")
+                    verification = VerificationResult(verified=True, confidence=1.0, evidence={"policy_updated": True})
+                    # Do NOT replay previous plan or pending execution!
+                    return self._finalize(task, State.SUCCESS, message, tool_result, verification, clock, current, is_voice=is_voice)
+
                 if decision.intent == "confirm_ticket":
                     ticket_id = decision.slots.get("ticket_id") if decision.slots else None
                     cm = getattr(self.executor, "confirmation_manager", None)
@@ -854,8 +936,19 @@ class CommandService:
             pass
 
     def _finalize(self, task, state, message, tool_result, verification, clock, current, is_voice: bool = False, predicted_ms: float = 400.0):
-        if task.result is not None:  # one command_id -> exactly one final response (UI and speech read the same one)
+        # Deduplicate: One command_id must produce exactly ONE final user-facing outcome
+        if getattr(task, "finalized", False) or task.result is not None:
             return task.result
+        if hasattr(self, "_finalized_outcomes") and task.request_id in self._finalized_outcomes:
+            existing = self._finalized_outcomes[task.request_id]
+            task.result = existing
+            return existing
+
+        # Verification Rule: Never produce DONE/COMPLETED/SUCCESS until all required verification passes
+        # Execution success != verification success.
+        if state in (State.SUCCESS, State.COMPLETED) and verification is not None and not verification.verified:
+            state = State.UNCERTAIN if getattr(verification, "confidence", 1.0) > 0.3 else State.FAILED
+
         try:
             from jarvis.core.multilingual import REPLY_LANGUAGE, THANGLISH, in_thanglish
             if REPLY_LANGUAGE.get() == THANGLISH:
@@ -864,16 +957,20 @@ class CommandService:
             pass
         try:
             if task.state != state:
-                self.tasks.transition(task, state)
+                if state in TRANSITIONS.get(task.state, set()):
+                    self.tasks.transition(task, state)
+                else:
+                    task.state = state
             clock.response_ready_ns = now_ns()
 
             # Handle PULSE Feedback Lane vs Legacy Response
             is_fast_silent = (predicted_ms < 250.0 and not is_voice)
             is_waiting_confirmation = (state == State.WAITING_CONFIRMATION)
+            is_verified_state = (state in (State.SUCCESS, State.COMPLETED, State.PARTIAL_SUCCESS)) and (verification is None or verification.verified)
             if self.pulse:
                 self.pulse.on_verified(
                     request_id=task.request_id,
-                    is_verified=(state == State.SUCCESS),
+                    is_verified=is_verified_state,
                     result_message=message,
                     is_voice=is_voice,
                     is_fast_silent=is_fast_silent,
@@ -884,12 +981,22 @@ class CommandService:
 
             self._log_action(task, state, message, tool_result)
             result = CommandResult(request_id=task.request_id, state=state.value, message=message,
-                                   tool_result=tool_result, verification=verification, metrics=clock.metrics())
+                                   tool_result=tool_result, verification=verification, metrics=clock.metrics(),
+                                   outcome_version=1, finalized=True)
             task.result = result
+            task.finalized = True
+            task.outcome_version = 1
+            if not hasattr(self, "_finalized_outcomes"):
+                self._finalized_outcomes = {}
+            self._finalized_outcomes[task.request_id] = result
+
             self.metrics.record(task.request_id, result.metrics)
             if tool_result:
                 self.writer.enqueue("tool_runs", task.request_id, tool_result.model_dump(mode="json"))
-            self.tasks.transition(task, State.RESPONDING)
+            if task.state in TRANSITIONS and State.RESPONDING in TRANSITIONS[task.state]:
+                self.tasks.transition(task, State.RESPONDING)
+            else:
+                task.state = State.RESPONDING
             self.bus.emit("response.ready", task.request_id, result=result.model_dump(mode="json"), source=task.source)
             logging.getLogger("jarvis.commands").info(message, extra={"request_id": task.request_id,
                 "event": "response.ready", "duration_ms": result.metrics["total_ms"]})
@@ -1024,7 +1131,10 @@ class CommandService:
 
             return result
         finally:
-            self.active.discard(current)
+            try:
+                self.active.discard(current)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ AI lanes
     def _to_executing(self, task) -> None:
@@ -1244,15 +1354,50 @@ class CommandService:
             return self._finalize(task, State.WAITING_CONFIRMATION, message, tool_result, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
 
         self.tasks.transition(task, State.VERIFYING)
-        is_success = graph_result.status == GraphStatus.SUCCESS
-        state = State.SUCCESS if is_success else State.FAILED
-        message = self._graph_message(graph_result)
-        err_msg = None if is_success else (message or "Plan execution failed")
+        from jarvis.core.scheduler.outcomes import ResultAggregator, CommandStatus
+        action_outcomes = getattr(graph_result, "action_outcomes", [])
+        if action_outcomes:
+            outcome_summary = ResultAggregator.aggregate(
+                action_outcomes,
+                command_id=task.request_id,
+                waiting_confirmation=(graph_result.status == GraphStatus.NEEDS_CONFIRMATION and not approved),
+                is_voice=is_voice,
+            )
+            message = outcome_summary.message
+            if outcome_summary.status in (CommandStatus.COMPLETED, CommandStatus.PARTIAL_SUCCESS):
+                state = State.SUCCESS if outcome_summary.status == CommandStatus.COMPLETED else State.PARTIAL_SUCCESS
+                is_success = True
+                err_msg = None
+            elif outcome_summary.status == CommandStatus.WAITING_FOR_USER:
+                state = State.WAITING_CONFIRMATION
+                is_success = False
+                err_msg = message
+            elif outcome_summary.status == CommandStatus.UNCERTAIN:
+                state = State.UNCERTAIN
+                is_success = False
+                err_msg = message
+            else:
+                state = State.FAILED
+                is_success = False
+                err_msg = message
+        else:
+            is_success = graph_result.status in (GraphStatus.SUCCESS, GraphStatus.COMPLETED)
+            is_partial = graph_result.status in (GraphStatus.PARTIAL, GraphStatus.PARTIAL_SUCCESS)
+            if is_success:
+                state = State.SUCCESS
+            elif is_partial:
+                state = State.PARTIAL_SUCCESS
+                is_success = True
+            else:
+                state = State.FAILED
+            message = self._graph_message(graph_result)
+            err_msg = None if is_success else (message or "Plan execution failed")
+
         tool_result = ToolResult(success=is_success, data=graph_result.model_dump(mode="json"), error=err_msg, tool_name="dag_scheduler")
         verification = VerificationResult(
             verified=is_success,
             error=None if is_success else (err_msg or "Execution failed"),
-            confidence=1.0 if is_success else 0.5,
+            confidence=1.0 if state == State.SUCCESS else (0.8 if state == State.PARTIAL_SUCCESS else 0.5),
             evidence={"graph_id": graph_result.graph_id, "status": str(graph_result.status), "parallelism_factor": graph_result.parallelism_factor},
         )
         return self._finalize(task, state, prefix + message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
@@ -1261,7 +1406,8 @@ class CommandService:
         """Speak what the plan actually produced (e.g. the answer or the sent message), not just a step count."""
         from jarvis.core.response.formatter import ResponseFormatter
         base = graph_result.user_message_data or "Done."
-        if str(getattr(graph_result.status, "value", graph_result.status)) != "success":
+        st_val = str(getattr(graph_result.status, "value", graph_result.status)).lower()
+        if st_val not in ("success", "partial"):
             return base
         summaries = []
         for node_id in graph_result.successful_nodes:

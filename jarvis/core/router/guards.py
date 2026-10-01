@@ -57,6 +57,11 @@ def check_negation(text: str) -> tuple[bool, list[dict[str, Any]]]:
     if re.match(r"^(?:please\s+)?(?:don't|dont|do not)\s+(?:let\s+me\s+)?forget\b", lowered):
         return False, constraints
 
+    # Meta-instructions modifying reporting preferences must NEVER be marked as negated tool commands!
+    from jarvis.core.router.meta_policy import match_meta_policy
+    if match_meta_policy(text, "negation-guard") is not None:
+        return False, constraints
+
     # Check "don't <action> <target>, just <inquire>" (e.g. "don't open notepad, just tell me whether it's installed")
     m_split = re.match(r"^(?:don't|do not|never)\s+([^,]+),\s*(?:just\s+)?(.+)$", lowered)
     if m_split:

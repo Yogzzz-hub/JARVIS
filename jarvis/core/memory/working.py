@@ -57,6 +57,25 @@ class BoundedWorkingMemory:
         # Structured Working Context
         self.context: WorkingContext = WorkingContext()
 
+        # Active Response Policy Preferences
+        self.response_policy: Dict[str, Any] = {
+            "require_verification_before_done": True,
+            "allow_premature_done": False,
+            "partial_success_enabled": True,
+            "partial_completion_status": "PARTIAL_SUCCESS",
+            "concise_responses": False,
+            "explain_failures": True,
+            "auto_retry_uncertain": False,
+        }
+
+    def set_response_policy(self, updates: Dict[str, Any]) -> None:
+        """Updates active response policy preferences."""
+        self.response_policy.update(updates)
+
+    def get_response_policy(self) -> Dict[str, Any]:
+        """Returns active response policy preferences."""
+        return dict(self.response_policy)
+
     # -------------------------------------------------------------------------
     # Topic Stack & Active Topic Management
     # -------------------------------------------------------------------------
