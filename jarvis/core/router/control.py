@@ -34,6 +34,36 @@ CONTROL_PHRASES = frozenset({
     "okay that's enough",
     "ok that's enough",
     "hush",
+    # Dismissal / abandon phrases
+    "leave it",
+    "just leave it",
+    "forget it",
+    "just forget it",
+    "drop it",
+    "just drop it",
+    "skip it",
+    "just skip it",
+    "don't bother",
+    "dont bother",
+    "let it go",
+    "just let it go",
+    "it's fine",
+    "its fine",
+    "that's fine",
+    "thats fine",
+    "no need",
+    "no thanks",
+    "nah forget it",
+    "nah leave it",
+    "nah",
+    "just leave it alone",
+    "leave it alone",
+    "forget about it",
+    "just forget about it",
+    "it's okay",
+    "its okay",
+    "it's ok",
+    "its ok",
 })
 
 def match_control(text: str, request_id: str) -> RouteDecision | None:
@@ -73,6 +103,27 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
             lane=RouteLane.CONTROL,
             intent="reject_ticket",
             slots={"ticket_id": ticket_id},
+            confidence=1.0,
+            source=RouteSource.CONTROL,
+            complexity=ComplexityLevel.SIMPLE,
+            normalized_text=cleaned,
+            reason_code=ReasonCode.CONTROL_COMMAND,
+            candidate_count=1,
+            routing_ms=0.0,
+        )
+
+    # 2a. Dismissal / abandon phrases ("just leave it", "forget it", "drop it", "skip it", etc.)
+    _DISMISSAL = re.compile(
+        r"^(?:just\s+)?(?:leave\s+it(?:\s+alone)?|forget\s+(?:it|about\s+it|that)|drop\s+it|skip\s+it"
+        r"|let\s+it\s+go|don'?t\s+bother|no\s+need|no\s+thanks|nah(?:\s+(?:forget|leave)\s+it)?"
+        r"|it'?s\s+(?:fine|ok(?:ay)?)|that'?s\s+(?:fine|ok(?:ay)?))$"
+    )
+    if _DISMISSAL.match(cleaned):
+        return RouteDecision(
+            request_id=request_id,
+            lane=RouteLane.CONTROL,
+            intent="cancel_task",
+            slots={"action": "dismiss"},
             confidence=1.0,
             source=RouteSource.CONTROL,
             complexity=ComplexityLevel.SIMPLE,

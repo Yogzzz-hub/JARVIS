@@ -43,7 +43,14 @@ CONFIRMATION_WORDS = frozenset({
 
 CANCELLATION_WORDS = frozenset({
     "no", "cancel", "stop", "abort", "don't", "dont", "never mind",
-    "nevermind", "deny", "rejected", "leave it",
+    "nevermind", "deny", "rejected", "leave it", "just leave it",
+    "forget it", "just forget it", "drop it", "just drop it",
+    "skip it", "just skip it", "don't bother", "dont bother",
+    "let it go", "just let it go", "no need", "no thanks", "nope", "nah",
+    "nah forget it", "nah leave it", "leave it alone", "just leave it alone",
+    "forget about it", "just forget about it", "it's fine", "its fine",
+    "that's fine", "thats fine", "it's ok", "its ok", "it's okay", "its okay",
+    "that's ok", "thats ok", "that's okay", "thats okay",
 })
 
 RETRY_PATTERNS = (

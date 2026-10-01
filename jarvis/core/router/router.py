@@ -1299,7 +1299,7 @@ class SmartRouter:
             self._record(wa_decision)
             return wa_decision
 
-        if re.match(r"^(?:cancel|cancel task|stop task)$", clean_lower):
+        if re.match(r"^(?:cancel|cancel task|stop task|(?:just\s+)?(?:leave\s+it(?:\s+alone)?|forget\s+(?:it|about\s+it|that)|drop\s+it|skip\s+it|let\s+it\s+go|don'?t\s+bother|no\s+need))$", clean_lower):
             cancel_decision = RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.CONTROL,
