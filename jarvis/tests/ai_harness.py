@@ -106,6 +106,8 @@ class AIHarness:
         from jarvis.tools.system.app_resolver import AppResolver
         from jarvis.tools.system.native import create_tools
 
+        from jarvis.core.rules import RuleBook, set_rulebook
+        set_rulebook(RuleBook(persist=False))  # standing rules said in a test never reach the owner's real rulebook
         self.fake = FakeOllama(models=models or ["llama3.2:latest", "nomic-embed-text:latest"], responder=responder, reachable=reachable)
         self.llm = self.fake.client(fast_model="llama3.2", planner_model="llama3.2", chat_model="llama3.2", embed_model="nomic-embed-text")
         set_llm(self.llm)
@@ -174,3 +176,5 @@ class AIHarness:
         set_llm(None)
         set_assistant(None)
         set_whatsapp_ai(None)
+        from jarvis.core.rules import set_rulebook
+        set_rulebook(None)

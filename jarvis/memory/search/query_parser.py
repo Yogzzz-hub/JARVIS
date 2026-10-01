@@ -180,13 +180,13 @@ def parse_search_query(query_text: str) -> SearchQuery:
         temporal_hint = temp_c.label
         lowered = query_without_temp
         if isinstance(temp_c, DatePoint):
-            time_start_iso = datetime.combine(temp_c.date, dt_time.min).isoformat()
-            time_end_iso = datetime.combine(temp_c.date, dt_time.max).isoformat()
+            time_start_iso = datetime.combine(temp_c.resolved_date, dt_time.min).isoformat()
+            time_end_iso = datetime.combine(temp_c.resolved_date, dt_time.max).isoformat()
         elif isinstance(temp_c, DateRange):
             time_start_iso = datetime.combine(temp_c.start_date, dt_time.min).isoformat()
             time_end_iso = datetime.combine(temp_c.end_date, dt_time.max).isoformat()
         elif isinstance(temp_c, DateTimePoint):
-            time_start_iso = temp_c.dt.isoformat()
+            time_start_iso = temp_c.resolved_dt.isoformat()
         elif isinstance(temp_c, DateTimeRange):
             time_start_iso = temp_c.start_dt.isoformat()
             time_end_iso = temp_c.end_dt.isoformat()

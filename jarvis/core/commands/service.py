@@ -779,6 +779,30 @@ class CommandService:
                 ver = VerificationResult(verified=True, confidence=1.0, evidence={"runtime_state": True})
                 return self._finalize(task, State.SUCCESS, msg, tool_res, ver, clock, current, is_voice=is_voice)
 
+            if name in ("standing_rule", "standing_rules"):
+                # A rule for the future is kept (or, when JARVIS already enforces it, acknowledged) - nothing runs now.
+                from jarvis.core.rules import get_rulebook
+                book, args = get_rulebook(), dict(raw_arguments or {})
+                self.tasks.transition(task, State.EXECUTING)
+                if name == "standing_rule":
+                    if not args.get("built_in"):
+                        book.add(str(args.get("rule") or request.text), str(args.get("topic") or "custom"))
+                    msg, data = str(args.get("reply") or "Noted."), {"rule": args.get("rule"), "topic": args.get("topic"),
+                                                                     "built_in": bool(args.get("built_in"))}
+                elif args.get("action") == "clear":
+                    n = book.clear()
+                    msg, data = (f"Cleared {n} standing rule{'s' if n != 1 else ''}." if n else "You have no standing rules."), {"cleared": n}
+                else:
+                    rules = book.rules()
+                    msg = ("Your standing rules: " + " ".join(f"{i}. {r['rule']}" for i, r in enumerate(rules, 1))) if rules \
+                        else "You have no standing rules. Safety rules like never auto-replying in groups are always on."
+                    data = {"rules": [r["rule"] for r in rules]}
+                self.tasks.transition(task, State.VERIFYING)
+                tool_res = ToolResult(success=True, data={"standing_rules": name, **data}, tool_name=name)
+                ver = VerificationResult(verified=True, confidence=1.0, evidence={"rulebook": True})
+                return self._finalize(task, State.SUCCESS, msg, tool_res, ver, clock, current, is_voice=is_voice)
+
+            qualifiers = dict((raw_arguments or {}).get("qualifiers") or {})
             name, raw_arguments = self._translate_intent(name, raw_arguments)
             if name in ("read_whatsapp_messages", "summarize_whatsapp_messages"):
                 # Group chats only when the owner names them ("my group messages", "the CSE group").
@@ -820,6 +844,21 @@ class CommandService:
             filtered_args = {k: v for k, v in raw_arguments.items() if k in valid_fields} if raw_arguments else {}
             arguments = tool.definition.input_model.model_validate(filtered_args)
             self.tasks.transition(task, State.EXECUTING)
+            if self._needs_owner_ok(tool, qualifiers):
+                # "install ollama, but stop for any administrator approval" / a standing approve-first rule: show what
+                # will happen and wait - the owner's OK runs exactly this prepared call.
+                from jarvis.security.confirmation.manager import generate_human_summary
+                summary = generate_human_summary(tool_name, filtered_args, tool.definition.risk)
+                self._pending_execution = {"type": "single", "task": task, "ticket_id": None, "tool": tool, "arguments": arguments,
+                                           "clock": clock, "current": current, "is_voice": is_voice, "predicted_ms": predicted_ms}
+                self._remember_pending_confirmation("", tool_name, summary, dict(filtered_args))
+                self.bus.emit("confirmation.required", task.request_id, ticket_id=None, summary=summary)
+                self.tasks.transition(task, State.WAITING_CONFIRMATION)
+                message = f"Before I do anything: {summary}. Shall I proceed?"
+                tool_result = ToolResult(success=False, data={"confirmation_required": True, "preview": summary,
+                                                              "arguments": dict(filtered_args)}, error=message, tool_name=tool_name)
+                return self._finalize(task, State.WAITING_CONFIRMATION, message, tool_result, None, clock, current,
+                                      is_voice=is_voice, predicted_ms=predicted_ms)
             if self.pulse:
                 self.pulse.on_execution_started(task.request_id)
             clock.dispatch_started_ns = now_ns()
@@ -925,9 +964,13 @@ class CommandService:
             args = dict(decision.slots or {}) if decision is not None else {}
             data = getattr(tool_result, "data", None) or {}
             if isinstance(data, dict):  # what really happened beats what was asked (resolved contact, final text)
-                for key in ("recipient", "resolved_name", "message", "path", "url", "name"):
+                for key in ("recipient", "resolved_name", "message", "path", "url", "name", "window"):
                     if data.get(key) and isinstance(data[key], str):
                         args["recipient" if key == "resolved_name" else key] = data[key]
+                hits = data.get("results")
+                if isinstance(hits, (list, tuple)) and hits and not data.get("is_ambiguous") and isinstance(hits[0], dict) \
+                        and hits[0].get("path") and (len(hits) == 1 or "path" not in args):
+                    args["path"] = str(hits[0]["path"])  # "open the file we found earlier" resolves to this one
             if tool in ("chat", "general_chat", "assistant_chat", "quick_answer") or (not tool and message):
                 tool = CHAT
             get_action_log().record(tool, args, getattr(state, "value", str(state)), message or "",
@@ -1306,15 +1349,44 @@ class CommandService:
         return ("I'm not sure what you want me to do, so I haven't done anything. That request doesn't mention "
                 + ", ".join(tool_words(t) for t in tools) + " - please say it another way.")
 
+    # Tools that create, send or change something (opening an app or reading never needs the owner's OK).
+    _CHANGES = re.compile(r"create|send|post|reply|share|upload|install|update|uninstall|delete|move_file|rename|copy_file|save|"
+                          r"dictate|capture_note|todo|reminder|memos|push|localsend|organize|batch|empty|submit|"
+                          r"publish|browser_type|forget|remember|ide_control|powershell|calendar_create")
+
+    def _needs_owner_ok(self, tool, qualifiers: dict | None) -> bool:
+        """A step that the owner asked to approve first (this request's conditions or a standing rule). Steps that
+        already ask for confirmation (external effects, deletions) are not asked twice."""
+        from jarvis.tools.base import RiskLevel
+        d = tool.definition
+        if d.read_only or d.risk in (RiskLevel.READ_ONLY, RiskLevel.EXTERNAL_EFFECT, RiskLevel.DESTRUCTIVE, RiskLevel.PRIVILEGED):
+            return False
+        q = qualifiers or {}
+        if q.get("require_approval"):
+            return True
+        if q.get("preview") and self._CHANGES.search(d.name):
+            return True
+        try:
+            from jarvis.core.rules import get_rulebook
+            return bool(self._CHANGES.search(d.name)) and get_rulebook().requires_approval()
+        except Exception:
+            return False
+
     def _plan_consequential_steps(self, graph, ai_generated: bool = True) -> list:
         from jarvis.core.llm.tool_catalog import AI_CONFIRM_TOOLS
         from jarvis.tools.base import RiskLevel
+        try:
+            from jarvis.core.rules import get_rulebook
+            approve_first = get_rulebook().requires_approval()
+        except Exception:
+            approve_first = False
         steps = []
         for node in graph.nodes:
             if not self.registry.contains(node.tool):
                 continue
             risk = self.registry.get(node.tool).definition.risk
-            if risk in (RiskLevel.EXTERNAL_EFFECT, RiskLevel.DESTRUCTIVE, RiskLevel.PRIVILEGED) or (ai_generated and node.tool in AI_CONFIRM_TOOLS):
+            if risk in (RiskLevel.EXTERNAL_EFFECT, RiskLevel.DESTRUCTIVE, RiskLevel.PRIVILEGED) or (ai_generated and node.tool in AI_CONFIRM_TOOLS) \
+                    or (approve_first and self._CHANGES.search(node.tool)):
                 shown = dict(node.args)
                 for arg_name in node.bindings:
                     shown.setdefault(arg_name, f"<result of step {node.bindings[arg_name].node_id}>")

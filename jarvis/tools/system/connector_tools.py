@@ -345,11 +345,12 @@ class LocalSendFileTool(Tool):
             ref = getattr(self.working_memory, "active_resource", None)
             if ref and getattr(ref, "uri", None):
                 path = str(ref.uri)
-            elif hasattr(self.working_memory, "last_search_results") and self.working_memory.last_search_results:
-                path = str(self.working_memory.last_search_results[0])
+            elif hasattr(self.working_memory, "last_search_results") and len(self.working_memory.last_search_results or []) == 1:
+                path = str(self.working_memory.last_search_results[0])  # "send that": only when exactly one file was found
 
         if not path:
-            return {"success": False, "message": "No file path provided or found in recent context", "bytes_transferred": 0}
+            return {"success": False, "message": "Which file should I send to your phone? Tell me its name, or find it first and "
+                                                 "say 'send it to my phone'.", "bytes_transferred": 0}
 
         mgr = get_connector_manager()
         c = mgr.get_connector("localsend")

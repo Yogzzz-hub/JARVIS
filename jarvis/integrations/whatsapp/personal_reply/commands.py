@@ -121,8 +121,10 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
                 r"(?:which|what) (?:contacts|chats|people) (?:have|are on|are in) (?:whatsapp )?auto[- ]?reply(?: on)?)$", t):
         return {"action": "status"}
     # ---- stop (emergency stop for everyone, or one contact)
-    m = re.match(r"^(?:stop|disable|turn off|switch off|pause|end|cancel)\s+(?:the\s+|all\s+)?(?:whatsapp\s+)?auto(?:matic)?[- ]?"
-                 r"(?:reply|replies|replying|responses?|responder)(?:\s+(?:on\s+)?whatsapp)?(?:\s+(?:for|to)\s+(?P<who>.+?))?$", t)
+    t = re.sub(r"(?:\s+(?:now|immediately|right\s+now|right\s+away|at\s+once|please|completely|for\s+now|everywhere))+$", "", t) \
+        if re.match(r"^(?:stop|disable|turn off|switch off|pause|end|cancel|quit)\b", t) else t
+    m = re.match(r"^(?:stop|disable|turn off|switch off|pause|end|cancel)\s+(?:the\s+|all\s+)?(?:(?:my|the)\s+)?(?:whatsapp\s+)?auto(?:matic)?[- ]?"
+                 r"(?:reply|replies|replying|responses?|responder)s?(?:\s+(?:on\s+)?whatsapp)?(?:\s+(?:for|to)\s+(?P<who>.+?))?$", t)
     if m:
         who = (m.group("who") or "").strip()
         return {"action": "disable_all"} if not who or _EVERYONE.match(who) else {"action": "disable", "who": who}
@@ -131,6 +133,17 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
         who = m.group("who").strip()
         return {"action": "disable_all"} if _EVERYONE.match(who) else {"action": "disable", "who": who}
     # ---- enable (needs a time window, or an explicit "automatically")
+    # "..., but never in groups" / "direct chats only" restate a rule that always holds: not a request about a group
+    t = re.sub(r"\s*,?\s*(?:but\s+|and\s+)?(?:never|not|no|don'?t\s+(?:reply|respond|answer)|except|excluding|without)\s+"
+               r"(?:(?:in|to|on|for)\s+)?(?:any\s+|the\s+|my\s+)?(?:whatsapp\s+)?(?:group|grp)s?(?:\s+chats?)?\b", "", t)
+    t = re.sub(r"\s*,?\s*\(?(?:direct|personal|one[- ]to[- ]one)\s+(?:chats?|messages?)\s+only\)?", " direct chats", t).strip(" ,")
+    # "everyone except Arun and Ravi": the people left out of an everyone-grant
+    exclude = ""
+    m = re.search(r"\s*,?\s*\b(?:except(?:\s+for)?|but\s+not|excluding|apart\s+from|other\s+than|besides|leaving\s+out|"
+                  r"not\s+including)\s+(?P<x>[a-z][\w .,'&-]*?)(?=\s+(?:for|until|till|til|up\s?to)\b|$)", t)
+    if m:
+        exclude = ", ".join(n.strip() for n in re.split(r"\s*(?:,|\band\b|&)\s*", m.group("x")) if n.strip())
+        t = (t[:m.start()] + t[m.end():]).strip(" ,")
     note, anyone = "", False
     if _AUTO_WORD.search(t):
         t, note, anyone = _auto_rewrite(t)
@@ -159,6 +172,12 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
         who = (m.group("who") or "").strip()
         who = re.sub(r"\s+(?:for|until|till|til)\b.*$", "", who).strip()
         who = re.sub(r"^(?:all\s+)?(?:my\s+)?whatsapp\s+", "", who)
+        # "her in my usual Tanglish style" / "him like I normally do": how to reply, not who (replies already use the
+        # owner's own style with each person)
+        who = re.sub(r"\s+(?:in|with|using)\s+(?:my\s+|the\s+|our\s+)?(?:usual\s+|normal\s+|own\s+|typical\s+|regular\s+|same\s+)?"
+                     r"(?:[\w-]+\s+)?(?:style|tone|way|voice|language|manner|lingo)\b.*$|\s+(?:like|the\s+way)\s+i\s+(?:usually\s+|normally\s+|"
+                     r"always\s+)?(?:do|talk|text|reply|write|chat)\b.*$", "", who).strip()
+        who = re.sub(r"^(?:all\s+)?(?:my\s+)?direct\s+(?:contacts|chats|people)$", "all contacts", who)
         if not (window_present or auto_word):
             return None
         if not who and not pat.startswith("^(?:turn on"):
@@ -168,7 +187,7 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
         if re.search(r"\bgroups?\b", who):
             return {"action": "refuse_groups"}
         return {"action": "enable", "who": "" if everyone else who, "everyone": everyone, "window_text": t,
-                "has_window": window_present, "note": note}
+                "has_window": window_present, "note": note, **({"exclude": exclude} if exclude and everyone else {})}
     return None
 
 
@@ -179,6 +198,7 @@ class AutoReplyInput(Contract):
     window_text: str = Field(default="", max_length=300, description="Original wording with the duration / end time")
     has_window: bool = False
     note: str = Field(default="", max_length=300, description="What to tell people (away message), if the owner said it")
+    exclude: str = Field(default="", max_length=300, description="People left out of an everyone-grant, comma separated")
 
 
 class AutoReplyOutput(Contract):
@@ -254,7 +274,14 @@ class WhatsAppAutoReplyTool(Tool):
             expires = until.timestamp()
             try:
                 if arguments.everyone:
-                    res = agent.enable([], expires, everyone=True, note=arguments.note)
+                    left_out, names = [], []
+                    for person in [p.strip() for p in arguments.exclude.split(",") if p.strip()]:
+                        cid, name, err = self._resolve(person)
+                        if err:  # never widen the grant to someone the owner wanted left out
+                            return {"status": "NEEDS_CLARIFICATION", "message": err + " Nothing was turned on."}
+                        left_out.append(cid)
+                        names.append(name)
+                    res = agent.enable([], expires, everyone=True, note=arguments.note, exclude=left_out, exclude_names=names)
                 elif not arguments.who.strip():
                     return {"status": "NEEDS_CLARIFICATION",
                             "message": "Who should I auto-reply to? Name a contact, or say everyone (direct chats only)."}

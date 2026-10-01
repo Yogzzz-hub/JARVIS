@@ -168,6 +168,13 @@ class AgentRunner:
         names = [t.definition.name for t in tools]
         now = datetime.now().astimezone().strftime("%A %d %B %Y, %I:%M %p")
         system = f"{AGENT_SYSTEM_PROMPT}\nCurrent date/time: {now}.\n\nTools:\n{render_tools(tools)}"
+        try:  # the owner's standing rules bind every step the agent takes
+            from jarvis.core.rules import get_rulebook
+            rules = get_rulebook().prompt_block()
+        except Exception:
+            rules = ""
+        if rules:
+            system += f"\n\n{rules}"
         messages: list[dict[str, str]] = [{"role": "system", "content": system}]
         for turn in (history or [])[-6:]:
             messages.append({"role": turn["role"], "content": turn["content"][:600]})

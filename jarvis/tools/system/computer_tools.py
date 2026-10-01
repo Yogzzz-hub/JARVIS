@@ -897,6 +897,7 @@ class EmptyInput(Contract):
 class WindowControlOutput(Contract):
     status: str
     message: str
+    window: str = ""  # title of the window acted on ("restore the window I minimized earlier")
 
 class CloseActiveWindowTool(Tool):
     definition = ToolDefinition(
@@ -953,9 +954,14 @@ class MinimizeWindowTool(Tool):
     def run(self, arguments: Any) -> dict[str, Any]:
         user32 = ctypes.windll.user32
         hwnd = user32.GetForegroundWindow()
+        title = ""
         if hwnd:
+            n = user32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(hwnd, buf, n + 1)
+            title = buf.value.strip()
             user32.ShowWindow(hwnd, 6)
-        return {"status": "SUCCESS", "message": "Window minimized."}
+        return {"status": "SUCCESS", "message": f"Minimized {title}." if title else "Window minimized.", "window": title}
 
 
 class ShowDesktopTool(Tool):

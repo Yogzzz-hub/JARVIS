@@ -58,10 +58,10 @@ def judge(case: dict, d) -> tuple[bool, str]:
                     (d.needs_planner and d.reason_code != ReasonCode.QUESTION_NOT_COMMAND):
                 return True, ""
         elif option == "REJECT":
-            if d.lane == RouteLane.REJECT:
+            if d.lane == RouteLane.REJECT or d.intent == "standing_rule":  # a kept rule runs nothing now
                 return True, ""
         elif option == "SAFE":
-            if d.lane in (RouteLane.REJECT, RouteLane.CLARIFY) or _is_chat(d):
+            if d.lane in (RouteLane.REJECT, RouteLane.CLARIFY) or _is_chat(d) or d.intent == "standing_rule":
                 return True, ""
         elif option == "CLARIFY":
             if d.lane == RouteLane.CLARIFY:

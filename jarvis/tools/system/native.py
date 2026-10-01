@@ -63,6 +63,7 @@ class TopProcessesOutput(Contract):
     free_ram_gb: float
 class ScreenshotInput(Contract):
     path: str | None = None
+    window: str = Field(default="screen", description="'screen' = every monitor, 'active' = only the window in front")
 class ScreenshotOutput(Contract):
     path: str
     bytes: int = Field(gt=0)
@@ -123,7 +124,14 @@ def bring_to_front(process_names: tuple[str, ...] | list[str] = (), name: str = 
                 return True
 
             if pname not in names and not any(n in pname for n in names):
-                return True
+                # "the window containing my JARVIS project": a window whose title names it, whatever the program
+                if not name or len(name) < 3:
+                    return True
+                tlen = user32.GetWindowTextLengthW(h)
+                tbuf = ctypes.create_unicode_buffer(tlen + 1)
+                user32.GetWindowTextW(h, tbuf, tlen + 1)
+                if name.casefold() not in tbuf.value.casefold() or not user32.IsWindowVisible(h) and not user32.IsIconic(h):
+                    return True
 
             is_iconic = bool(user32.IsIconic(h))
             # Exclude tiny/zero-sized internal hooks and widgets (unless minimized window)
@@ -438,7 +446,7 @@ SYSTEM_TOOL_DESCRIPTIONS = {
     "brightness_get": "Read the current screen brightness percentage.",
     "brightness_set": "Set the screen brightness to an exact percentage (0-100).",
     "top_memory_processes": "List the programs using the most RAM right now.",
-    "take_screenshot": "Capture the whole screen to a PNG file (optional path).",
+    "take_screenshot": "Capture the whole screen, or only the active window (window='active'), to a PNG file (optional path).",
     "set_voice": "Change JARVIS's speaking voice (male or female).",
     "show_dashboard": "Open or bring the JARVIS dashboard window to the front.",
     "wake_greeting": "Greet the user and show the JARVIS dashboard.",
@@ -501,10 +509,22 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
         path = Path(args.path).expanduser().resolve() if args.path else ROOT / "screenshots" / f"{uuid.uuid4().hex}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        bbox = None
+        if (getattr(args, "window", "screen") or "screen").lower() in ("active", "window", "active_window", "current"):
+            try:  # only the window in front: its rectangle on the virtual desktop
+                import ctypes
+                import ctypes.wintypes
+                user32 = ctypes.windll.user32
+                rect = ctypes.wintypes.RECT()
+                hwnd = user32.GetForegroundWindow()
+                if hwnd and user32.GetWindowRect(hwnd, ctypes.byref(rect)) and rect.right > rect.left and rect.bottom > rect.top:
+                    bbox = (rect.left, rect.top, rect.right, rect.bottom)
+            except Exception:
+                bbox = None
         # 1. Primary: PIL ImageGrab (handles multi-monitor and layered surfaces cleanly)
         try:
             from PIL import ImageGrab
-            img = ImageGrab.grab(all_screens=True)
+            img = ImageGrab.grab(bbox=bbox, all_screens=True)
             img.save(str(path), format="PNG")
             return dict(path=str(path), bytes=path.stat().st_size)
         except Exception as exc:

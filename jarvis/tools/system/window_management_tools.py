@@ -278,7 +278,7 @@ class ArrangeWindowsTool(Tool):
 # =====================================================================
 
 class MoveResizeWindowInput(Contract):
-    action: str = Field(default="restore", description="Action: move, resize, restore")
+    action: str = Field(default="restore", description="Action: move, resize, restore, next_monitor, previous_monitor")
     x: Optional[int] = Field(default=None, description="X coordinate")
     y: Optional[int] = Field(default=None, description="Y coordinate")
     width: Optional[int] = Field(default=None, description="Width in pixels")
@@ -294,7 +294,7 @@ class MoveResizeWindowOutput(Contract):
 class MoveResizeWindowTool(Tool):
     definition = ToolDefinition(
         name="move_resize_window",
-        description="Moves, resizes, or restores the currently active window.",
+        description="Moves, resizes, or restores the currently active window, or moves it to the other monitor.",
         input_model=MoveResizeWindowInput,
         output_model=MoveResizeWindowOutput,
         read_only=False,
@@ -316,6 +316,17 @@ class MoveResizeWindowTool(Tool):
         if act == "restore":
             user32.ShowWindow(hwnd, SW_RESTORE)
             return {"status": "SUCCESS", "action": "restore", "message": "Window restored."}
+        if act in ("next_monitor", "previous_monitor", "other_monitor"):
+            # Windows' own shortcut: Win+Shift+Right / Left moves the active window to the next / previous monitor
+            arrow = 0x25 if act == "previous_monitor" else 0x27
+            if user32.GetSystemMetrics(80) < 2:  # SM_CMONITORS
+                return {"status": "FAILED", "action": act, "message": "Only one monitor is connected, so there is no other screen."}
+            for vk in (0x5B, 0x10, arrow):
+                user32.keybd_event(vk, 0, 0, 0)
+            for vk in (arrow, 0x10, 0x5B):
+                user32.keybd_event(vk, 0, 2, 0)
+            return {"status": "SUCCESS", "action": act, "message": "Moved the window to the "
+                    + ("previous" if act == "previous_monitor" else "other") + " monitor."}
 
         # Query existing rect
         rect = (ctypes.c_long * 4)()
