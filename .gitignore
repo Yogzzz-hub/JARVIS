@@ -50,7 +50,10 @@ reports/
 docs/*
 !docs/WHATSAPP_PERSONAL_REPLY_AGENT.md
 !docs/FULL_COMPUTER_AGENT_AUDIT.md
+!docs/AGI_520_CAPABILITIES.md
+!docs/PHASE500_REPORT.md
 config/profile.toml
 jarvis/db/window_layouts.json
 jarvis/db/workflows.json
 jarvis/db/text_templates.json
+jarvis/db/automations.json

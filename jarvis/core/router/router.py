@@ -60,8 +60,22 @@ _QUALIFIED: ContextVar[bool] = ContextVar("router_qualified", default=False)  # 
 
 
 _RUN_UP = re.compile(r"^\W*(?:(?:hey|ok|okay|hi)\s+)?(?:jarvis\W+)?(?:um+|uh+|so)?\W*(?:when(?:ever)?\s+you\s+(?:get|have)\s+a\s+"
-                     r"(?:sec(?:ond)?|minute|moment|chance)|if\s+you\s+(?:can|could|don'?t\s+mind)|real\s+quick|quick\s+one)"
+                     r"(?:sec(?:ond)?|minute|moment|chance)|if\s+you\s+(?:can|could|don'?t\s+mind)|real\s+quick|quick\s+one|"
+                     r"(?:(?:a|one|another|small)\s+)?(?:quick\s+)?question(?:\s+for\s+you)?|quick\s+q)"
                      r"\s*,\s*", re.I)
+# "aight jarvis, open krita", also behind a polite / filler / wake lead-in ("could you please yo open up krita")
+_SLANG_LEAD = re.compile(r"^\W*(?:(?:could|can|would|will)\s+(?:you|u)\s+(?:please\s+|pls\s+)?|please\s+|pls\s+|kindly\s+|"
+                         r"um+\W+|uh+\W+|hmm+\W+|okay\W+|ok\W+|hey\s+jarvis\W+|jarvis\W+)*"
+                         r"(?:yo|aight|ayy|yeah|yep|ya|alright)\b[\s,.!]+", re.I)
+_TAIL = re.compile(r"(?:[\s,]+(?:for\s+me|please|pls|plz|thanks|thank\s+you|thx|ty|real\s+quick|quick(?:ly)?|right\s+now|"
+                   r"(?<!from\s)(?<!till\s)(?<!until\s)(?<!by\s)now|asap|i\s+need\s+it|jarvis|da|bro|buddy)\b)+[\s.!?]*$", re.I)
+_CONTENT_LEAD = re.compile(r"^\W*(?:(?:hey|ok|okay|um+|uh+)\s+)?(?:jarvis\W+)?(?:please\s+|kindly\s+|can\s+you\s+|could\s+you\s+"
+                           r"(?:please\s+)?)?(?:tell|message|msg|text|send|whats\s*app|reply|respond|say|type|write|dictate|"
+                           r"note|remember|remind|e-?mail|mail|draft|search|google|look\s+up|translate|ask|let|post|"
+                           r"compose)\b", re.I)
+# a later step that carries words ("open notepad and type hello, wait for me"): its tail is content too
+_CONTENT_ANY = re.compile(r"(?:,|\band\b|\bthen\b)\s*(?:then\s+)?(?:tell|message|msg|text|send|whats\s*app|reply|say|type|write|dictate|"
+                          r"note|remind|e-?mail|search|google|ask|post|compose)\b", re.I)
 # "open my project on the PC" (said from the phone or not): this PC is where JARVIS acts by default
 _ACT_HERE = re.compile(r"^\W*(?:(?:hey|ok|okay)\s+)?(?:jarvis\W+)?(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|launch|start|run|"
                        r"show|play|bring|close|switch|take|make|create|put)\b", re.I)
@@ -152,6 +166,10 @@ class SmartRouter:
         """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
         if isinstance(request, str):
             request = CommandRequest(text=request)
+        from jarvis.core.router.normalize import repair_swapped_letters
+        unswapped = repair_swapped_letters(request.text or "")
+        if unswapped != request.text:
+            request = request.model_copy(update={"text": unswapped})   # "open the rceycle bin": two letters swapped
         # Questions about JARVIS itself and control of its own tasks: runtime state only - before retrieval, the
         # planner or any model, so they can never reach an unrelated (e.g. install / delete) capability.
         from jarvis.core.router.introspection import match_introspection
@@ -159,6 +177,24 @@ class SmartRouter:
         if own is not None:
             self._record(own)
             return own
+        if not re.match(r"^\W*(?:say|announce|shout)\b", request.text or "", re.I):
+            loud = re.sub(r"\s+(?:out\s+loud|aloud|loudly)\b", "", request.text or "", flags=re.I)
+            if loud != request.text and loud.strip():
+                request = request.model_copy(update={"text": loud})   # answers are spoken anyway: "read X out loud"
+        lead = _SLANG_LEAD.sub("", request.text or "", count=1)
+        if lead != request.text and lead.strip():
+            request = request.model_copy(update={"text": lead})     # "aight jarvis, open krita"
+        run_up = _RUN_UP.sub("", request.text or "", count=1)
+        if run_up != request.text and run_up.strip():
+            # "hey jarvis, when you get a sec, switch to the gmail tab": politeness before the command, not a condition
+            request = request.model_copy(update={"text": run_up})
+        tail = _TAIL.sub("", request.text or "")
+        if tail != request.text and re.search(r"[a-z]{2,}", re.sub(r"\b(?:hey|hi|ok|okay|um+|uh+|hmm+|so|jarvis|quick|question|could|can|would|will|you|u|please|pls|kindly)\b",
+                                                                 "", tail.lower())) \
+                and not _CONTENT_LEAD.match(request.text or "") and not _CONTENT_ANY.search(request.text or ""):
+            # "open krita for me real quick", "pls set brightness 60 thx": courtesy and urgency, not part of the
+            # command. Never stripped from a message, note or search - there the words belong to the content.
+            request = request.model_copy(update={"text": tail})
         try:  # Thanglish word order -> the English command ("chrome open pannu" -> "open chrome")
             from jarvis.core.multilingual import to_english_command
             from jarvis.core.router.normalize import correct_command_typos
@@ -171,16 +207,15 @@ class SmartRouter:
         except Exception:
             pass
         dashed = re.sub(r"\s*[\u2014\u2013]\s*", ", ", request.text or "")     # "use Chrome—actually Edge"
+        # "set my laptop sound to 40": the device's own sound / brightness is the volume / brightness
+        dashed = re.sub(r"\b(?:my|the|this)\s+(?:laptop|pc|computer|system|desktop|speaker|device)(?:'s)?\s+"
+                        r"(sound|volume|brightness|screen\s+brightness|display\s+brightness)\b", r"the \1", dashed, flags=re.I)
         if dashed != request.text and dashed.strip():
             request = request.model_copy(update={"text": dashed})
         if not re.search(r"\b(?:phone|mobile|android)\b", request.text or "", re.I) and _ACT_HERE.match(request.text or ""):
             here = _ON_THIS_PC.sub("", request.text or "")
             if here != request.text and len(here.split()) >= 2:
                 request = request.model_copy(update={"text": here})
-        run_up = _RUN_UP.sub("", request.text or "", count=1)
-        if run_up != request.text and run_up.strip():
-            # "hey jarvis, when you get a sec, switch to the gmail tab": politeness before the command, not a condition
-            request = request.model_copy(update={"text": run_up})
         said = self._discourse(request)
         if said is not None:
             self._record(said)
@@ -267,6 +302,11 @@ class SmartRouter:
         if discourse.borrowed_authority(text):
             return self._decision(request, RouteLane.REJECT, None, {"refused": "borrowed_authority"},
                                   discourse.BORROWED_AUTHORITY_REPLY, ReasonCode.NEGATED_ACTION)
+        if discourse.OVERRIDE_RULES.search(text.lower()):
+            return self._decision(request, RouteLane.REJECT, None, {"refused": "override_rules"},
+                                  "My safety rules stay on - nobody can switch them off with a sentence. I haven't done "
+                                  "anything. Tell me the one thing you want, and I'll do it the normal way.",
+                                  ReasonCode.NEGATED_ACTION)
         low = " ".join(clean_for_matching(text).lower().split()).strip(" .!")
         if discourse.RULES_LIST.match(low) or discourse.RULES_CLEAR.match(low):
             return self._decision(request, RouteLane.LANE_0, "standing_rules",
@@ -407,13 +447,15 @@ class SmartRouter:
         if decision.intent in ("open_app", "close_app") and (re.match(r"(?:i|we|my|me)\b", app)
                                                             or len(app.split()) > 5):
             return chat()
-        if decision.intent == "forget_fact" and not re.match(r"^(?:please\s+)?(?:forget|delete|remove|erase|clear|wipe)\b", clean):
+        if decision.intent == "forget_fact" and not re.match(r"^(?:please\s+|(?:can|could|would|will)\s+you\s+(?:please\s+)?)?(?:forget|delete|remove|erase|clear|wipe)\b",
+                                                          clean):
             return chat()
         looks_up = re.match(r"^(?:read|list|find|search|get|check|show|recall|summari[sz]e|diagnose|describe|project)_", decision.intent) or \
             decision.intent.endswith(("_status", "_info", "_history", "_events", "_recent", "_actions", "_answer", "_processes", "_logs", "_diff")) or \
             decision.intent in ("get_time", "quick_answer", "wifi_status", "contact_info", "knowledge_search", "document_qa",
                                 "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get",
-                                "project_logs", "project_discover", "database_status", "git_diff", "code_search") or \
+                                "project_logs", "project_discover", "database_status", "git_diff", "code_search",
+                                "explain_route") or \
             is_read_action(decision.intent, decision.slots or {})  # operator reads: "is antigravity done"
         if self._STATE_QUESTION.match(clean) and not looks_up and not self._is_read_only(decision.intent):
             return chat()
@@ -489,6 +531,12 @@ class SmartRouter:
     def _check_frame_safety(self, decision: RouteDecision, text: str = "") -> RouteDecision:
         if not hasattr(self, "frame_extractor") or not text:
             return decision
+        content = str((decision.slots or {}).get("message") or (decision.slots or {}).get("text") or "")
+        if content and len(content) >= 3 and content.lower() in text.lower():
+            # "tell ganesh to start without me": a "not / without" inside the words to send is the message, not a
+            # negation of sending it
+            i = text.lower().find(content.lower())
+            text = (text[:i] + " " + text[i + len(content):]).strip()
         try:
             frame = self.frame_extractor.extract(text, self.working_memory, self.reference_resolver)
             if frame.negative_targets:
@@ -1160,7 +1208,10 @@ class SmartRouter:
                     return open_dec
 
         # 3.1c Typed File Search (Temporal ranges, size bounds, exclusions, owner entities)
-        if frame.intent == "find_file" and (frame.temporal_constraints or frame.size_constraints or frame.exclude_constraints or frame.entities or (frame.file_types and not frame.ordinals)):
+        # "search youtube for harris jayaraj songs": a named website is where to search, "songs" is not a file type there
+        on_web = re.search(r"\b(?:youtube|google|bing|duckduckgo|the\s+web|internet|online|wikipedia|amazon|flipkart|spotify|"
+                           r"github|stack\s*overflow|reddit)\b", routing_text or "", re.I)
+        if frame.intent == "find_file" and not on_web and (frame.temporal_constraints or frame.size_constraints or frame.exclude_constraints or frame.entities or (frame.file_types and not frame.ordinals)):
             find_slots: dict[str, Any] = {}
             if frame.file_types:
                 ft = frame.file_types[0]
@@ -1314,7 +1365,8 @@ class SmartRouter:
         followup = FollowupDetector.classify(routing_text, working_ctx)
 
         # 3a-1. ACTIVE PENDING CONFIRMATION / CANCELLATION (Section 43 & 44)
-        if followup.followup_type == FollowupType.CONFIRMATION:
+        if followup.followup_type == FollowupType.CONFIRMATION and \
+                len(re.findall(r"[a-z0-9']+", original_text.lower())) <= len(routing_text.split()) + 3:
             pending_conf = getattr(self.working_memory, "get_pending_confirmation", lambda: None)()
             if pending_conf:
                 self.working_memory.set_pending_confirmation(None)

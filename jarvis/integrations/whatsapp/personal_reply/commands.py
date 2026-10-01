@@ -151,13 +151,15 @@ def parse_command(text: str) -> Optional[dict[str, Any]]:
     if not explicit_auto and re.search(r"\b(?:saying|that says|to say|with)\s+\S", t):
         return None  # "respond to anand with don't wait for me": one reply with those words, not an auto-reply window
     window_present = bool(_FOR.search(t) or _UNTIL.search(t) or _REST_OF_DAY.search(t))
-    auto_word = bool(re.search(r"\b(?:automatically|auto[- ]?reply|auto[- ]?respond|on my behalf|for me)\b", t))
+    # "for me" alone is courtesy ("reply to farhan lunch is ready for me"); with a time window it is "on my behalf"
+    auto_word = bool(re.search(r"\b(?:automatically|auto[- ]?reply|auto[- ]?respond|on my behalf)\b", t)) or \
+        (bool(re.search(r"\bfor me\b", t)) and window_present)
     if (window_present or auto_word) and re.match(r"^(?:auto[- ]?reply|auto[- ]?respond|reply|respond|answer|handle|manage|"
                                                   r"turn on|enable|start)\b.*\bgroups?\b", t):
         return {"action": "refuse_groups"}  # group chats are never auto-replied
     patterns = [
         r"^(?:auto[- ]?reply|auto[- ]?respond|reply|respond|answer)\s+(?:automatically\s+)?(?:to\s+)?(?P<who>.+?)(?:'s\s+(?:messages|chats|texts))?"
-        r"(?:\s+(?:automatically|on my behalf|for me))?(?:\s+on\s+whatsapp)?\s+(?:for|until|till|til|up ?to)\b.*$",
+        r"(?:\s+(?:automatically|on my behalf|for me))?(?:\s+on\s+whatsapp)?\s+(?:for(?!\s+me$)|until|till|til|up ?to)\b.*$",
         r"^(?:handle|manage|take care of|answer|look after)\s+(?P<who>.+?)'s\s+(?:whatsapp\s+)?(?:messages|chats|texts|whatsapp)\b.*$",
         r"^(?:handle|manage|take care of)\s+(?:the\s+)?(?:whatsapp\s+)?(?:messages|chats)\s+(?:from|of)\s+(?P<who>.+?)\s+(?:for|until|till)\b.*$",
         r"^(?:for|until|till)\b.+?,?\s+(?:auto[- ]?)?(?:reply|respond|answer)\s+(?:automatically\s+)?(?:to\s+)?(?P<who>.+?)(?:\s+automatically)?(?:\s+on whatsapp)?$",

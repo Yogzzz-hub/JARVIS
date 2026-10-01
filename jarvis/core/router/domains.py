@@ -103,7 +103,7 @@ def match_domains(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
         return _planner(request_id, t)
 
     # ------------------------------------------------------------------ app catalog
-    m = re.match(r"^(?:tell\s+me\s+|show\s+me\s+|find\s+(?:out\s+)?)?where\s+(?:is|was|did|has)\s+(?:the\s+|my\s+)?(?P<n>[\w .+#-]+?)\s+"
+    m = re.match(r"^(?:tell\s+me\s+|show\s+me\s+|find\s+(?:out\s+)?)?where(?:\s+(?:is|was|did|has)|'s)\s+(?:the\s+|my\s+)?(?P<n>[\w .+#-]+?)\s+"
                  r"(?:actually\s+|really\s+|get\s+|been\s+)?install(?:ed)?(?:\s+to)?$", t) \
         or re.match(r"^(?:tell\s+me\s+|show\s+me\s+|find\s+(?:out\s+)?)?where\s+(?:the\s+|my\s+)?(?P<n>[\w .+#-]+?)\s+(?:is|was|got|has\s+been)\s+"
                     r"(?:actually\s+|really\s+)?installed(?:\s+to)?$", t)

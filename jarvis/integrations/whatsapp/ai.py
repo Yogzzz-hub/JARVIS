@@ -109,6 +109,14 @@ def deterministic_compose(recipient: str, body: str, style: str = "direct") -> s
             return _sentence(f"just a reminder about {_swap_pronouns(m.group(1))}")
         m = re.match(r"^that\s+(.+)$", text, re.I)
         return _sentence(f"just a reminder: {_swap_pronouns(m.group(1) if m else text)}")
+    if style == "tell":
+        m = re.match(r"^(?:not\s+to|to\s+not)\s+(.+)$", text, re.I)
+        if m:
+            return _sentence(f"please don't {_swap_pronouns(m.group(1))}")
+        m = re.match(r"^to\s+(.+)$", text, re.I)
+        if m:
+            return _sentence(f"please {_swap_pronouns(m.group(1))}")
+        return _sentence(_swap_pronouns(re.sub(r"^that\s+", "", text, flags=re.I)))
     if style == "wish":
         text = re.sub(r"^(?:a\s+)?(?:very\s+)?", "", text, flags=re.I)
         return _sentence(text, "!")

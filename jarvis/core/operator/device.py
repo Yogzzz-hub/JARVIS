@@ -22,10 +22,10 @@ from jarvis.core.operator.ui import SENSITIVE, UIAdapter, UIOperator, UITarget
 
 logger = logging.getLogger("jarvis.operator.device")
 
-KEYS = {"back": 4, "home": 3, "recents": 187, "app_switch": 187, "enter": 66, "delete": 67, "tab": 61,
+KEYS = {"answer_call": 5, "end_call": 6, "camera": 27, "back": 4, "home": 3, "recents": 187, "app_switch": 187, "enter": 66, "delete": 67, "tab": 61,
         "volume_up": 24, "volume_down": 25, "mute": 164, "play_pause": 85, "play": 126, "pause": 127,
         "next": 87, "previous": 88, "stop": 86, "wake": 224, "sleep": 223, "lock": 223, "menu": 82, "search": 84,
-        "camera": 27, "brightness_up": 221, "brightness_down": 220, "notifications": -1, "quick_settings": -2,
+        "brightness_up": 221, "brightness_down": 220, "notifications": -1, "quick_settings": -2,
         "screenshot": 120, "page_down": 93, "page_up": 92, "dpad_up": 19, "dpad_down": 20, "escape": 111}
 APPS = {"whatsapp": "com.whatsapp", "youtube": "com.google.android.youtube", "chrome": "com.android.chrome",
         "gmail": "com.google.android.gm", "maps": "com.google.android.apps.maps", "camera": "com.android.camera",

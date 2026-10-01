@@ -155,6 +155,78 @@ class SystemOperator:
         except Exception:
             return None
 
+    # -- apps and processes ------------------------------------------------------------------------------------
+    @staticmethod
+    def _procs(name: str) -> list:
+        """Processes whose executable matches the app name ('android studio' -> studio64.exe via its words)."""
+        import psutil
+        words = [w for w in (name or "").lower().replace(".exe", "").split() if len(w) >= 3]
+        out = []
+        for p in psutil.process_iter(["name", "create_time", "memory_info"]):
+            n = (p.info.get("name") or "").lower()
+            if words and any(w in n for w in words):
+                out.append(p)
+        return out
+
+    def running(self, app: str, tracker=None) -> OperatorOutcome:
+        win = None
+        if tracker is not None:
+            found = tracker.resolve(query=app)
+            win = found.resource if found.ok else None
+        procs = self._procs(app)
+        if not procs and win is None:
+            return OperatorOutcome(True, f"No, {app} isn't running.", evidence={"running": False})
+        started = min((p.info.get("create_time") or time.time()) for p in procs) if procs else None
+        mins = int((time.time() - started) // 60) if started else None
+        mem = sum(getattr(p.info.get("memory_info"), "rss", 0) for p in procs)
+        since = f" for {mins // 60} h {mins % 60} min" if mins and mins >= 60 else f" for {mins} min" if mins is not None else ""
+        return OperatorOutcome(True, f"Yes, {app} is running{since}" + (f", using {_gb(mem)} of memory" if mem else "") + ".",
+                               evidence={"running": True, "processes": len(procs), "window": bool(win)})
+
+    def restart_app(self, app: str, tracker=None, launch=None) -> OperatorOutcome:
+        """Close the app's window the normal way (it can still ask to save), wait until it is gone, open it again,
+        and confirm a new window appeared. Never force-kills."""
+        if tracker is None or launch is None:
+            return OperatorOutcome(False, "I can't restart apps from here.")
+        found = tracker.resolve(query=app)
+        if not found.ok:
+            if launch(app):
+                return OperatorOutcome(True, f"{app} wasn't open, so I just started it.", evidence={"verified": None})
+            return OperatorOutcome(False, f"{app} isn't open and I couldn't start it.")
+        closed = tracker.close(found.resource)
+        if not closed.ok:
+            return OperatorOutcome(False, f"{app} is asking something before it closes - answer it and say 'open {app}'.",
+                                   needs="user")
+        if not launch(app):
+            return OperatorOutcome(False, f"I closed {app} but couldn't start it again.")
+        d = tracker.desktop
+        back = d.wait_until(lambda: tracker.resolve(query=app).ok, timeout=10.0, interval=0.3)
+        return OperatorOutcome(back, f"Restarted {app}." if back else f"I reopened {app}; its window hasn't appeared yet.",
+                               evidence={"verified": back})
+
+    # -- theme ---------------------------------------------------------------------------------------------------
+    _THEME_KEY = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+
+    def theme(self, mode: str) -> OperatorOutcome:
+        """Windows light/dark mode for apps and the system (HKCU only, no admin), read back to verify."""
+        mode = (mode or "").lower()
+        if mode not in ("dark", "light", "toggle"):
+            return OperatorOutcome(False, "Dark or light?", needs="clarify")
+        if os.name != "nt":
+            return OperatorOutcome(False, "Changing the theme only works on Windows.")
+        import winreg  # type: ignore
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self._THEME_KEY, 0, winreg.KEY_READ | winreg.KEY_WRITE) as k:
+            if mode == "toggle":
+                cur, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+                mode = "dark" if cur else "light"
+            val = 0 if mode == "dark" else 1
+            for name in ("AppsUseLightTheme", "SystemUsesLightTheme"):
+                winreg.SetValueEx(k, name, 0, winreg.REG_DWORD, val)
+            got, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+        ok = got == val
+        return OperatorOutcome(ok, f"Switched to {mode} mode." if ok else "Windows didn't take the theme change.",
+                               evidence={"verified": ok, "mode": mode})
+
     # -- capability audit --------------------------------------------------------------------------------------
     def audit(self) -> OperatorOutcome:
         from jarvis.core.tasks.scope import get_scope_manager

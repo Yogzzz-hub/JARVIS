@@ -203,7 +203,7 @@ class IDEOperator:
                   "zoom_out": "ctrl+-", "split_editor": "ctrl+\\", "undo": "ctrl+z", "redo": "ctrl+y",
                   "definition": "f12", "references": "shift+f12", "rename": "f2", "problems": "ctrl+shift+m",
                   "output": "ctrl+shift+u", "symbol": "ctrl+t", "open_recent": "ctrl+r", "search": "ctrl+shift+f",
-                  "terminal": "ctrl+`", "editor": "ctrl+1", "escape": "escape"}
+                  "terminal": "ctrl+`", "editor": "ctrl+1", "escape": "escape", "source_control": "ctrl+shift+g"}
         seq = chords.get(action)
         if not seq:
             return OperatorOutcome(False, f"I don't know the IDE action '{action}'.", needs="clarify")
@@ -225,7 +225,8 @@ class IDEOperator:
     # -- navigation, panels, agent control, errors (each through the IDE's own keys/buttons) ---------------------
     PANELS = {"explorer": "explorer", "files": "explorer", "terminal": "terminal", "agent": "agent_panel",
               "chat": "agent_panel", "problems": "problems", "errors": "problems", "output": "output",
-              "search": "search", "editor": "editor", "code": "editor", "sidebar": "toggle_sidebar"}
+              "search": "search", "editor": "editor", "code": "editor", "sidebar": "toggle_sidebar",
+              "source_control": "source_control", "source control": "source_control", "git": "source_control"}
 
     def panel(self, name: str, ide: str = "") -> OperatorOutcome:
         key = self.PANELS.get((name or "").lower().strip())

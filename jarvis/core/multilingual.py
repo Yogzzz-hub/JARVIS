@@ -123,7 +123,7 @@ _EN_VERBS = (r"open|close|play|pause|stop|mute|unmute|lock|search|install|uninst
              r"minimize|maximize|refresh|reload|copy|paste|save|delete|check|read|summarize|summarise|increase|decrease|"
              r"reduce|scroll down|scroll up|select all|undo|redo|call|connect|update|start|translate|type|record|share|"
              r"organize|organise|clean|sort|find|install|remind|minimise|pause|resume")
-_PANNU = r"(?:pannu|panu|pannunga|pannuga|pannidu|panni\s+vidu|panniduda|pannu\s+da)"
+_PANNU = r"(?:pannu|panu|pannunga|pannuga|pannidu|panni\s+vidu|panni\s+kudu|panni\s+kudunga|panniduda|pannu\s+da)"
 _DOWN = r"(?:kammi|korai|kurai|kuraichu|koraichu|korachidu|koraichidu|kuraichidu|reduce|decrease)"
 _UP = r"(?:jaasthi|jasthi|athigam|adhigam|koodu|kootu|koottu|ethu|eathu|increase)"
 _SET = r"(?:vai|vechidu|vachidu|vachu\s+vidu|set\s+" + _PANNU + r"|podu|pannu)"
@@ -151,7 +151,7 @@ def to_english_command(text: str) -> str:
     if not t or not (set(_WORD.findall(t)) & _LEXICON):
         return text
     body = re.sub(_P_END + "$", "", t).strip()
-    body = re.sub(r"\s+konjam\b", "", body)
+    body = re.sub(r"(?:^|\s+)konjam\b\s*", " ", body).strip()
     # the object marker after the thing named first: "volume ah 48 ku vai", "chrome ah open pannu"
     body = re.sub(r"^(\S+(?:\s+\S+)?)\s+(?:ah|aa|ai|a)\s+(?=\S)", r"\1 ", body)
 

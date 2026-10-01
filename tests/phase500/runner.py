@@ -3,7 +3,8 @@
     python -m tests.phase500.runner [--split dev|holdout|all] [--phase p03] [--fails] [--json out.json]
 
 Same judge as tests/phase_suite (intent alternatives, CHAT / MULTI / REJECT / SAFE / CLARIFY / CONTROL:x). A "critical"
-is a failed case routed to a consequential tool in an executing lane; the target is zero.
+is a failed case routed to a consequential tool in an executing lane; the target is zero. Documented expectation fixes
+from tests/phase500/corrections.py are applied and counted (the frozen cases are never edited).
 """
 from __future__ import annotations
 
@@ -63,6 +64,7 @@ def summarize(results: list[dict]) -> dict:
 
 def main() -> int:
     from tests.phase500.build import build
+    from tests.phase500.corrections import apply
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", default="dev", choices=("dev", "holdout", "all"))
     ap.add_argument("--phase", default="")
@@ -70,14 +72,16 @@ def main() -> int:
     ap.add_argument("--json", default="")
     a = ap.parse_args()
     built = build()
-    cases = [{**c, "split": s} for s, rows in built.items() if a.split in (s, "all") for c in rows
+    cases = [apply({**c, "split": s}) for s, rows in built.items() if a.split in (s, "all") for c in rows
              if not a.phase or c["phase"].startswith(a.phase)]
     results = asyncio.run(run(cases))
     summary = summarize(results)
+    summary["corrected_cases"] = sum(bool(r.get("corrected")) for r in results)
     if a.json:
         Path(a.json).write_text(json.dumps({"summary": summary, "results": results}, indent=1, default=str))
     acc = summary["accuracy"]
-    print(f"{summary['passed']}/{summary['total']} critical={summary['critical']} routing={summary['routing_ms']}")
+    print(f"{summary['passed']}/{summary['total']} critical={summary['critical']} routing={summary['routing_ms']} "
+          f"corrected_expectations={summary['corrected_cases']} (tests/phase500/corrections.py)")
     for k, v in acc.items():
         if k.startswith(("split:", "phase:")) and k.count(":") == 1:
             print(f"  {k:28} {v['passed']:5}/{v['total']:<5} {v['pct']:6.2f}%")

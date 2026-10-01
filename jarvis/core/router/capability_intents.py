@@ -46,7 +46,7 @@ def is_read_action(intent: str, slots: dict) -> bool:
     if intent == "phone_op" and action == "dev":
         return op in _READ_DEV_OPS
     if intent == "system_op":
-        return action in ("status", "audit") or (action in ("models", "audio") and op in ("list", "loaded", None))
+        return action in ("status", "audit", "running") or (action in ("models", "audio") and op in ("list", "loaded", None))
     if intent == "deliver_op":
         return action == "verify"
     return action in READ_ACTIONS
@@ -71,8 +71,8 @@ def _planner(rid: str, t: str) -> RouteDecision:
 
 
 def match_capability(t: str, raw: str, rid: str, mode: str = "") -> Optional[RouteDecision]:
-    for fn in (_conditional, _orchestration, _device_refs, _messages, _workflow, _system, _phone, _ide, _files, _browser,
-               _text, _controls, _windows):
+    for fn in (_dry_run, _danger, _schedule, _conditional, _orchestration, _device_refs, _messages, _assistant, _workflow,
+               _system, _phone, _pc, _ide, _files, _browser, _text, _controls, _windows):
         d = fn(t, raw, rid, mode)
         if d is not None:
             return d
@@ -211,6 +211,20 @@ def _orchestration(t, raw, rid, mode):
         return _planner(rid, t)
     if re.match(r"^if\s+.+?(?:,|\bthen\b).+\b(?:otherwise|else|if not)\b", t):
         return _planner(rid, t)
+    if re.search(r"\band\s+if\s+(?:it'?s|it\s+is|the|my|there|they|that)\b.{3,}?\b(?:turn|set|lower|raise|open|close|send|tell|"
+                 r"start|stop|lock|mute|play|show|notify|switch|dim)\b", t):
+        return _planner(rid, t)                              # "check my battery and if it's low turn the brightness down"
+    m = re.match(r"^(?:install|download\s+and\s+install|get)\s+(?P<x>[a-z][\w .+-]{1,30}?)\s+(?:and|then|and\s+then)\s+(?:open|launch|"
+                 r"start|run)\s+it$", t)
+    if m:
+        from jarvis.core.router.models import ComplexityLevel, ReasonCode, RouteSource, SubCommand
+        name = _raw(raw, m.group("x")).strip()
+        subs = [SubCommand(intent="install_software", tool="install_software", arguments={"name": name}),
+                SubCommand(intent="open_app", tool="open_app", arguments={"name": name})]
+        return RouteDecision(request_id=rid, lane=RouteLane.LANE_0, intent="compound",
+                             slots={"steps": ["install_software", "open_app"]}, confidence=0.95, source=RouteSource.EXACT,
+                             complexity=ComplexityLevel.COMPOUND, risk="EXTERNAL_EFFECT", normalized_text=t,
+                             reason_code=ReasonCode.COMPOUND_COMMAND, subcommands=subs, candidate_count=2)
     if re.match(r"^(?:\W*)(?:show|list|find|open|search|get|play|send|copy|run)\b[^.;!?]+[.;!?]\s+(?:then\s+)?(?:open|show|send|"
                 r"play|click|close|copy|run|find)\b", raw.lower().strip(" .")):
         return _planner(rid, t)                              # "Show my PDFs. Open the second one."
@@ -237,9 +251,56 @@ def _device_refs(t, raw, rid, mode):
 _PERSON = r"(?P<who>[a-z][\w'.-]{1,24}(?:\s+[a-z][\w'.-]{1,24})?)"
 
 
+def _person(who: str, raw: str) -> bool:
+    from jarvis.core.router.extended import _looks_like_person, _name_like
+    w = who.strip().lower()
+    if not w or re.fullmatch(r"(?:the|my|this|that|it|me|you|him|her|them|us|everyone|all|a|an|some|chrome|it\s+to)", w):
+        return False
+    return _looks_like_person(w, raw) or _name_like(w)
+
+
+def _said_to_end(raw: str, piece: str) -> str:
+    """The message as the owner said it, from where the matched part starts to the end of the request - the matching
+    text has courtesy words ("for me", "please") cleaned off, the message must keep them ("don't wait for me")."""
+    words = piece.split()
+    i = raw.lower().find(" ".join(words[:2]).lower()) if words else -1
+    out = raw[i:] if i >= 0 else piece
+    out = re.sub(r"(?:[\s,]+(?:on|via|in|through)\s+whats\s*app)?(?:[\s,]+(?:jarvis|please|pls|thanks|thank\s+you))*[\s.!]*$", "",
+                 out, flags=re.I)
+    return out.strip() or piece
+
+
 def _messages(t, raw, rid, mode):
     if re.search(r"\b(?:e-?mails?|mail|gmail|inbox|outlook|slack|teams|telegram|sms)\b", t):
         return None
+    # "tell arun to call me" / "tell mom not to wait for me": reported speech, kept as said - the WhatsApp composer turns
+    # it into the words Arun reads ("Please call me."). ask / remind / let ... know have their own route with the composer.
+    m = re.match(r"^tell\s+(?P<who>[a-z][\w'-]{1,20})\s+(?P<msg>(?:not\s+to|to\s+not|to)\s+\S.{1,200})$", t)
+    if m and _person(m.group("who"), raw) and m.group("who") not in ("me", "us", "you", "him", "her", "them"):
+        d = _d(rid, t, "send_whatsapp_message", {"recipient": _raw(raw, m.group("who")).title(),
+                                                 "message": _said_to_end(raw, m.group("msg"))})
+        return d.model_copy(update={"context_trace": {"compose_style": "tell", "raw_text": raw}})
+    m = re.match(r"^tell\s+(?P<who>[a-z][\w'-]{1,20})\s+(?:that\s+)?(?P<msg>(?!to\b|about\b|me\b|him\b|her\b|them\b|us\b|a\s+joke\b|"
+                 r"a\s+story\b)\S.{1,200})$", t)
+    if m and _person(m.group("who"), raw) and m.group("who") not in ("me", "us", "you", "him", "her", "them"):
+        return _d(rid, t, "send_whatsapp_message", {"recipient": _raw(raw, m.group("who")).title(),
+                                                    "message": _said_to_end(raw, m.group("msg"))})
+    m = re.match(r"^(?:read|show|check|open|get)\s+(?:me\s+)?(?P<who>[a-z][\w'-]{1,20})(?:'s|s')\s+(?:(?P<n>last|latest|newest|recent|new|unread)\s+)?"
+                 r"(?:whatsapp\s+)?(?:message|messages|msg|msgs|text|texts|chat)s?$", t)
+    if m and m.group("who") not in ("my", "the", "your", "this", "that", "his", "her", "their", "our"):
+        # reading is read-only: any one name is fine - the reader says so if there is no such chat
+        one = m.group("n") in ("last", "latest", "newest")
+        return _d(rid, t, "read_whatsapp_messages", {"filter": "all", "sender": m.group("who"), "limit": 1 if one else 5})
+    # "send farhan can we talk tonight": one person, then the words to send (replies have their own route)
+    m = re.match(r"^(?P<v>send|message|msg|text|ping)\s+(?!(?:whats\s*app|message|msg|text|sms|e-?mail|mail|a|an|the|my|this|that|"
+                 r"it|them|him|her|to|me|us|file|photo|pic|picture|video|link|location)\b)(?P<who>[a-z][\w'-]{1,20})\s+(?:a\s+(?:message|text|msg)\s+)?"
+                 r"(?:saying\s+|that\s+|with\s+)?(?P<msg>(?!to\b|on\b|in\b|via\b|the\b|my\b|this\b|that\b|it\b|a\s+file)\S.{2,})$", t)
+    if m and _person(m.group("who"), raw) and not re.search(r"\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|txt|csv|zip|mp4)\b|"
+                                                             r"\b(?:file|screenshot|photo|document|folder)\b|"
+                                                             r"\bto\s+(?:my\s+|the\s+)?(?:phone|mobile|pc|laptop|computer|desktop)\b|"
+                                                             r"^(?:who|which|whom|that)\b", m.group("msg")):
+        msg = _raw(raw, m.group("msg")).strip()
+        return _d(rid, t, "send_whatsapp_message", {"recipient": _raw(raw, m.group("who")).title(), "message": msg})
     m = re.match(rf"^(?:show|read|get|check|open|pull up)\s+(?:me\s+)?(?:my\s+|the\s+)?(?:recent|latest|last|new|unread|today'?s)?\s*"
                  rf"(?:whatsapp\s+)?(?:messages?|texts?|chats?|dms?)\s+(?:from|with|by)\s+{_PERSON}(?:\s+on\s+whatsapp)?$", t)
     if m and m.group("who") not in ("me", "you", "him", "her", "them", "everyone", "today", "yesterday"):
@@ -408,6 +469,14 @@ def _phone(t, raw, rid, mode):
         return _d(rid, t, "phone_op", {"action": "key", "key": "previous_app"})
     if re.match(r"^bring\s+(?:the\s+)?phone(?:'s)?\s+app\s+(?:back\s+)?(?:to\s+the\s+front|up)(?:\s+again)?$", t):
         return _d(rid, t, "phone_op", {"action": "key", "key": "previous_app"})
+    m = re.match(r"^(?P<v>answer|pick\s+up|accept|take|hang\s+up|end|reject|decline|cut)\s+(?:the\s+|this\s+|my\s+)?(?:phone\s+|incoming\s+)?"
+                 r"call(?:\s+on\s+(?:my\s+)?phone)?$|^hang\s+up(?:\s+the\s+(?:phone|call))?$", t)
+    if m:
+        v = (m.group("v") or "hang up")
+        return _d(rid, t, "phone_op", {"action": "key", "key": "answer_call" if v in ("answer", "pick up", "accept", "take")
+                                       else "end_call"})
+    if re.match(rf"^open\s+(?:the\s+)?camera(?:\s+app)?{_ON_PHONE}$", t):
+        return _d(rid, t, "phone_op", {"action": "key", "key": "camera"})
     # state questions about the phone
     if re.match(rf"^(?:what(?:'s| is)|which (?:song|track|video|media) is)\s+playing\s+on\s+{_PHONE}$", t):
         return _d(rid, t, "phone_op", {"action": "media_state"})
@@ -640,7 +709,30 @@ def _where(t: str) -> str:
     return "here" if re.search(r"\bhere\b|\b(?:this|the current) folder\b", t) else ""
 
 
+_EXT = r"pdf|docx?|xlsx?|pptx?|csv|txt|md|png|jpe?g|gif|mp4|mkv|mp3|wav|zip|rar|py|js|ts|json|html|exe|msi|apk"
+
+
 def _files(t, raw, rid, mode):
+    m = re.match(rf"^(?:get\s+rid\s+of|trash|bin|throw\s+away|delete|remove|erase)\s+(?:the\s+(?:file\s+)?|my\s+)?"
+                 rf"(?P<f>[\w .()'&+-]{{1,60}}\.(?:{_EXT}))$", t)
+    if m:
+        return _d(rid, t, "delete_file", {"path": _raw(raw, m.group("f"))})
+    m = re.match(r"^(?:find|show|list|look\s+for|check\s+for|scan\s+for|search\s+for)\s+(?:me\s+)?(?:any\s+|the\s+|all\s+)?(?:duplicate|"
+                 r"duplicated|identical|repeated)\s+(?:files|copies|photos|pictures|documents)?\s*(?:in|inside|under)?\s*(?:my\s+|the\s+)?"
+                 r"(?P<d>[\w ]*?)(?:\s+folder)?$|^(?:do\s+i\s+have|are\s+there)\s+(?:any\s+)?duplicate\s+files\s+in\s+(?:my\s+|the\s+)?"
+                 r"(?P<d2>[\w ]+?)(?:\s+folder)?$", t)
+    if m:
+        d = (m.group("d") or m.group("d2") or "").strip().title()
+        return _d(rid, t, "find_duplicates", {"folder": d, "directory": d} if d else {})
+    m = re.match(r"^what\s+does\s+(?:my|the|this|that)\s+(?P<f>[\w .'-]{2,40}?)\s+say\s+(?:about|on|regarding)\s+(?P<q>.+)$", t)
+    if m:
+        return _d(rid, t, "document_qa", {"question": raw.strip()})
+    m = re.match(rf"^(?:go|jump|navigate|take\s+me)\s+to\s+(?P<f>[\w./\\-]+\.(?:{_EXT}))$", t)
+    if m and not re.search(rf"\.(?:{_CODE_EXT})$", m.group("f")):
+        return _d(rid, t, "open_file", {"path": _raw(raw, m.group("f"))})
+    if re.match(r"^read\s+(?:out\s+)?(?:the\s+|all\s+the\s+)?(?:text|words|content|contents)\s+(?:in|on|of)\s+(?:this|the|current|"
+                r"active)\s+(?:window|screen|app|page)$", t):
+        return _d(rid, t, "screen_op", {"action": "read", "scope": "active"})
     m = re.match(r"^open\s+(?:what|the (?:file|thing)|whatever)\s+i\s+(?:just\s+)?downloaded$", t)
     if m:
         return _d(rid, t, "file_op", {"action": "open_latest_download"})
@@ -693,7 +785,7 @@ def _files(t, raw, rid, mode):
         return _d(rid, t, "file_op", {"action": "relocate"})
     if re.match(r"^(?:make sure|check|verify|confirm)\s+(?:that\s+)?(?:this|that|the)\s+deleted\s+file\s+(?:no longer appears|is gone|"
                 r"doesn'?t (?:appear|exist|show up)(?: anymore)?)$|^(?:make sure|check|verify|confirm)\s+(?:that\s+)?(?:this|that|the)"
-                r"\s+file\s+(?:was|got|is)\s+(?:really\s+|actually\s+)?deleted$", t):
+                r"\s+file\s+(?:really\s+|actually\s+)?(?:was|got|is)\s+(?:really\s+|actually\s+)?deleted$", t):
         return _d(rid, t, "file_op", {"action": "verify_deleted"})
     m = re.match(r"^(?:check|verify|confirm|make sure)\s+(?:that\s+)?(?:the|this|that)\s+file\s+(?:really\s+|actually\s+)?(?:moved|"
                  r"got moved|was moved|is in (?P<d>.+))$|^did\s+(?:the|this|that)\s+file\s+(?:really\s+|actually\s+)?(?:move|get moved)$", t)
@@ -1003,4 +1095,236 @@ def _windows(t, raw, rid, mode):
                  r"windows)$", t)
     if m:
         return _d(rid, t, "window_op", {"action": "restore_layout", "name": m.group("n").strip()})
+    return None
+
+
+
+# ------------------------------------------------------------------------------------------------- dry run
+def _dry_run(t, raw, rid, mode):
+    """'dry run: delete x' / 'what would you do if I said close y' / 'preview the command z': explain, run nothing."""
+    m = re.match(r"^(?:dry\s*-?\s*run|simulate|test\s+run)\s*[:,-]?\s+(?P<c>.+)$|^what\s+would\s+(?:you|jarvis)\s+do\s+if\s+i\s+"
+                 r"(?:said|say|told\s+you|asked\s+you\s+to)\s*[:,]?\s+(?P<c2>.+)$|^(?:preview|explain)\s+(?:the\s+)?command\s*[:,]?\s+"
+                 r"(?P<c3>.+)$|^how\s+would\s+you\s+handle\s*[:,]?\s+(?P<c4>.+)$", t)
+    if not m:
+        return None
+    cmd = next(g for g in (m.group("c"), m.group("c2"), m.group("c3"), m.group("c4")) if g)
+    return _d(rid, t, "explain_route", {"command": _raw(raw, cmd).strip(" '\"")})
+
+
+# ------------------------------------------------------------------------------------------------- refusals
+_DANGER = re.compile(
+    r"\bformat\s+(?:my\s+|the\s+|this\s+)?(?:[a-z]\s+)?(?:hard\s+)?(?:disk|drive|ssd|hdd|partition|computer|pc|laptop)\b"
+    r"|\b(?:disable|turn\s+off|switch\s+off|kill|stop|remove|uninstall)\s+(?:the\s+|my\s+)?(?:windows\s+)?(?:defender|firewall|"
+    r"antivirus|anti-virus|uac|user\s+account\s+control|smart\s*screen|windows\s+security|security\s+updates)\b"
+    r"|\b(?:delete|wipe|erase|remove)\s+(?:the\s+)?(?:system32|windows\s+folder|registry|boot\s+(?:loader|partition)|"
+    r"(?:all\s+)?system\s+files)\b"
+    r"|\b(?:bypass|break|crack|hack|skip|get\s+past|get\s+around|unlock\s+without)\s+(?:the\s+|my\s+)?(?:\w+\s+)?(?:lock\s*screen|"
+    r"screen\s+lock|pin|passcode|password|pattern|captcha|otp|2fa|two[\s-]factor|login)\b"
+    r"|\bsolve\s+(?:this|the|that)\s+captcha\b"
+    r"|\brun\s+(?:this|that|a|some|the)\s+(?:powershell|cmd|batch|bash|shell)\s+script\s+from\s+(?:the\s+)?(?:internet|web|net|"
+    r"site|website|email)\b")
+_PRIVATE_DATA = re.compile(r"\b(?:send|share|forward|post|message|text|email|tell)\b.*\b(?:my\s+)?(?:aadhaar|aadhar|pan\s+card|"
+                           r"passport\s+(?:number|details)|bank\s+(?:details|account|password)|card\s+(?:number|details)|cvv|"
+                           r"passwords?|otp|pin\s+number)\b")
+
+
+def _danger(t, raw, rid, mode):
+    if _DANGER.search(t):
+        return _d(rid, t, None, {"refused": "unsafe_system_action"}, lane=RouteLane.REJECT,
+                  clarification="I won't do that - it would switch off your PC's protection, destroy the system or get "
+                                "around a security check. If you really need it, do it yourself from Windows Settings.")
+    if _PRIVATE_DATA.search(t) and not re.search(r"\b(?:don'?t|never|do\s+not)\b", t):
+        return _clarify(rid, t, "I don't send ID numbers, passwords, OTPs or card details in messages. If you're sure, "
+                                "share it yourself.")
+    return None
+
+
+# ------------------------------------------------------------------------------------------------- timed commands / triggers
+_NUMW = r"\d+(?:\.\d+)?|a|an|one|two|three|four|five|ten|fifteen|twenty|thirty|forty\s+five|half\s+an|a\s+couple\s+of|few"
+_IN = rf"in\s+(?:{_NUMW})\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)"
+_AT_LEAD = r"(?:tomorrow\s+)?at\s+(?:\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|noon|midnight)(?:\s+tomorrow)?"
+_AT_TAIL = r"(?:tomorrow\s+)?at\s+(?:\d{1,2}:\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm|a\.m\.|p\.m\.|o'?clock)|noon|midnight)(?:\s+tomorrow)?"
+_NOT_DEFERRABLE = re.compile(r"^(?:remind|set\s+(?:a|an)\s+(?:timer|alarm|reminder)|wake\s+me|schedule|book|meet|tell|message|"
+                             r"text|send|e-?mail|whats\s*app|reply|call|ping|let\s+\w+\s+know)\b|\b(?:meeting|alarm|reminder|"
+                             r"timer|appointment|event|calendar|agenda|every|daily|weekdays?|weekends?|each)\b")
+
+
+# Only a direct action on this PC or the phone is deferred ("in 10 minutes open krita"); a note, a call to set up or a table
+# to reserve that merely mentions a time is not a command to run later.
+_DEFERRABLE = re.compile(r"^(?:open|launch|start|run|close|quit|exit|kill|lock|mute|unmute|pause|resume|play|stop|skip|turn\s+(?:on|off|up|"
+                         r"down)|switch|set\s+(?:the\s+|my\s+)?(?:volume|brightness|sound|theme)|lower|raise|increase|decrease|dim|"
+                         r"brighten|minimi[sz]e|maximi[sz]e|restart|relaunch|reboot|shut\s*down|sleep|hibernate|log\s*off|"
+                         r"take\s+a\s+screenshot|screenshot|empty|disconnect|connect|enable|disable|show|hide|focus|go\s+to|"
+                         r"bring|move|copy|clean|organi[sz]e|sync|back\s*up)\b")
+
+
+def _schedule(t, raw, rid, mode):
+    m = re.match(rf"^(?P<w>{_IN}|{_AT_LEAD})\s*,?\s*(?:please\s+)?(?P<c>[a-z].+)$", t) or \
+        re.match(rf"^(?P<c>[a-z].+?)\s*,?\s+(?P<w>{_IN}|{_AT_TAIL})$", t)
+    if m:
+        cmd = m.group("c").strip(" ,")
+        if _NOT_DEFERRABLE.search(cmd) or not _DEFERRABLE.match(cmd) \
+                or len(cmd.split()) < 2 and cmd not in ("mute", "unmute", "lock"):
+            return None                       # reminders, timers, meetings and messages keep their own handling
+        if re.match(r"^(?:what|when|where|how|who|which|why|is|are|am|do|does|did|can|could|will|would|should|shall|was|"
+                    r"were|have|has)\b", cmd):
+            return None
+        return _d(rid, t, "workflow_op", {"action": "run_at", "command": _raw(raw, cmd), "when": m.group("w")})
+    m = re.match(r"^(?:whenever|every\s+time|each\s+time|any\s*time|anytime)\s+(?P<c>[^,]+?)\s*(?:,|\bthen\b)\s*(?:then\s+)?"
+                 r"(?P<cmd>.+)$", t)
+    if m:
+        trig = _trigger(m.group("c"))
+        if trig is None:
+            return None
+        cmd = re.sub(r"\s+(?:too|as\s+well|also)$", "", m.group("cmd")).strip(" ,.")
+        if not cmd:
+            return None
+        return _d(rid, t, "workflow_op", {"action": "trigger", **trig, "command": _raw(raw, cmd)})
+    if re.match(r"^(?:list|show|what\s+are)\s+(?:me\s+)?(?:all\s+)?(?:my\s+|the\s+)?(?:automations?|triggers?|scheduled\s+"
+                r"(?:commands?|tasks?|actions?)|schedules)(?:\s+(?:i\s+have|running|set\s+up))?$", t):
+        return _d(rid, t, "workflow_op", {"action": "list_triggers"})
+    m = re.match(r"^(?:delete|remove|cancel|stop|turn\s+off|disable)\s+(?:the\s+|my\s+)?(?P<x>.*?)\s*(?:automation|trigger|"
+                 r"scheduled\s+(?:command|task|action)|schedule)s?$", t)
+    if m and not re.search(r"\bworkflow\b", t):
+        return _d(rid, t, "workflow_op", {"action": "cancel_trigger", "ref": m.group("x").strip()})
+    return None
+
+
+def _trigger(c: str) -> Optional[dict]:
+    c = c.strip()
+    m = re.match(r"^(?:i\s+)?(?:open|start|launch|run)\s+(?P<x>[\w .+-]+)$|^(?P<x2>[\w .+-]+?)\s+(?:opens|starts|launches|is\s+opened)$", c)
+    if m:
+        return {"condition": "app_opened", "subject": (m.group("x") or m.group("x2")).strip()}
+    m = re.match(r"^(?:i\s+)?(?:close|quit|exit)\s+(?P<x>[\w .+-]+)$|^(?P<x2>[\w .+-]+?)\s+(?:closes|quits|exits|is\s+closed)$", c)
+    if m:
+        return {"condition": "app_closed", "subject": (m.group("x") or m.group("x2")).strip()}
+    if re.match(r"^(?:my\s+|the\s+)?phone\s+(?:connects|reconnects|is\s+connected|comes\s+online|gets\s+connected)$|"
+                r"^i\s+(?:plug\s+in|connect)\s+(?:my\s+|the\s+)?phone$", c):
+        return {"condition": "phone_connected"}
+    if re.match(r"^(?:my\s+|the\s+)?phone\s+(?:disconnects|goes\s+offline|is\s+disconnected)$", c):
+        return {"condition": "phone_disconnected"}
+    m = re.match(r"^(?:my\s+|the\s+)?(?:laptop\s+|pc\s+)?battery\s+(?:drops|falls|goes|gets|is)\s+(?P<d>below|under|above|over)\s+"
+                 r"(?P<n>\d{1,3})\s*(?:%|percent)?$", c)
+    if m:
+        return {"condition": "battery_below" if m.group("d") in ("below", "under") else "battery_above",
+                "threshold": float(m.group("n"))}
+    if re.match(r"^(?:a\s+|the\s+|any\s+)?download\s+(?:finishes|completes|is\s+done)$|^something\s+finishes\s+downloading$", c):
+        return {"condition": "download_done"}
+    return None
+
+
+# ------------------------------------------------------------------------------------------------- assistant
+def _assistant(t, raw, rid, mode):
+    if re.match(r"^(?:say|announce|shout|read\s+out)\s+(?!.*\bto\s+[a-z]+$)(?!(?:that|it)\s+again$).+", t) and \
+            not re.search(r"\b(?:message|whatsapp|text)\b", t):
+        return _chat(rid, t)                                 # "say good luck out loud": JARVIS says it
+    m = re.match(r"^(?:read|give|tell)\s+(?:me\s+)?(?:a\s+|the\s+)?(?:short\s+|quick\s+)?(?:summary\s+of\s+)?(?:my\s+|the\s+)"
+                 r"(?P<f>[\w .'-]{2,40}?)(?:\s+summary)?$", t)
+    if m and re.search(r"\bsummary\b", t) and not re.search(r"\b(?:email|mail|messages?|chat|day|calendar|news)\b", t):
+        return _d(rid, t, "document_qa", {"question": f"summarize my {m.group('f')}"})
+    m = re.match(r"^(?:reply|answer|respond|talk|speak)\s+(?:to\s+)?me\s+(?:only\s+)?in\s+(?P<l>english|[a-z]{0,4}glish|tamil|my\s+"
+                 r"language)\b", t)
+    if m:
+        lang = m.group("l")
+        lang = "english" if lang == "english" else "auto" if lang == "my language" else "thanglish"
+        return _d(rid, t, "set_reply_language", {"mode": lang})
+    if re.match(r"^(?:stop|quit|cut)\s+reading(?:\s+.*)?$", t):
+        return _d(rid, t, "stop_speaking", {}, lane=RouteLane.CONTROL)
+    if re.match(r"^(?:show|list|read|what\s+are)\s+(?:me\s+)?(?:my\s+)?(?:recent|latest|last)\s+(?:notes|memos)$", t):
+        return _d(rid, t, "memos_recent", {})
+    m = re.match(r"^remember\s+(?:that\s+)?(?P<f>[a-z][\w.-]*(?:'s|s')\s+\w+.{2,})$", t)
+    if m and not re.search(r"\b(?:to|about)\s+(?:call|buy|send|pay|take|do)\b", t):
+        return _d(rid, t, "remember_fact", {"fact": _raw(raw, m.group("f"))})
+    m = re.match(r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?forget\s+(?:what|everything)\s+i\s+(?:said|told\s+you)\s+about\s+(?P<q>.+)$", t)
+    if m:
+        return _d(rid, t, "forget_fact", {"query": _raw(raw, m.group("q"))})
+    if re.match(r"^did\s+(?:you|u)\s+(?:already\s+|actually\s+|really\s+|just\s+)?(?:open|close|start|launch|remind|send|message|text|"
+                r"install|uninstall|delete|move|play|do|run|save|turn|lock|mute|set|copy|rename)\b", t) or \
+            re.match(r"^did\s+(?!you\b|u\b|i\b)[\w .'-]{2,30}?\s+(?:actually|really|properly|even)\s+(?:close|open|start|install|go\s+through|"
+                     r"send|finish|get\s+(?:sent|saved|deleted|moved))\b", t):
+        return _d(rid, t, "recent_actions", {"question": raw.strip()})
+    if re.match(r"^when\s+did\s+i\s+(?:last\s+)?(?:open|use|ask|run|start|launch|play)\b", t):
+        return _d(rid, t, "command_history", {})
+    if re.match(r"^(?:repeat|say)\s+(?:what\s+you\s+(?:just\s+)?said|that|it)(?:\s+again)?$|^read\s+(?:that|it)\s+(?:again|once\s+more)$", t):
+        return _d(rid, t, "recent_actions", {"question": raw.strip()})
+    m = re.match(r"^(?:speak|talk|read|say)\s+(?:.+?\s+)?(?P<a>slower|faster|louder|softer|quieter)$", t)
+    if m:
+        a = {"quieter": "softer"}.get(m.group("a"), m.group("a"))
+        return _d(rid, t, "speech_control", {"action": a}, lane=RouteLane.CONTROL)
+    m = re.match(r"^what\s+(?:meetings?|events?|appointments?|calls?)\s+(?:do\s+i\s+have|have\s+i\s+got|are\s+there)\s+(?:at|around)\s+"
+                 r"(?P<at>\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?P<d>today|tomorrow|tonight))?$|^(?:am\s+i|will\s+i\s+be)\s+(?:free|busy|"
+                 r"available)\s+(?:at|around)\s+(?P<at2>\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?P<d2>today|tomorrow|tonight))?$", t)
+    if m:
+        return _d(rid, t, "calendar_list_events", {"time_window": m.group("d") or m.group("d2") or "today",
+                                                   "at": m.group("at") or m.group("at2")})
+    if re.match(r"^(?:teach\s+me|explain|give\s+me\s+(?:some\s+)?(?:ideas|tips|suggestions|advice))\b", t) and \
+            not re.search(r"\b(?:file|folder|screen|error|window|page|code\s+in|this|that)\b", t):
+        return _chat(rid, t)                                 # "teach me rust basics", "give me ideas for an app": a conversation
+    return None
+
+
+def _chat(rid: str, t: str) -> RouteDecision:
+    from jarvis.core.router.models import ComplexityLevel, ReasonCode, RouteSource
+    return RouteDecision(request_id=rid, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.9,
+                         source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE, normalized_text=t,
+                         reason_code=ReasonCode.QUESTION_NOT_COMMAND, candidate_count=0)
+
+
+# ------------------------------------------------------------------------------------------------- PC
+_NOT_APP = r"(?:pc|computer|laptop|system|machine|windows|phone|mobile|tests?|server|dictation|it|this|that|the\s+\w+|my\s+\w+)"
+
+
+def _pc(t, raw, rid, mode):
+    m = re.match(r"^(?:minimi[sz]e|hide)\s+(?:everything|all(?:\s+(?:the\s+)?(?:other\s+)?windows)?|all\s+other\s+windows|every\s+"
+                 r"(?:other\s+)?window|the\s+rest)\s+(?:except|but|apart\s+from|other\s+than|besides)\s+(?:for\s+)?(?P<x>.+)$|"
+                 r"^(?:just\s+show|show\s+only|only\s+show|focus\s+on)\s+(?P<x2>.+?)(?:\s+(?:only|and\s+hide\s+the\s+rest))$", t)
+    if m:
+        return _d(rid, t, "window_op", {"action": "isolate", "target": _ref(m.group("x") or m.group("x2")) or ""})
+    m = re.match(rf"^(?:restart|relaunch|reopen|reboot)\s+(?P<x>(?!{_NOT_APP}$)[a-z][\w .+-]{{1,30}}?)(?:\s+app)?$", t) or \
+        re.match(r"^(?P<x>[a-z][\w .+-]{1,30}?)\s+is\s+(?:acting\s+(?:weird|up|strange)|frozen|stuck|hanging|not\s+responding|lagging|"
+                 r"buggy|broken|slow)\s*,?\s*(?:so\s+)?(?:please\s+)?(?:restart|relaunch|reopen)\s+it$", t)
+    if m and not re.search(r"\b(?:pc|computer|laptop|phone|mobile|machine|windows|my\s+app|tests?|server)\b", m.group("x")) \
+            and not re.match(r"(?:the|my|this|that|a|last|previous|closed|recent)\b|.*\b(?:tabs?|window|page|file|folder|document|"
+                             r"song|video|track|download|chat|game|level)\b", m.group("x")):
+        return _d(rid, t, "system_op", {"action": "restart_app", "target": m.group("x").strip()})
+    m = re.match(r"^is\s+(?P<x>[a-z][\w .+-]{1,30}?)\s+(?:still\s+)?(?:running|open|active|on)(?:\s+right\s+now)?$", t)
+    if m and not re.search(rf"\b(?:{_NOT_APP}|anything|something|wake\s+word|mic|microphone|dictation|wifi|bluetooth|"
+                           r"dark\s+mode|music|the\s+download)\b", m.group("x")):
+        return _d(rid, t, "system_op", {"action": "running", "target": m.group("x").strip()})
+    m = re.match(r"^(?:turn|switch|set|put|change|go)\s+(?:on\s+|to\s+)?(?:windows\s+|the\s+(?:pc|system|laptop)\s+)?(?:to\s+|into\s+)?"
+                 r"(?P<m>dark|light|night)\s+(?:mode|theme)(?:\s+on)?$|^(?:enable|use|turn\s+on|switch\s+on)\s+(?P<m2>dark|light)\s+"
+                 r"(?:mode|theme)$|^(?:turn|switch)\s+(?:off|on)\s+(?P<m3>dark|light)\s+(?:mode|theme)$|^switch\s+(?:windows|the\s+pc|the\s+"
+                 r"theme)\s+to\s+(?P<m4>dark|light)(?:\s+(?:mode|theme))?$", t)
+    if m:
+        mode_ = m.group("m") or m.group("m2") or m.group("m4") or m.group("m3")
+        if m.group("m3") and re.search(r"\boff\b", t):
+            mode_ = "light" if m.group("m3") == "dark" else "dark"
+        return _d(rid, t, "system_op", {"action": "theme", "target": "dark" if mode_ == "night" else mode_})
+    # "open / show clipboard history" stays Windows' own panel (Win+V); "my clipboard history" is JARVIS's list of this session
+    if re.match(r"^(?:show|list|read|what'?s\s+in|open)\s+(?:me\s+)?my\s+clipboard\s+history$|^(?:list|read|what'?s\s+in)\s+(?:me\s+)?"
+                r"(?:the\s+)?clipboard\s+history$|^what\s+(?:did|have)\s+i\s+cop(?:y|ied)(?:\s+(?:before|earlier|recently|today))?$", t):
+        return _d(rid, t, "clipboard_op", {"action": "history"})
+    if re.match(r"^(?:clear|wipe|delete|erase|empty)\s+(?:my\s+|the\s+)?clipboard\s+history$", t):
+        return _d(rid, t, "clipboard_op", {"action": "clear_history"})
+    m = re.match(rf"^(?P<v>paste|copy|bring\s+back)\s+(?:the\s+)?(?P<o>{_ORD_RE}|second\s+last|third\s+last|previous|earlier|"
+                 rf"other|(?P<num>\d{{1,2}})(?:st|nd|rd|th)?)\s+(?:thing|item|text|entry|clip(?:board\s+item)?|clipboard\s+(?:item|entry))"
+                 rf"(?:\s+(?:i|you)\s+(?:copied|had))?(?:\s+again)?$|^(?P<v2>paste)\s+what\s+i\s+copied\s+(?:before\s+that|earlier|"
+                 rf"previously)$", t)
+    if m:
+        o = (m.group("o") or "previous").lower()
+        n = int(m.group("num")) if m.group("num") else {"second last": 2, "third last": 3, "previous": 2, "earlier": 2,
+                                                          "other": 2}.get(o, _ORD.get(o, 2))
+        n = max(1, n if n > 0 else 1)
+        return _d(rid, t, "clipboard_op", {"action": "paste_nth", "n": n,
+                                            "paste": (m.group("v") or m.group("v2")) == "paste"})
+    m = re.match(r"^(?:put|place|arrange|show|set|tile|snap)\s+(?P<a>[a-z][\w .+-]{1,25}?)\s+(?:and|&|with|next\s+to|beside)\s+"
+                 r"(?P<b>[a-z][\w .+-]{1,25}?)\s+(?P<l>side\s+by\s+side|next\s+to\s+each\s+other|split\s+screen|left\s+and\s+right|"
+                 r"on\s+top\s+of\s+each\s+other|stacked)$", t)
+    if m:
+        layout = "stack" if re.search(r"top|stack", m.group("l")) else "side_by_side"
+        targets = [x if x not in ("this", "it") else "current" for x in (m.group("a").strip(), m.group("b").strip())]
+        return _d(rid, t, "window_op", {"action": "arrange", "targets": targets, "layout": layout})
+    if re.match(r"^switch\s+over\s+to\s+(?P<x>[a-z][\w .+-]{1,30})$", t):
+        x = re.sub(r"^switch\s+over\s+to\s+", "", t)
+        return _d(rid, t, "switch_window", {"target": x})
     return None

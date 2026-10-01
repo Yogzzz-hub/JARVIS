@@ -349,6 +349,20 @@ class WindowTracker:
         d.move_window(target.hwnd, rect)
         return self._verify_rects([(target, rect)], f"Moved {target.display_name} to the other side.")
 
+    def isolate(self, keep: WindowRef) -> OperatorOutcome:
+        """'minimize everything except VS Code': every other app window is minimised (never closed); the kept one is
+        brought to the front. Verified by reading each window's state back."""
+        d = self.desktop
+        others = [w for w in self.list() if w.hwnd != keep.hwnd and d.window_state(w.hwnd) != "minimized"]
+        for w in others:
+            d.set_window_state(w.hwnd, "minimized")
+        still = [w.display_name for w in others if d.window_state(w.hwnd) != "minimized"]
+        self.focus(keep)
+        ok = not still
+        return OperatorOutcome(ok, f"Only {keep.display_name} is showing now ({len(others)} minimised)." if ok else
+                               f"{', '.join(still)} wouldn't minimise.", resource=keep,
+                               evidence={"minimized": len(others) - len(still), "verified": ok})
+
     def active(self) -> OperatorOutcome:
         cur = self.current()
         if cur is None:

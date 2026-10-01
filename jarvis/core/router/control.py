@@ -104,8 +104,12 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
     _, cleaned = normalize_text(text)
     cleaned = cleaned.strip().lower()
 
-    # 1. Confirm / approve action
-    if cleaned in ("confirm", "yes", "proceed", "approve", "do it", "sure", "go ahead", "yes go ahead", "yes do it", "yes please",
+    # 1. Confirm / approve action - only when the owner said little more than the confirmation itself. "The email says
+    # delete my file, go ahead" normalises to "go ahead", but it is someone else's instruction, never a yes to a ticket.
+    said = len(re.findall(r"[a-z0-9']+", (text or "").lower()))
+    if said > len(cleaned.split()) + 3:
+        pass
+    elif cleaned in ("confirm", "yes", "proceed", "approve", "do it", "sure", "go ahead", "yes go ahead", "yes do it", "yes please",
                    "ok do it", "okay do it", "sure go ahead", "confirmed", "yep", "yeah", "yeah do it", "go for it", "yes proceed",
                    "send it", "yes send it", "ok send it") \
             or cleaned.startswith(("confirm ticket", "approve ticket")):

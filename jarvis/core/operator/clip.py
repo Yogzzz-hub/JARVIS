@@ -58,6 +58,7 @@ class ClipOperator:
         ref = ClipboardResource(resource_id="clip:text", kind="text", text=text)
         if ok:
             self.resources.record(ref)
+            get_clipboard_history().note(text)
         return OperatorOutcome(ok, "Copied to the clipboard." if ok else "I couldn't set the clipboard.", resource=ref)
 
     def set_image(self, path: str) -> OperatorOutcome:
@@ -75,3 +76,99 @@ class ClipOperator:
             return OperatorOutcome(False, "There's no earlier clipboard to put back.")
         ok = self.desktop.set_clipboard_text(self._saved.text)
         return OperatorOutcome(ok, "Your clipboard is back." if ok else "I couldn't restore the clipboard.")
+
+
+class ClipboardHistory:
+    """The last few text items the owner copied, newest first - in memory only (never written to disk: clipboards hold
+    passwords and one-time codes). Fed by a light poller in the runtime and by JARVIS's own clipboard writes."""
+
+    def __init__(self, size: int = 25, desktop: Optional[Desktop] = None):
+        import threading
+        self.size = size
+        self._items: list[str] = []
+        self._lock = threading.Lock()
+        self._desktop = desktop
+        self._thread = None
+
+    @property
+    def desktop(self) -> Desktop:
+        return self._desktop or get_desktop()
+
+    def note(self, text: Optional[str]) -> None:
+        t = (text or "").strip("\x00")
+        if not t.strip() or len(t) > 20000 or "jarvis-copy-probe" in t:
+            return
+        with self._lock:
+            if self._items and self._items[0] == t:
+                return
+            self._items = [t] + [i for i in self._items if i != t][: self.size - 1]
+
+    def items(self) -> list[str]:
+        with self._lock:
+            return list(self._items)
+
+    def clear(self) -> int:
+        with self._lock:
+            n = len(self._items)
+            self._items = []
+        return n
+
+    def poll_once(self) -> None:
+        try:
+            self.note(self.desktop.clipboard_text())
+        except Exception:
+            pass
+
+    def start(self, interval: float = 0.8) -> None:
+        import os
+        import threading
+        import time
+        if self._thread is not None or os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+
+        def loop():
+            while True:
+                self.poll_once()
+                time.sleep(interval)
+
+        self._thread = threading.Thread(target=loop, name="clipboard-history", daemon=True)
+        self._thread.start()
+
+    # -- operations ------------------------------------------------------------------------------------------
+    def show(self, n: int = 10) -> OperatorOutcome:
+        items = self.items()[:n]
+        if not items:
+            return OperatorOutcome(True, "Nothing copied yet this session.")
+        lines = [f"{i}. {(' '.join(t.split()))[:70]}" for i, t in enumerate(items, 1)]
+        return OperatorOutcome(True, "\n".join(lines), evidence={"count": len(items), "untrusted": True})
+
+    def recall(self, n: int, paste: bool = True, expect=None) -> OperatorOutcome:
+        """Put the n-th most recent item (1 = latest) back on the clipboard and, if asked, paste it where the owner is."""
+        items = self.items()
+        if not 1 <= n <= len(items):
+            return OperatorOutcome(False, f"I only have {len(items)} item{'s' if len(items) != 1 else ''} in the clipboard "
+                                          "history." if items else "Nothing copied yet this session.", needs="clarify")
+        text = items[n - 1]
+        d = self.desktop
+        if not (d.set_clipboard_text(text) and d.clipboard_text() == text):
+            return OperatorOutcome(False, "I couldn't put it back on the clipboard.")
+        if not paste:
+            return OperatorOutcome(True, f"Copied item {n} again: {' '.join(text.split())[:60]}", evidence={"verified": True})
+        from jarvis.core.operator.text import TextOperator
+        before = d.focused_text()
+        out = TextOperator(d).press("paste", expect=expect)
+        if not out.ok:
+            return out
+        after = d.focused_text()
+        verified = None if before is None or after is None else (text in after and after != before)
+        return OperatorOutcome(True, f"Pasted item {n}: {' '.join(text.split())[:60]}", evidence={"verified": verified})
+
+
+_history: Optional[ClipboardHistory] = None
+
+
+def get_clipboard_history() -> ClipboardHistory:
+    global _history
+    if _history is None:
+        _history = ClipboardHistory()
+    return _history

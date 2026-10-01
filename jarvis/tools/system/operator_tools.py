@@ -59,6 +59,7 @@ class _Hub:
         from jarvis.core.operator.resources import get_resources
         self.tasks = None             # the service's TaskManager, attached by the runtime (task / build watches)
         self.registry = None          # the tool registry, attached by the runtime (capability audit)
+        self.router = None            # the live router, attached by the runtime (dry runs)
         from jarvis.core.operator.windows import get_window_tracker
         self.resolver, self.launcher = resolver, launcher
         self.tracker = get_window_tracker()
@@ -115,7 +116,7 @@ def _def(name: str, description: str, input_model, risk=RiskLevel.REVERSIBLE, ti
 class WindowOpInput(Contract):
     action: str = Field(default="focus", description="focus | maximize | minimize | restore | fullscreen | close | arrange | "
                                                      "list | resize | move | active | find | info | save_layout | "
-                                                     "restore_layout")
+                                                     "restore_layout | isolate (minimise every other window)")
     target: str = Field(default="", description="window description: 'previous', 'my editor', 'chrome', 'second chrome', a title word")
     targets: list[str] = Field(default_factory=list, description="windows for side-by-side/stack layouts")
     layout: str = Field(default="", description="left | right | top | bottom | side_by_side | stack | quadrants | center | next_monitor")
@@ -141,6 +142,11 @@ class WindowOpTool(Tool):
             return _finish(tr.active())
         if a.action == "find":
             return _finish(tr.find_and_show(a.target))
+        if a.action == "isolate":
+            keep = hub.window(a.target or "", launch=bool(a.target))
+            if not keep.ok:
+                return _finish(keep)
+            return _finish(tr.isolate(keep.resource))
         if a.action == "save_layout":
             return _finish(tr.save_layout(a.name or a.target))
         if a.action == "restore_layout":
@@ -359,8 +365,11 @@ class TextOpTool(Tool):
 
 # ------------------------------------------------------------------------------------------------- clipboard / screen
 class ClipboardOpInput(Contract):
-    action: str = Field(default="read", description="read | copy_selection | set | restore")
+    action: str = Field(default="read", description="read | copy_selection | set | restore | history | paste_nth | "
+                                                    "clear_history")
     text: str = Field(default="")
+    n: int = Field(default=1, ge=1, le=25, description="paste_nth: 1 = the latest copy, 2 = the one before, ...")
+    paste: bool = Field(default=True, description="paste_nth: paste it (true) or only put it back on the clipboard")
 
 
 class ClipboardOpTool(Tool):
@@ -371,6 +380,17 @@ class ClipboardOpTool(Tool):
     def run(self, a: ClipboardOpInput) -> dict[str, Any]:
         from jarvis.core.operator.clip import ClipOperator
         c = ClipOperator(resources=_get_hub().resources)
+        if a.action in ("history", "paste_nth", "clear_history"):
+            from jarvis.core.operator.clip import get_clipboard_history
+            from jarvis.core.operator.refs import OperatorOutcome
+            h = get_clipboard_history()
+            h.poll_once()
+            if a.action == "history":
+                return _finish(h.show())
+            if a.action == "clear_history":
+                n = h.clear()
+                return _finish(OperatorOutcome(True, f"Cleared {n} item{'s' if n != 1 else ''} from the clipboard history."))
+            return _finish(h.recall(a.n, paste=a.paste, expect=_get_hub().tracker.current()))
         if a.action == "copy_selection":
             return _finish(c.copy_selection())
         if a.action == "set":
@@ -1023,7 +1043,7 @@ class FileOpTool(Tool):
 
 # ------------------------------------------------------------------------------------------------- system / workflows
 class SystemOpInput(Contract):
-    action: str = Field(description="status | models | audio | audit")
+    action: str = Field(description="status | models | audio | audit | running | restart_app | theme")
     what: str = Field(default="all", description="status: cpu | ram | gpu | disk | network | uptime | battery | all")
     op: str = Field(default="list", description="models: list | loaded | unload | warm; audio: list | switch")
     target: str = Field(default="", description="model name/role or audio device")
@@ -1045,16 +1065,30 @@ class SystemOpTool(Tool):
             return _finish(s.audio(a.op, a.target))
         if a.action == "audit":
             return _finish(s.audit())
+        hub = _get_hub()
+        if a.action == "running":
+            return _finish(s.running(a.target, tracker=hub.tracker))
+        if a.action == "restart_app":
+            return _finish(s.restart_app(a.target, tracker=hub.tracker, launch=hub.launch))
+        if a.action == "theme":
+            return _finish(s.theme(a.target or a.what))
         raise RuntimeError(f"Unknown system action '{a.action}'.")
 
 
 class WorkflowOpInput(Contract):
-    action: str = Field(description="run | preview | create | clone | enable | disable | schedule | cancel_schedule | list")
+    action: str = Field(description="run | preview | create | clone | enable | disable | schedule | cancel_schedule | list | "
+                                    "run_at | trigger | list_triggers | cancel_trigger")
     name: str = Field(default="", description="workflow name")
     steps: list[str] = Field(default_factory=list, description="create: the owner's own commands, in order")
     new_name: str = Field(default="", description="clone: name of the copy")
     when: str = Field(default="", description="schedule: 'weekdays at 9', 'every 30 minutes'")
     override: str = Field(default="", description="run: a folder to use instead of the one in the saved steps")
+    command: str = Field(default="", description="run_at / trigger: the owner's own command to run later")
+    condition: str = Field(default="", description="trigger: app_opened | app_closed | phone_connected | "
+                                                   "phone_disconnected | battery_below | battery_above | download_done")
+    subject: str = Field(default="", description="trigger: the app name for app_opened / app_closed")
+    threshold: Optional[float] = Field(default=None, description="trigger: battery percentage")
+    ref: str = Field(default="", description="cancel_trigger: which one (a word from its command, its number, or empty)")
 
 
 def _recent_commands(tasks, limit: int = 5) -> list[str]:
@@ -1104,9 +1138,82 @@ class WorkflowOpTool(Tool):
             return _finish(w.cancel_schedule(a.name))
         if act == "list":
             return _finish(w.list())
+        if act in ("run_at", "trigger", "list_triggers", "cancel_trigger"):
+            from jarvis.core.operator.automations import get_automations
+            auto = get_automations()
+            if act == "run_at":
+                return _finish(auto.run_at(a.command, a.when))
+            if act == "trigger":
+                return _finish(auto.add_trigger(a.condition, a.command, a.subject, a.threshold))
+            if act == "list_triggers":
+                return _finish(auto.list())
+            return _finish(auto.cancel(a.ref))
         if act == "run":
             return _finish(w.run(name, override=a.override))
         raise RuntimeError(f"Unknown workflow action '{act}'.")
+
+
+# ------------------------------------------------------------------------------------------------- dry run
+class ExplainRouteInput(Contract):
+    command: str = Field(description="the command to explain without running it")
+
+
+class ExplainRouteTool(Tool):
+    definition = _def("explain_route", "Dry run: say which capability a command would use, with which details, whether "
+                      "it changes anything and whether it would ask first - without running it.", ExplainRouteInput,
+                      risk=RiskLevel.READ_ONLY, read_only=True, tags=("dry_run", "explain"))
+
+    def run(self, a: ExplainRouteInput) -> dict[str, Any]:
+        import asyncio
+        from jarvis.core.operator.refs import OperatorOutcome
+        hub = _get_hub()
+        router = hub.router
+        if router is None:
+            from jarvis.core.router.ollama import DisabledProvider
+            from jarvis.core.router.router import SmartRouter
+            router = SmartRouter(llm_provider=DisabledProvider())
+        import concurrent.futures
+        # its own short-lived thread and loop: works whether or not the caller is inside an event loop
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            d = pool.submit(lambda: asyncio.run(router.route(a.command))).result(timeout=30)
+        return _finish(OperatorOutcome(True, describe_route(d, hub.registry, a.command), evidence={
+            "intent": d.intent, "lane": getattr(d.lane, "value", str(d.lane)),
+            "slots": {k: v for k, v in (d.slots or {}).items() if isinstance(v, (str, int, float, bool))}, "dry_run": True}))
+
+
+def describe_route(d, registry, command: str) -> str:
+    lane = getattr(d.lane, "value", str(d.lane))
+    if lane == "REJECT":
+        why = (d.clarification or "it was negated or is unsafe").rstrip(". ")
+        return f"\"{command}\" would be refused: {why}. Nothing was done."
+    if lane == "CLARIFY":
+        return f"For \"{command}\" I would first ask: {d.clarification or 'which one you mean'}. Nothing was done."
+    if lane == "LANE_2" or not d.intent:
+        return (f"\"{command}\" needs thinking: the planner would break it into steps and show you anything that changes "
+                "something before it runs. Nothing was done.")
+    if d.intent == "compound":
+        steps = ", then ".join(s.tool.replace("_", " ") for s in d.subcommands)
+        return f"\"{command}\" would run {len(d.subcommands)} steps: {steps}. Nothing was done."
+    details = ", ".join(f"{k} {v}" for k, v in (d.slots or {}).items()
+                        if k not in ("qualifiers", "pronoun") and isinstance(v, (str, int, float)) and str(v))
+    risk, asks = "", ""
+    try:
+        if registry is not None and registry.contains(d.intent):
+            tool_def = registry.get(d.intent).definition
+            r = str(tool_def.risk)
+            risk = {"READ_ONLY": "only reads", "REVERSIBLE": "changes something you can undo",
+                    "EXTERNAL_EFFECT": "has an effect outside this PC", "DESTRUCTIVE": "removes or overwrites something",
+                    "PRIVILEGED": "needs administrator rights"}.get(r, r.lower())
+            # the same policy the executor applies - not a guess
+            from jarvis.security.policy.evaluator import PolicyEvaluator
+            pol = PolicyEvaluator().evaluate_node(tool_def, dict(d.slots or {}))
+            asks = " and would ask you to confirm first" if pol.requires_confirmation or pol.pauses_for_user else \
+                " and would not be allowed" if pol.is_denied else ""
+    except Exception:
+        pass
+    what = d.intent.replace("_", " ")
+    return (f"\"{command}\" would use {what}" + (f" ({details})" if details else "") +
+            (f"; it {risk}{asks}" if risk else "") + ". Nothing was done.")
 
 
 def create_operator_tools(resolver=None, launcher=None, working_memory=None) -> list[Tool]:
@@ -1114,4 +1221,4 @@ def create_operator_tools(resolver=None, launcher=None, working_memory=None) -> 
     _hub = _Hub(resolver=resolver, launcher=launcher, working_memory=working_memory)
     return [WindowOpTool(), UIOpTool(), TextOpTool(), ClipboardOpTool(), ScreenOpTool(), DeliverOpTool(),
             BrowserOpTool(), VideoOpTool(), WatchOpTool(), IDEOpTool(), PhoneOpTool(), FileOpTool(),
-            SystemOpTool(), WorkflowOpTool()]
+            SystemOpTool(), WorkflowOpTool(), ExplainRouteTool()]

@@ -63,7 +63,8 @@ def check_negation(text: str) -> tuple[bool, list[dict[str, Any]]]:
         return False, constraints
 
     # Check "don't <action> <target>, just <inquire>" (e.g. "don't open notepad, just tell me whether it's installed")
-    m_split = re.match(r"^(?:don't|do not|never)\s+([^,]+),\s*(?:just\s+)?(.+)$", lowered)
+    m_split = re.match(r"^(?:(?:please|kindly|jarvis|hey\s+jarvis)\s*,?\s+)?(?:don't|do not|never)\s+([^,]+),\s*(?:just\s+)?(.+)$",
+                       lowered)
     if m_split:
         negated = m_split.group(1).strip()
         positive = m_split.group(2).strip()

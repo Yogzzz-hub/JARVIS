@@ -106,10 +106,11 @@ _OP_VOCAB: frozenset[str] = frozenset(
 def _repair(t: str) -> str:
     """Fix one-slip typos in the words this parser keys on ('ediotr' -> 'editor', 'atnigravity' -> 'antigravity').
     Real English words and anything not within one edit of exactly one vocabulary word are left alone."""
-    from jarvis.core.router.normalize import _edit_distance, _english_word
+    from jarvis.core.router.normalize import _app_names, _edit_distance, _english_word
     out, changed = [], False
+    apps = _app_names()
     for w in t.split():
-        if len(w) < 4 or not w.isalpha() or w in _OP_VOCAB or _english_word(w):
+        if len(w) < 4 or not w.isalpha() or w in _OP_VOCAB or w in apps or _english_word(w):
             out.append(w)
             continue
         if len(w) == 4:      # short words: only a dropped letter of a longer vocabulary word ("frst", "wrds", "phne")
@@ -133,7 +134,8 @@ def _repair(t: str) -> str:
 _STEP = (r"open|close|go|switch|take|paste|attach|send|delete|remove|erase|select|copy|cut|replace|type|write|click|press|"
          r"tap|play|pause|skip|rewind|jump|seek|turn|mute|unmute|maximi[sz]e|minimi[sz]e|restore|snap|put|move|find|search|"
          r"ask|read|scroll|save|undo|redo|accept|reject|show|list|start|stop|make|set|bring|return|capture|upload|share|"
-         r"check|uncheck|zoom|refresh|reload|loop|restart|full ?screen|focus|tell me|let me know|notify me|split")
+         r"check|uncheck|zoom|refresh|reload|loop|restart|full ?screen|focus|tell me|let me know|notify me|split|run|launch|"
+         r"install|lock")
 _CLAUSE = re.compile(rf"\s*(?:,\s*(?:and\s+|then\s+)?|\s+and\s+(?:then\s+)?|\s+then\s+)(?=(?:{_STEP})\b)")
 _PAYLOAD_SLOTS = ("text", "find", "replace_with")
 _NESTED: ContextVar[bool] = ContextVar("operator_nested", default=False)
@@ -372,6 +374,12 @@ def _ide(t, raw, rid, mode):
     m = re.match(rf"^(?:open|start|create)\s+(?:a\s+)?new\s+(?:chat|conversation|agent|session|thread)\s+(?:in|on)\s+(?:the\s+)?(?:{_IDES})$", t)
     if m:
         return _d(rid, t, "ide_op", {"action": "key", "ide": ide, "name": "new_chat"})
+    m = re.match(rf"^(?:open|show|reveal|go\s+to|focus)\s+(?:me\s+)?(?:the\s+)?(?P<w>terminal|explorer|output|problems|source\s+control|"
+                 rf"git|search|agent)(?:\s+(?:panel|tab|view))?\s+(?:in|on)\s+(?:the\s+)?(?:{_IDES})$", t)
+    if m:
+        # showing a panel focuses it (a toggle chord could hide one that is already open)
+        return _d(rid, t, "ide_op", {"action": "focus", "ide": ide, "text": re.sub(r"\s+", "_", m.group("w")).replace(
+            "git", "source_control")})
     m = re.match(rf"^(?:open|toggle|show|hide|close)\s+(?:the\s+)?(?P<w>terminal|sidebar|explorer|agent panel|command palette)\s+"
                  rf"(?:in|on)\s+(?:the\s+)?(?:{_IDES})$", t)
     if m:
@@ -586,16 +594,24 @@ _SECRET = re.compile(r"\b(?:password|passcode|pin|otp|one time code|cvv|cvc|card
                      r"2fa code)\b")
 
 
+def _secretish(t: str) -> bool:
+    """A secret named even when misheard: 'psasword', 'passwrod', 'pasword'."""
+    if _SECRET.search(t):
+        return True
+    from jarvis.core.router.normalize import _edit_distance
+    return any(len(w) >= 6 and min(_edit_distance(w, s) for s in ("password", "passcode", "passwd")) <= 2
+               for w in re.findall(r"[a-z]+", t))
+
+
 def _ui(t, raw, rid, mode):
     surface = _surface(t)
-    if re.match(r"^(?:type|enter|put|fill(?: in)?|input|write|paste)\b", t) and _SECRET.search(t):
+    if re.match(r"^(?:type|enter|put|fill(?: in)?|input|write|paste)\b", t) and _secretish(t):
         return _d(rid, t, "clarify", {}, lane=RouteLane.CLARIFY,
                   clarification="I don't type passwords, PINs or codes - please enter that yourself.")
     # type <text> in(to) the <field> [on my phone / in X]
     m = re.match(rf"^(?:type|enter|write|put|fill(?: in)?|input)\s+['\"]?(?P<text>.+?)['\"]?\s+(?:in|into|inside|on)\s+(?:the\s+)?"
                  rf"(?P<f>[\w' -]*?(?:{_ROLE}|bar|prompt|composer|search))(?P<where>\s+(?:on|in)\s+(?:my\s+|the\s+)?[\w ]+)?$", t)
-    if m and not re.search(r"\b(?:password|passcode|pin|otp|one time code|cvv|cvc|card number|security code|"
-                           r"verification code)\b", t):
+    if m and not _secretish(t):
         where = (m.group("where") or "").strip()
         surf = "phone" if re.search(r"phone|mobile|android", where) else surface
         app = re.sub(r"^(?:on|in)\s+(?:my\s+|the\s+)?", "", where) if where and surf != "phone" else ""

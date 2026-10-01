@@ -127,7 +127,8 @@ _ANTECEDENT = re.compile(r"\b(?:need|want|get|download|grab|use|have|like|love)\
 
 # A consequential tool is only taken when the request says that kind of thing: "shrink this window" never closes it,
 # "put the copied text on my phone" never pushes a file called "copied text".
-_SEND = r"send|tell|message|msg|text|reply|respond|forward|share|ping|whats\s*app|say|inform|ask|remind|wish|answer|dm|let\s+\w+\s+know"
+_SEND = (r"send|tell|message|msg|text|reply|respond|forward|share|ping|whats\s*app|say|inform|ask|remind|wish|answer|dm|let\s+\w+\s+know|"
+         r"(?:drop|shoot|fire\s+off|leave|write)\s+(?:\w+\s+){0,3}?(?:a|an)\s+(?:quick\s+|short\s+)?(?:message|msg|text|note|line)")
 _GIVE = r"send|push|put|share|transfer|copy|move|throw|toss|chuck|fling|sling|drop|give|pass|beam|ship|upload|get|bring"
 _CONSEQUENTIAL_VERBS = {
     "close_window": r"close|closing|quit|exit|shut|kill|terminate|end|dismiss|stop|x\s+out|get\s+rid\s+of",
@@ -135,14 +136,28 @@ _CONSEQUENTIAL_VERBS = {
     "delete_file": r"delete|remove|erase|trash|bin|get\s+rid\s+of|wipe|clear|discard|destroy|scrap",
     "empty_recycle_bin": r"(?:empty|clear|purge|clean|wipe|delete|flush)\b.*\b(?:recycle|bin|trash)",
     "move_file": r"move|put|drop|relocate|transfer|shift|file\s+(?:it|this|that)|organi[sz]e",
-    "rename_file": r"rename|re-name|call|name|retitle",
+    "rename_file": r"rename|re-name|call|name|retitle|change\s+(?:the\s+|its\s+|it'?s\s+)?(?:file\s*)?name|(?:give|set)\s+"
+                   r"(?:\w+\s+){0,3}?(?:a\s+)?new\s+name",
     "install_software": r"install|set\s*up|setup|get|download|add|grab|need|want",
     "uninstall_software": r"uninstall|remove|delete|get\s+rid\s+of",
     "send_whatsapp_message": _SEND, "send_whatsapp_bulk": _SEND, "reply_whatsapp_message": _SEND,
     "reply_whatsapp_all": _SEND,
-    "android_push_file": _GIVE, "localsend_file": _GIVE,
+    "android_push_file": _GIVE, "localsend_file": _GIVE, "localsend_text": _GIVE,
     "system_power_control": r"shut\s*down|shutdown|restart|reboot|sleep|hibernate|lock|log\s*(?:off|out)|sign\s*out|power|turn\s+off",
 }
+
+
+_DETERMINERS = frozenset("the a an this that these those my your his her their our its whose which last new any each every".split())
+
+
+def _verb_said(verbs: str, text: str) -> bool:
+    """A verb of the family used as a verb: "the message says ..." has the noun 'message', not the verb."""
+    for m in re.finditer(rf"\b(?:{verbs})(?:ed|d|ing)?\b", text):
+        before = text[:m.start()].split()[-1:]
+        if before and before[0].strip(",.") in _DETERMINERS:
+            continue
+        return True
+    return False
 
 
 def missing_consequential_verb(intent: str, text: str, normalized: str = "") -> bool:
@@ -151,9 +166,20 @@ def missing_consequential_verb(intent: str, text: str, normalized: str = "") -> 
         return False
     from jarvis.core.router.normalize import correct_command_typos
     low = (text or "").lower()
+    if intent in ("close_window", "close_app", "delete_file", "uninstall_software") and \
+            re.search(r"\b(?:re-?open|restore|undo|bring\s+back|recover|undelete|un-?close|reinstall)\b", low):
+        return True       # "reopen the last closed window": the verb asks for the opposite of closing
+    asked = re.sub(r"^\W*(?:(?:hey|ok|okay|um+|uh+|so|quick\s+question)\W+)*(?:jarvis\W+)?", "", low)
+    if re.match(r"(?:where|what|which|who|when|how|why|is|are|was|were|has|have|had|did|does|do)\b|where's|what's", asked) \
+            and not re.search(rf"\b(?:{verbs})\b", low):
+        return True       # "where's zotero installed": a question; "installed" / "closed" there is a state, not the verb
     # the same typo repair the router used to pick the tool ("clsoe discord", "dleete notes.txt")
-    for t in (low, (normalized or "").lower(), correct_command_typos(" ".join(low.split()))):
-        if re.search(rf"\b(?:{verbs})", t):
+    if _verb_said(verbs, low):
+        return False
+    # the router's typo repair counts only for the command verb near the start ("clsoe discord"), never for a word deep
+    # in the sentence it may have "repaired" ("use sharex" -> "use share")
+    for t in ((normalized or "").lower(), correct_command_typos(" ".join(low.split()))):
+        if _verb_said(verbs, " ".join(t.split()[:3])):
             return False
     return True
 
@@ -162,6 +188,12 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
     """None when the route can run as it is; otherwise a verdict: reroute / rematch / planner / clarify."""
     slots = slots or {}
     low = " ".join((text or "").lower().replace("’", "'").split())
+    if intent in ("reply_whatsapp_message", "send_whatsapp_message") and \
+            re.search(r"\b(?:who|whom|which)\s+(?:messaged|texted|wrote|sent|replied|called|pinged)\b",
+                      str(slots.get("recipient") or "").lower()):
+        # "reply to eevryone who messaged me today": a description of several people, not one contact
+        return _verdict("clarify", question="Do you mean everyone who messaged you (direct chats only)? Say 'reply to "
+                                            "everyone who messaged me today' and I'll draft them for you to check.")
     if missing_consequential_verb(intent, low, normalized):
         return _verdict("clarify", question="I'm not sure what you want done - I won't " + intent.split("_")[0] +
                                             " anything unless you say so. What should I do?")

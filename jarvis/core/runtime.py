@@ -322,6 +322,11 @@ class Runtime:
             from jarvis.tools.system.operator_tools import _get_hub
             _get_hub().tasks = self.service.tasks
             _get_hub().registry = self.registry
+            _get_hub().router = self.router
+            from jarvis.core.operator.automations import get_automations
+            get_automations().start(dispatch, notify=notify)
+            from jarvis.core.operator.clip import get_clipboard_history
+            get_clipboard_history().start()
             wm.dispatch = dispatch
             from jarvis.core.operator.workflows import get_workflows
             get_workflows().start(dispatch)

@@ -978,6 +978,31 @@ needs. The executor refuses anything else, and the grant is revoked when the sin
 "Send that to Arun" asks what to send. "Do this on my phone" asks what to do. "Rename this symbol" never renames a
 file.
 
+### Timed and triggered commands, clipboard history, app control, dry runs
+
+Same path as every other command: the router picks a typed tool, and policy, grants and verification apply.
+
+| Say | What happens |
+|---|---|
+| in 10 minutes open krita · open signal in 15 minutes · at 7 pm set the volume to 30 · tomorrow at 8:15 pm lock the pc | `workflow_op run_at`: the command is kept in `jarvis/db/automations.json` and sent through JARVIS once when it is due, with a fresh route, policy check and grant. If JARVIS was off at that time, it tells you it missed it. It never runs it late |
+| whenever I open bitwarden, open chrome too · whenever battery drops below 20 percent, lower the brightness · every time my phone connects, bring the new screenshots here | `workflow_op trigger`: app opened/closed, phone connected/disconnected, battery below/above, download finished. It fires on the change (not while the condition stays true), at most once a minute |
+| list my automations · delete the docker automation | list or cancel them |
+| show my clipboard history · paste the second last thing I copied · clear my clipboard history | `clipboard_op`: the last 25 copies of this session, kept in memory only and never written to disk |
+| restart android studio · android studio is frozen, restart it · is virtualbox running? · turn on dark mode | `system_op` `restart_app` (closes it the normal way and never force-kills, opens it again, checks a window came back) / `running` / `theme` (light or dark, read back to verify) |
+| minimize everything except notepad · show only vs code and hide the rest | `window_op isolate` |
+| answer the call on my phone · hang up the call | `phone_op` call keys over ADB |
+| dry run: delete notes.txt · what would you do if I said close anki | `explain_route`: the tool, its details, whether it changes anything and whether it would ask first. Nothing runs |
+
+Reminders, messages and meetings with a time ("remind me in 10 minutes…", "tell Arun I'll be there at 7 pm") are
+never turned into deferred commands. Destructive and security requests (format, disable Defender, bypass a lock
+screen) are refused, now or later.
+
+**Understanding.** Two-letter slips are repaired before routing ("open the rceycle bin", "chrome open pnanu"), but
+never inside a message, typed text, a new name or quotes. Real app names are never "repaired" ("sharex" stays
+ShareX). Stacked openers ("could you please aight jarvis, open krita"), "quick question, …" and fillers before a
+standing rule are handled. "Tell Priya not to wait for me" keeps every word, and the composer writes "Please don't
+wait for me."
+
 ### Morning briefing, focus, workspaces, routines, RSS, Node-RED
 
 - **Morning briefing.** "Good morning Jarvis" gathers calendar, feeds, tasks, notes, PC status and downloads in
@@ -1222,6 +1247,14 @@ on Linux CI. They pass on a configured Windows PC.
 
 Results and the honest first-run holdout number are in [docs/AGI_520_CAPABILITIES.md](docs/AGI_520_CAPABILITIES.md).
 
+### Phase-500 suite (every phase and area with 500+ commands)
+
+`python -m tests.phase500.runner [--split dev|holdout|all] [--phase p03] [--fails] [--json out.json]` routes 16,502
+commands (12 phases plus WhatsApp, phone, phone control, PC control, automation, workflows, operator, Thanglish and
+chat; 500 to 1,341 each) with no AI model. The templates and the generator were frozen (`tests/phase500/FROZEN.sha256`)
+before any fix. About a quarter of the templates form a holdout that is never used to choose a fix. Results, including
+the first blind holdout run, are in [docs/PHASE500_REPORT.md](docs/PHASE500_REPORT.md).
+
 ---
 
 ## 14. Project phases and feature history
@@ -1247,6 +1280,7 @@ Results and the honest first-run holdout number are in [docs/AGI_520_CAPABILITIE
 | Everyday pack | Instant offline answers, battery, network, timers, stopwatch, to-do list, personal memory in SQLite + RAG, voice shortcuts, command history, "do that again", password generator, recycle bin; fixes for relative volume/mute/restore/WhatsApp status routing; 25× faster routing |
 | Universal Operator | Typed window / control / text / clipboard / screen / deliver / browser / video / watch / IDE / phone primitives, live dictation, 598 scenarios |
 | AGI-520 | Task-scoped capability grants, pause/resume/stop-all, file / system / workflow tools, conditional watches, IDE and phone actions, capability parser; 520-capability suite with a frozen holdout ([report](docs/AGI_520_CAPABILITIES.md)) |
+| Phase-500 | 16,502-command suite (500+ per phase/area) with a frozen holdout; timed and triggered commands, clipboard history, app restart / running / theme, window isolate, phone call keys, dry runs; swapped-letter repair; safety fixes for questions, reopen, reported speech, borrowed authority and rule overrides ([report](docs/PHASE500_REPORT.md)) |
 
 ---
 

@@ -136,7 +136,7 @@ def resolve_discourse_correction(text: str) -> str:
     if m_instead_of:
         return m_instead_of.group("target").strip()
 
-    corr_cues = (r"no\s*,?\s*wait|oh\s+wait|actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))?|make\s+that|scratch\s+that|rather|"
+    corr_cues = (r"(?:no\s*,?\s*)?(?:wait\s*,?\s*)?(?:no\s*,?\s*)?i\s+meant|no\s*,?\s*wait|oh\s+wait|actually|wait(?:\s+no)?|sorry\s*,?\s*(?:i\s+meant|make\s+(?:it|that))?|make\s+that|scratch\s+that|rather|"
                  r"\bno\b|i\s+mean|correction|instead\s+use")
 
     pattern = re.compile(
@@ -155,8 +155,10 @@ def resolve_discourse_correction(text: str) -> str:
         return text
 
     initial = m.group("initial").strip()
-    if re.search(r"\b(?:type|write|saying|says)\s+\S", initial, re.I):
-        return text  # "type I'm late, wait for me": the words after 'type'/'saying' are content, not a correction
+    if re.search(r"\b(?:type|write|saying|says)\s+\S", initial, re.I) or \
+            re.match(r"^(?:(?:hey\s+)?jarvis\W+)?(?:please\s+)?(?:tell|text|message|msg|whats\s*app|ask|remind|let|reply\s+to|"
+                     r"send|ping|inform|dm)\s+\S", initial, re.I):
+        return text  # "type I'm late, wait for me" / "tell priya don't wait for me": the words are content, not a correction
     corr = m.group("corr").strip()
     # Strip politeness suffixes from correction part
     clean_corr = re.sub(r"\s+please$", "", corr, flags=re.I).strip()
@@ -281,17 +283,23 @@ def _rephrase_wants(t: str) -> str:
     """'i want you to open X' -> 'open X'; 'i want to listen to X' -> 'play X'; 'take me to site.com' -> 'go to site.com';
     'google best laptops' -> 'search google for best laptops'."""
     t = re.sub(rf"^i\s+(?:want|need|would\s+like|'d\s+like)\s+(?:you|u)\s+to\s+(?={_HEDGED_VERBS})", "", t)
+    # "i wanna use krita now" / "open up krita": the app is to be opened
+    t = re.sub(r"^i\s+(?:want|wanna|need|would\s+like|'d\s+like|gotta)\s+(?:to\s+)?use\s+(?=[a-z])(?!(?:a|the|my|your|this|that)\s)",
+               "open ", t)
+    t = re.sub(r"^open\s+up\s+(?=[a-z])", "open ", t)
     t = re.sub(r"^i\s+(?:want|wanna|need|would\s+like|'d\s+like|feel\s+like)\s+(?:to\s+)?(?:listen(?:ing)?\s+to|hear(?:ing)?)\s+(?=\S)", "play ", t)
     # a leading remark before the command: "i'm heading out, lock the pc"
     t = re.sub(r",\s*(?:oh\s+yeah|okay|ok|so|yeah|right|anyway)\s*,\s*", ", ", t)
     m = re.match(r"^(?P<remark>[^,]{4,60}?)\s*,\s*(?P<rest>.+)$", t)
-    if m and len(m.group("remark").split()) >= 2 and not re.match(rf"^(?:please\s+)?{_HEDGED_VERBS}|^(?:no|not|don'?t|do\s+not|never|"
-                                                                     r"wait|actually|if|when|whenever|after|once|until|unless|tell|text|"
+    if m and len(m.group("remark").split()) >= 2 and not re.match(rf"^(?:please\s+)?{_HEDGED_VERBS}|^(?:(?:please|kindly|(?:can|could|would|will)\s+(?:you|u))\s+)*(?:no|not|don'?t|do\s+not|never|"
+                                                                     r"wait|actually|if|when|whenever|every\s+time|each\s+time|any\s*time|in\s+\d+|at\s+\d|after|once|until|unless|tell|text|"
                                                                      r"ask|message|whatsapp|reply)\b", m.group("remark")) \
             and re.match(rf"^(?:(?:please|just|quickly|now|so|and|(?:can|could|would|will)\s+(?:you|u))\s+)*{_HEDGED_VERBS}", m.group("rest")) \
             and not re.match(r"^(?:call|name|label|save)\s+(?:it|that|them)\b", m.group("rest")) \
             and not re.match(r"^(?:(?:please|just|quickly|now|so|and|(?:can|could|would|will)\s+(?:you|u))\s+)*(?:open|find|delete|send|move|copy|"
-                             r"rename|play|show|read|share|print|upload|locate|get|organi[sz]e|clean|sort|fix|check)\s+(?:it|that|them|this|those)\b", m.group("rest")) \
+                             r"rename|play|show|read|share|print|upload|locate|get|organi[sz]e|clean|sort|fix|check|restart|"
+                             r"relaunch|reopen|close|kill|quit|reboot|refresh|update|reinstall|uninstall|install|"
+                             r"stop|pause|minimi[sz]e|maximi[sz]e)\s+(?:it|that|them|this|those)\b", m.group("rest")) \
             and "," not in m.group("rest"):
         # a remark before the command: "i'm heading out, lock the pc", "someone's coming, minimize everything"
         t = re.sub(r"^(?:(?:please|just|quickly|now|so|and|(?:can|could|would|will)\s+(?:you|u))\s+)+", "", m.group("rest"))
@@ -537,6 +545,15 @@ def _typo_distance_ok(word: str, cand: str) -> bool:
 
 
 _APP_NAMES: frozenset[str] | None = None
+# Popular desktop apps whose names sit one letter away from a command word ("sharex" is not "share"): never "repaired".
+_POPULAR_APPS = frozenset("""
+sharex obsidian vivaldi inkscape zotero anki bitwarden figma krita thunderbird libreoffice virtualbox vmware filezilla
+putty gimp audacity blender handbrake notion postman discord obs telegram skype winrar 7zip qbittorrent keepass
+keepassxc greenshot teamviewer anydesk evernote onenote todoist trello canva davinci lightroom acrobat calibre musicbee
+foobar potplayer mpv kodi plex jellyfin docker podman wsl gitkraken sourcetree pycharm intellij webstorm clion rider
+goland eclipse netbeans arduino godot roblox minecraft valorant viber wechat dropbox onedrive pcloud sublime neovim emacs
+powertoys autohotkey rainmeter afterburner hwmonitor ccleaner malwarebytes avast kaspersky bitdefender signal brave
+""".split())
 
 
 def _app_names() -> frozenset[str]:
@@ -544,9 +561,9 @@ def _app_names() -> frozenset[str]:
     if _APP_NAMES is None:
         try:
             from jarvis.core.router.slots import APP_CANONICAL
-            _APP_NAMES = frozenset(k for k in APP_CANONICAL if " " not in k)
+            _APP_NAMES = frozenset(k for k in APP_CANONICAL if " " not in k) | _POPULAR_APPS
         except Exception:
-            _APP_NAMES = frozenset()
+            _APP_NAMES = _POPULAR_APPS
     return _APP_NAMES
 
 
@@ -607,6 +624,105 @@ def correct_command_typos(routing: str) -> str:
 _DEVICE_NOUNS = ("phone", "mobile", "android", "laptop", "computer", "tablet")
 
 
+# ------------------------------------------------------------------------------------------------ swapped letters
+# Computer words the 10k English list lacks; private-ID words are here so a slip never hides one from the privacy guard.
+_TECH_WORDS = frozenset("""
+duplicate duplicates recycle typing refresh incognito popup popups stopwatch disable disabled dictation swipe studio
+hotspot airplane screenshot screenshots taskbar startup dropdown checkbox textbox slider toolbar sidebar webpage website
+login logout signin signup username password passwords otp aadhaar passport upload uploads unzip extract compress backup
+sync autoplay playlist playlists podcast wallpaper keyboard touchpad trackpad cursor reboot reinstall installer debug
+debugger console repo commit branch merge deploy compile rebuild lint linter formatter refactor ide incognito alarm
+unread emoji emojis selfie livestream streaming subtitles captions fullscreen minimise maximise hotkey hotkeys untick
+subfolder pdf pdfs webcam bluetooth wifi headphones earphones earbuds charger charging volume brightness notification
+notifications whatsapp youtube spotify chrome firefox gmail inbox voicemail replies preview previews automation
+automations workflow workflows trigger triggers handler handlers callback endpoint config aight gonna wanna gotta lemme
+everyone everybody everything anyone anybody someone somebody nobody italic
+""".split())
+# Words after which the owner's own content follows: there only command words are repaired, never the content.
+_CONTENT_AFTER = re.compile(r"\b(?:send|sent|text|message|msg|type|write|dictate|saying|note|notes|remember|remind|email|mail|"
+                            r"compose|draft|rename|name|named|called|titled|caption|post|tweet)\b|\b(?:reply|respond)\b(?!\s+to\b)|"
+                            r"\b(?:tell|ask)\s+(?!me\b|you\b)|(?:^|[,.;!]|\b(?:and|then|please|jarvis|just|also))\s*say\b")
+# Thanglish puts the content first ("amma ku late aagum nu anuppu"): the whole command is protected.
+_CONTENT_WHOLE = re.compile(r"\b(?:anuppu|anupu|anuppidu|anuppunga|sollu|sollidu|sollunga|nu)\b")
+# A name usually follows these; a name is left alone unless it is a slip of a command word ("call it on my pohne").
+_BEFORE_NAME = frozenset("call dial ring ping to with from cc and".split())
+_SWAP_VOCAB: tuple[frozenset[str], frozenset[str]] | None = None
+
+
+def _swap_vocab() -> tuple[frozenset[str], frozenset[str]]:
+    """(command words, every known word)."""
+    global _SWAP_VOCAB
+    if _SWAP_VOCAB is None:
+        command = set(COMMAND_VOCAB) | _TECH_WORDS | set(_DEVICE_NOUNS)
+        known = set(command) | set(APP_ALIASES) | set(ASR_TYPOS) | set(_app_names())
+        try:
+            from jarvis.core.multilingual import _COMMAND_WORDS, _LEXICON
+            command |= _COMMAND_WORDS
+            known |= _LEXICON | _COMMAND_WORDS
+        except Exception:
+            pass
+        try:
+            from jarvis.integrations.whatsapp.personal_reply.language import english_words
+            known |= english_words()
+        except Exception:
+            pass
+        _SWAP_VOCAB = (frozenset(command), frozenset(known | command))
+    return _SWAP_VOCAB
+
+
+def _swaps(w: str) -> set[str]:
+    return {w[:i] + w[i + 1] + w[i] + w[i + 2:] for i in range(len(w) - 1) if w[i] != w[i + 1]}
+
+
+def repair_swapped_letters(text: str) -> str:
+    """'open the rceycle bin' -> 'open the recycle bin', 'chrome open pnanu' -> 'chrome open pannu'.
+
+    Only the commonest slip - two neighbouring letters swapped - and only when the word is unknown and exactly one swap
+    turns it into a known word. Where the command carries the owner's own words (a message, note, typed text, a new
+    name) only command words are repaired, so the content is never rewritten; quoted text is never touched."""
+    if not text or len(text) > 400:
+        return text
+    command, known = _swap_vocab()
+    parts = re.split(r"(\"[^\"]*\"|“[^”]*”)", text)
+
+    def fix(segment: str, vocab: frozenset[str]) -> str:
+        words = re.findall(r"[A-Za-z]+|[^A-Za-z]+", segment)
+        prev = ""
+        for i, tok in enumerate(words):
+            if not tok.isalpha():
+                if tok.strip():
+                    prev = ""
+                continue
+            low = tok.lower()
+            if len(low) >= 4 and low not in known:
+                hits = [c for c in _swaps(low) if c in vocab]
+                if prev in _BEFORE_NAME:
+                    hits = [c for c in hits if c in command]
+                if len(hits) > 1:
+                    hits = [c for c in hits if c in command]
+                if len(hits) == 1:
+                    fixed = hits[0]
+                    words[i] = fixed.upper() if tok.isupper() else fixed.title() if tok[:1].isupper() else fixed
+            prev = words[i].lower()
+        return "".join(words)
+
+    out = []
+    for k, part in enumerate(parts):
+        if k % 2:            # quoted
+            out.append(part)
+            continue
+        part = fix(part, command)                                     # command words first: the verb decides the rest
+        m = _CONTENT_AFTER.search(part.lower())
+        if _CONTENT_WHOLE.search(part.lower()):
+            out.append(part)
+        elif m:
+            out.append(fix(part[:m.end()], known) + part[m.end():])  # "did you arleady remind me about <content>"
+        else:
+            out.append(fix(part, known))
+    fixed = "".join(out)
+    return fixed
+
+
 _APP_WORD = r"[a-z0-9][a-z0-9.+\-]*(?:\s+(?!is\b|installed\b|web\b|browser\b|app\b|application\b|program\b)[a-z0-9][a-z0-9.+\-]*)?"
 
 
@@ -665,8 +781,8 @@ def normalize_paraphrases(routing: str) -> str:
 
 
 # ------------------------------------------------------------------------------------------------ light clean
-_LEAD = re.compile(r"^(?:(?:hey|hi|ok|okay|hello|yo)\s+)?jarvis\s*[,.!:]?\s+|^(?:um+|uh+|erm|er|hmm+|ah|so|okay so|ok so|"
-                   r"alright)\s*[,.]?\s+|^(?:well|right|now|listen|look|okay|ok)\s*,\s*"
+_LEAD = re.compile(r"^(?:(?:hey|hi|ok|okay|hello|yo|aight|alright)\s+)?jarvis\s*[,.!:]?\s+|^(?:um+|uh+|erm|er|hmm+|ah|so|okay so|ok so|"
+                   r"alright|aight|yo|ayy|yeah|yep|ya)\s*[,.]?\s+|^(?:well|right|now|listen|look|okay|ok)\s*,\s*"
                    r"|^(?:(?:can|could|would|will)\s+(?:you|u)\s+)?(?:please|pls|plz|kindly)\s+"
                    # hedges before a command: "could you, like, open brave", "can you just turn it up"
                    r"|^(?:(?:can|could|would|will)\s+(?:you|u)\s*,\s*|(?:(?:can|could|would|will)\s+(?:you|u)\s+)?"
