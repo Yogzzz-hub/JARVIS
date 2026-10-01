@@ -97,6 +97,9 @@ TOOL_CAPABILITY_REQUIREMENTS: Dict[str, str] = {
     "project_stop": ComputerCapability.PROJECT_TASK_STOP.value,
     "project_status": ComputerCapability.NETWORK_LOCAL_STATUS.value,
     "project_logs": ComputerCapability.LOG_READ.value,
+    "project_file_read": ComputerCapability.FILE_READ.value,
+    "project_file_run": ComputerCapability.PROJECT_TASK_START.value,
+    "controlled_chrome_launch": ComputerCapability.BROWSER_NAVIGATE.value,
 
     # File tools
     "find_file": ComputerCapability.FILE_SEARCH.value,
@@ -125,7 +128,6 @@ TOOL_CAPABILITY_REQUIREMENTS: Dict[str, str] = {
 
     # Browser tools
     "browser_autofill": ComputerCapability.FORM_AUTOFILL.value,
-    "hackathon_autofill": ComputerCapability.FORM_AUTOFILL.value,
     "web_agent": ComputerCapability.BROWSER_NAVIGATE.value,
 
     # IDE tools

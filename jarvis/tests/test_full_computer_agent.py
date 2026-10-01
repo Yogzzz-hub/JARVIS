@@ -50,6 +50,12 @@ from jarvis.tools.productivity.project_tools import (
     ProjectStopInput,
     ProjectLogsTool,
     ProjectLogsInput,
+    ProjectFileReadTool,
+    ProjectFileReadInput,
+    ProjectFileRunTool,
+    ProjectFileRunInput,
+    ControlledChromeTool,
+    ControlledChromeInput,
     get_process_manager,
     analyze_logs,
 )
@@ -68,10 +74,6 @@ from jarvis.tools.productivity.database_tools import (
     DatabaseStatusInput,
     DatabaseSchemaReadTool,
     DatabaseSchemaInput,
-)
-from jarvis.tools.system.hackathon_autofill import (
-    HackathonAutofillTool,
-    HackathonAutofillInput,
 )
 from jarvis.tools.system.exam_solver_tool import (
     ExamAssessmentHelperTool,
@@ -335,22 +337,54 @@ def test_database_tools(sample_project_dir):
 
 
 # =====================================================================
-# 7. Form Automation & Hackathon Tool Tests
+# =====================================================================
+# 7. Project File Operations & Chrome Extension Tests
 # =====================================================================
 
-def test_hackathon_autofill_tool(sample_project_dir):
-    tool = HackathonAutofillTool(page_runner=None)
-    res = pytest.importorskip("asyncio").run(tool.run(HackathonAutofillInput(
+def test_project_file_read_tool(sample_project_dir):
+    ext_dir = sample_project_dir / "chrome_extension"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    manifest = ext_dir / "manifest.json"
+    manifest.write_text('{"name": "Assistant Extension", "version": "1.0", "manifest_version": 3}', encoding="utf-8")
+    
+    tool = ProjectFileReadTool()
+    res = tool.run(ProjectFileReadInput(
+        file_path=str(manifest),
         project_name="automate-app",
-        path=str(sample_project_dir),
-        team_name="Team Alpha",
-        demo_url="https://automate.dev",
-        track="AI & Autonomous Agents",
-    )))
+    ))
     assert res["status"] == "SUCCESS"
-    assert "automate" in res["preview"]["project_title"].lower()
-    assert res["preview"]["team_name"] == "Team Alpha"
-    assert res["preview"]["tracks"] == "AI & Autonomous Agents"
+    assert "Assistant Extension" in res["content"]
+    assert res["total_lines"] >= 1
+
+
+def test_project_file_run_tool(sample_project_dir):
+    script = sample_project_dir / "hello.py"
+    script.write_text('print("PROJECT_SCRIPT_SUCCESS")', encoding="utf-8")
+
+    tool = ProjectFileRunTool()
+    res = tool.run(ProjectFileRunInput(
+        file_path=str(script),
+        project_name="automate-app",
+    ))
+    assert res["status"] == "SUCCESS"
+    assert "PROJECT_SCRIPT_SUCCESS" in res["output"]
+
+
+def test_chrome_extension_and_run_all_discovery(sample_project_dir):
+    ext_dir = sample_project_dir / "chrome_extension"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    (ext_dir / "manifest.json").write_text('{"name": "My Autofill Assistant", "version": "0.1"}', encoding="utf-8")
+    (sample_project_dir / "run_all.bat").write_text('@echo off\necho Running All...', encoding="utf-8")
+    (sample_project_dir / "start_controlled_chrome.ps1").write_text('Write-Output "Chrome"', encoding="utf-8")
+
+    catalog = ProjectCatalog(search_roots=[sample_project_dir.parent])
+    proj = catalog.inspect_directory(sample_project_dir)
+    assert proj is not None
+    assert proj.chrome_extension is not None
+    assert proj.chrome_extension["name"] == "My Autofill Assistant"
+    assert proj.run_all_script == "run_all.bat"
+    assert "project.run_all" in proj.known_tasks
+    assert "chrome_extension.launch" in proj.known_tasks
 
 
 # =====================================================================
@@ -464,3 +498,17 @@ async def test_computer_agent_deterministic_routing():
     # 10. Exam assessment safety
     d12 = await router.route(CommandRequest(text="solve this live final exam question", request_id="r12"))
     assert d12.intent == "exam_assessment_helper"
+
+    # 11. Run all files / run project
+    d13 = await router.route(CommandRequest(text="run all files", request_id="r13"))
+    assert d13.intent == "project_run"
+    assert d13.slots.get("components") == ["all"]
+
+    # 12. Controlled Chrome & extension launch
+    d14 = await router.route(CommandRequest(text="launch controlled chrome", request_id="r14"))
+    assert d14.intent == "controlled_chrome_launch"
+
+    # 13. Read project file
+    d15 = await router.route(CommandRequest(text="read project file README.md", request_id="r15"))
+    assert d15.intent == "project_file_read"
+    assert d15.slots.get("file_path").lower() == "readme.md"

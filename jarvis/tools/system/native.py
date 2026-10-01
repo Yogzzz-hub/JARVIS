@@ -742,11 +742,10 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     from jarvis.tools.system.language_tools import create_language_tools
     from jarvis.tools.system.action_recall import create_action_recall_tools
     from jarvis.tools.system.google_tools import create_google_tools
-    from jarvis.tools.system.hackathon_autofill import create_hackathon_tools
     from jarvis.tools.system.exam_solver_tool import create_assessment_tools
     extra_tools = (create_assistant_tools() + create_phone_tools() + create_vision_tools() + create_computer_use_tools()
                    + create_everyday_tools() + create_quick_action_tools() + create_language_tools()
-                   + create_action_recall_tools() + create_google_tools() + create_hackathon_tools()
+                   + create_action_recall_tools() + create_google_tools()
                    + create_assessment_tools())
     return base_tools + file_tools + prod_tools + computer_tools + whatsapp_tools + web_tools + conn_tools + app_discovery_tools + window_mgmt_tools + ide_tools + keyboard_tools + extra_tools
 

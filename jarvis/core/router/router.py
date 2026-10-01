@@ -517,7 +517,7 @@ class SmartRouter:
             r"|^(?:run|start|launch|bring up)(?: my| the)? ([a-zA-Z0-9_\-\.]+) project$"
             r"|^(?:start|run) (?:the )?(?:backend and frontend|frontend and backend)$"
             r"|^(?:run|bring up|start) (?:my |the )?automate(?: project| thing)?(?: and get it running)?$"
-            r"|^(?:run it|bring the automate thing up and get it running)$",
+            r"|^(?:run it|run all|run all files|run project files|bring the automate thing up and get it running)$",
             clean_lower,
         )
         if m_proj_run:
@@ -525,6 +525,8 @@ class SmartRouter:
             run_slots = {"project_name": p_name} if p_name else {}
             if "backend" in clean_lower and "frontend" in clean_lower:
                 run_slots["components"] = ["backend", "frontend"]
+            elif "run all" in clean_lower or "all files" in clean_lower:
+                run_slots["components"] = ["all"]
             p_run_dec = RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.LANE_0,
@@ -541,6 +543,54 @@ class SmartRouter:
             self.cache.put(routing_text, p_run_dec, self.registry_version)
             self._record(p_run_dec)
             return p_run_dec
+
+        # 2b. Controlled Chrome & Chrome Extension Launch
+        m_chrome_ext = re.match(
+            r"^(?:please )?(?:launch controlled chrome|start controlled chrome|use (?:that |the )?chrome extension|run (?:the )?(?:chrome )?extension|open (?:the )?chrome extension|launch chrome with (?:the )?extension)$",
+            clean_lower,
+        )
+        if m_chrome_ext:
+            p_ext_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="controlled_chrome_launch",
+                slots={"project_name": "automate"},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, p_ext_dec, self.registry_version)
+            self._record(p_ext_dec)
+            return p_ext_dec
+
+        # 2c. Project File Read
+        m_proj_read = re.match(
+            r"^(?:please )?(?:read|show|inspect|view) (?:the )?(?:project )?file (.+)$"
+            r"|^(?:read files of (?:the )?project|read project files)$",
+            clean_lower,
+        )
+        if m_proj_read:
+            target_f = (m_proj_read.group(1) or "").strip()
+            p_rf_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="project_file_read",
+                slots={"file_path": target_f} if target_f else {"file_path": "README.md"},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, p_rf_dec, self.registry_version)
+            self._record(p_rf_dec)
+            return p_rf_dec
 
         # 3. Project Stop
         if re.match(r"^(?:please )?(?:stop|shutdown|kill) (?:the |my )?project(?: components)?$|^(?:stop|kill) (?:the )?(?:backend and frontend|frontend and backend)$|^stop project components safely$", clean_lower):
@@ -688,26 +738,7 @@ class SmartRouter:
             self._record(code_search_dec)
             return code_search_dec
 
-        # 10. Hackathon Autofill
-        if re.match(r"^(?:please )?(?:fill (?:this |the )?(?:hackathon|registration|submission) form|autofill hackathon(?: registration)?)$", clean_lower):
-            hack_dec = RouteDecision(
-                request_id=request_id,
-                lane=RouteLane.LANE_0,
-                intent="hackathon_autofill",
-                slots={},
-                confidence=1.0,
-                source=RouteSource.EXACT,
-                complexity=ComplexityLevel.SIMPLE,
-                normalized_text=clean_lower,
-                reason_code=ReasonCode.EXACT_PATTERN,
-                routing_ms=(perf_counter_ns() - t0) / 1e6,
-                breakdown_ms=breakdown,
-            )
-            self.cache.put(routing_text, hack_dec, self.registry_version)
-            self._record(hack_dec)
-            return hack_dec
-
-        # 11. Exam / Assessment Helper
+        # 10. Exam / Assessment Helper
         m_exam = re.match(
             r"^(?:please )?(?:solve|answer|help with|help me with)(?: this| the| a)?(?: [a-zA-Z0-9_\-]+)*? (?:exam|quiz|test|assessment|practice question|mock test)(?: question)?(?:: (.+))?$",
             clean_lower,

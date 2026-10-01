@@ -42,6 +42,8 @@ class ProjectResource:
     ports: List[int] = field(default_factory=list)
     configs: List[str] = field(default_factory=list)
     important_files: List[str] = field(default_factory=list)
+    chrome_extension: Optional[Dict[str, Any]] = None
+    run_all_script: Optional[str] = None
     last_seen: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -252,9 +254,65 @@ class ProjectCatalog:
         if database_info:
             known_tasks["database.check"] = {"component": "database", "info": database_info}
 
+        # 4b. Check for Chrome extension
+        chrome_extension_info: Optional[Dict[str, Any]] = None
+        ext_candidates = [
+            root / "chrome_extension",
+            root / "extension",
+            root / "browser_extension",
+        ]
+        ext_dir = next((d for d in ext_candidates if d.is_dir()), None)
+        if not ext_dir:
+            try:
+                for sub in root.iterdir():
+                    if sub.is_dir() and "extension" in sub.name.lower() and (sub / "manifest.json").is_file():
+                        ext_dir = sub
+                        break
+            except Exception:
+                pass
+
+        if ext_dir and (ext_dir / "manifest.json").is_file():
+            manifest_file = ext_dir / "manifest.json"
+            ext_meta: Dict[str, Any] = {"path": str(ext_dir.relative_to(root))}
+            try:
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    m_data = json.load(f)
+                    ext_meta["name"] = m_data.get("name", "Chrome Extension")
+                    ext_meta["version"] = m_data.get("version", "1.0")
+                    ext_meta["manifest_version"] = m_data.get("manifest_version", 3)
+            except Exception:
+                pass
+            chrome_extension_info = ext_meta
+            important_files.append(str(manifest_file.relative_to(root)))
+            known_tasks["chrome_extension.reload"] = {"path": str(ext_dir.relative_to(root))}
+            if (root / "start_controlled_chrome.ps1").is_file():
+                known_tasks["chrome_extension.launch"] = {
+                    "command": "powershell -ExecutionPolicy Bypass -File start_controlled_chrome.ps1",
+                    "cwd": ".",
+                    "component": "browser",
+                }
+                ports.add(9222)
+
+        # 4c. Check for run_all or start scripts
+        run_all_script: Optional[str] = None
+        for run_fname in ["run_all.bat", "run_all.cmd", "run_all.ps1", "start.bat", "start.ps1"]:
+            if (root / run_fname).is_file():
+                run_all_script = run_fname
+                important_files.append(run_fname)
+                cmd_str = f"cmd /c {run_fname}" if run_fname.endswith((".bat", ".cmd")) else f"powershell -ExecutionPolicy Bypass -File {run_fname}"
+                known_tasks["project.run_all"] = {
+                    "command": cmd_str,
+                    "cwd": ".",
+                    "component": "all",
+                }
+                break
+
+        if (root / "start_controlled_chrome.ps1").is_file() and "start_controlled_chrome.ps1" not in important_files:
+            important_files.append("start_controlled_chrome.ps1")
+
         # 5. Important files
         for fname in ["README.md", "README", ".env.example", ".env", "main.py", "app.py", "index.html", "src/App.tsx", "src/main.tsx"]:
-            if (root / fname).exists():
+            if (root / fname).exists() and fname not in important_files:
                 important_files.append(fname)
 
         project_id = f"proj_{root.name.lower().replace(' ', '_')}_{abs(hash(str(root))) % 10000}"
@@ -274,6 +332,8 @@ class ProjectCatalog:
             ports=sorted(ports),
             configs=configs,
             important_files=important_files,
+            chrome_extension=chrome_extension_info,
+            run_all_script=run_all_script,
             last_seen=time.time(),
         )
 

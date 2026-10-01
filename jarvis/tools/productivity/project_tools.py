@@ -566,10 +566,357 @@ class ProjectLogsTool(Tool):
         }
 
 
+# ---------------- Project File Read Tool ----------------
+
+class ProjectFileReadInput(Contract):
+    file_path: str = Field(description="Relative path in project (e.g. 'chrome_extension/background.js', 'run_all.bat', 'backend/main.py') or path on disk")
+    project_name: Optional[str] = Field(default=None, description="Project name (e.g. 'Automate')")
+    start_line: int = Field(default=1, description="1-indexed line to start reading from")
+    max_lines: int = Field(default=300, description="Max lines to read")
+
+
+class ProjectFileReadOutput(Contract):
+    status: str
+    file_path: str
+    total_lines: int
+    content: str
+    summary: str
+
+
+class ProjectFileReadTool(Tool):
+    definition = ToolDefinition(
+        name="project_file_read",
+        description="Reads, inspects, and analyzes any file within a user project or user directories (e.g. Chrome extension files, scripts, configs, sources).",
+        input_model=ProjectFileReadInput,
+        output_model=ProjectFileReadOutput,
+        read_only=True,
+        risk=RiskLevel.READ_ONLY,
+        timeout_s=10.0,
+        tags=("project", "file", "read", "code"),
+        execution_method=ExecutionMethod.NATIVE,
+    )
+
+    def run(self, arguments: ProjectFileReadInput) -> dict[str, Any]:
+        catalog = get_project_catalog()
+        proj = catalog.find_project(arguments.project_name or "") if arguments.project_name else None
+
+        target_path: Optional[Path] = None
+        raw_p = Path(arguments.file_path)
+
+        if raw_p.is_absolute() and raw_p.exists():
+            target_path = raw_p
+        elif proj:
+            cand = Path(proj.root) / arguments.file_path
+            if cand.exists():
+                target_path = cand
+
+        if not target_path:
+            cand = Path.cwd() / arguments.file_path
+            if cand.exists():
+                target_path = cand
+            else:
+                for root in catalog.search_roots:
+                    c = root / arguments.file_path
+                    if c.exists():
+                        target_path = c
+                        break
+                    if (root / "automate" / arguments.file_path).exists():
+                        target_path = root / "automate" / arguments.file_path
+                        break
+
+        if not target_path or not target_path.is_file():
+            return {
+                "status": "NOT_FOUND",
+                "file_path": arguments.file_path,
+                "total_lines": 0,
+                "content": "",
+                "summary": f"File '{arguments.file_path}' was not found.",
+            }
+
+        try:
+            text = target_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            text = target_path.read_text(encoding="latin-1", errors="replace")
+
+        lines = text.splitlines()
+        total = len(lines)
+        start_idx = max(0, arguments.start_line - 1)
+        end_idx = min(total, start_idx + arguments.max_lines)
+        selected_lines = lines[start_idx:end_idx]
+
+        content = "\n".join(f"{i+1:4d} | {line}" for i, line in enumerate(selected_lines, start=start_idx))
+        summary = f"Read {len(selected_lines)}/{total} lines of '{target_path.name}' ({target_path.suffix or 'text'})."
+
+        return {
+            "status": "SUCCESS",
+            "file_path": str(target_path),
+            "total_lines": total,
+            "content": content,
+            "summary": summary,
+        }
+
+
+# ---------------- Project File Run Tool ----------------
+
+class ProjectFileRunInput(Contract):
+    file_path: str = Field(description="Script or file to run in the project (e.g. 'run_all.bat', 'start_controlled_chrome.ps1', 'backend/main.py')")
+    project_name: Optional[str] = Field(default=None, description="Project name")
+    args: Optional[List[str]] = Field(default=None, description="Optional arguments to pass to the script")
+
+
+class ProjectFileRunOutput(Contract):
+    status: str
+    command: str
+    exit_code: int
+    output: str
+    message: str
+
+
+class ProjectFileRunTool(Tool):
+    definition = ToolDefinition(
+        name="project_file_run",
+        description="Executes a specific project file, script (e.g. run_all.bat, start_controlled_chrome.ps1), or test runner within the user's project directory.",
+        input_model=ProjectFileRunInput,
+        output_model=ProjectFileRunOutput,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=60.0,
+        tags=("project", "file", "run", "script"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: ProjectFileRunInput) -> dict[str, Any]:
+        catalog = get_project_catalog()
+        proj = catalog.find_project(arguments.project_name or "") if arguments.project_name else None
+
+        target_path: Optional[Path] = None
+        raw_p = Path(arguments.file_path)
+
+        if raw_p.is_absolute() and raw_p.exists():
+            target_path = raw_p
+        elif proj:
+            cand = Path(proj.root) / arguments.file_path
+            if cand.exists():
+                target_path = cand
+
+        if not target_path:
+            cand = Path.cwd() / arguments.file_path
+            if cand.exists():
+                target_path = cand
+            else:
+                for root in catalog.search_roots:
+                    c = root / arguments.file_path
+                    if c.exists():
+                        target_path = c
+                        break
+                    if (root / "automate" / arguments.file_path).exists():
+                        target_path = root / "automate" / arguments.file_path
+                        break
+
+        if not target_path or not target_path.is_file():
+            return {
+                "status": "NOT_FOUND",
+                "command": arguments.file_path,
+                "exit_code": 1,
+                "output": "",
+                "message": f"Target file '{arguments.file_path}' does not exist on disk.",
+            }
+
+        ext = target_path.suffix.lower()
+        cwd_dir = target_path.parent
+        extra_args = " ".join(arguments.args or [])
+
+        if ext in (".bat", ".cmd"):
+            cmd = f'cmd /c "{target_path}" {extra_args}'.strip()
+        elif ext == ".ps1":
+            cmd = f'powershell -ExecutionPolicy Bypass -File "{target_path}" {extra_args}'.strip()
+        elif ext == ".py":
+            cmd = f'python "{target_path}" {extra_args}'.strip()
+        elif ext in (".js", ".mjs"):
+            cmd = f'node "{target_path}" {extra_args}'.strip()
+        else:
+            cmd = f'"{target_path}" {extra_args}'.strip()
+
+        try:
+            res = subprocess.run(
+                cmd,
+                cwd=str(cwd_dir),
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=55.0,
+            )
+            out = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+            status = "SUCCESS" if res.returncode == 0 else "FAILED"
+            msg = f"Executed '{target_path.name}' with exit code {res.returncode}."
+            return {
+                "status": status,
+                "command": cmd,
+                "exit_code": res.returncode,
+                "output": out[-4000:] if len(out) > 4000 else out,
+                "message": msg,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "status": "TIMEOUT",
+                "command": cmd,
+                "exit_code": -1,
+                "output": "Command timed out after 55 seconds.",
+                "message": f"Execution of '{target_path.name}' timed out.",
+            }
+        except Exception as exc:
+            return {
+                "status": "ERROR",
+                "command": cmd,
+                "exit_code": 1,
+                "output": str(exc),
+                "message": f"Execution error: {exc}",
+            }
+
+
+# ---------------- Controlled Chrome & Extension Tool ----------------
+
+class ControlledChromeInput(Contract):
+    project_name: Optional[str] = Field(default="Automate", description="Project name")
+    port: int = Field(default=9222, description="Chrome remote debugging port")
+    url: Optional[str] = Field(default="http://127.0.0.1:8000", description="URL to open")
+    load_extension: bool = Field(default=True, description="Whether to load project's Chrome extension")
+
+
+class ControlledChromeOutput(Contract):
+    status: str
+    debugging_port: int
+    url: str
+    extension_loaded: bool
+    message: str
+
+
+class ControlledChromeTool(Tool):
+    definition = ToolDefinition(
+        name="controlled_chrome_launch",
+        description="Launches Google Chrome with remote debugging (--remote-debugging-port=9222) and loads the project's Chrome extension (e.g. Internship Autofill Assistant).",
+        input_model=ControlledChromeInput,
+        output_model=ControlledChromeOutput,
+        read_only=False,
+        risk=RiskLevel.REVERSIBLE,
+        timeout_s=15.0,
+        tags=("browser", "chrome", "extension", "controlled"),
+        execution_method=ExecutionMethod.CLI,
+    )
+
+    def run(self, arguments: ControlledChromeInput) -> dict[str, Any]:
+        catalog = get_project_catalog()
+        proj = catalog.find_project(arguments.project_name or "") if arguments.project_name else None
+
+        # Check if already listening on debugging port
+        if probe_port_listening(arguments.port):
+            return {
+                "status": "ALREADY_RUNNING",
+                "debugging_port": arguments.port,
+                "url": arguments.url or "",
+                "extension_loaded": True,
+                "message": f"Controlled Chrome is already running and listening on port {arguments.port}.",
+            }
+
+        # If project has start_controlled_chrome.ps1, use it!
+        if proj:
+            root = Path(proj.root)
+            script = root / "start_controlled_chrome.ps1"
+            if script.is_file():
+                try:
+                    subprocess.Popen(
+                        ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+                        cwd=str(root),
+                        shell=True,
+                    )
+                    for _ in range(15):
+                        time.sleep(0.3)
+                        if probe_port_listening(arguments.port):
+                            break
+                    is_ready = probe_port_listening(arguments.port)
+                    return {
+                        "status": "SUCCESS" if is_ready else "LAUNCHED",
+                        "debugging_port": arguments.port,
+                        "url": arguments.url or "http://127.0.0.1:5173/assistant",
+                        "extension_loaded": True,
+                        "message": f"Controlled Chrome launched via start_controlled_chrome.ps1 (port {arguments.port}).",
+                    }
+                except Exception as exc:
+                    return {
+                        "status": "ERROR",
+                        "debugging_port": arguments.port,
+                        "url": arguments.url or "",
+                        "extension_loaded": False,
+                        "message": f"Failed launching start_controlled_chrome.ps1: {exc}",
+                    }
+
+        # Otherwise locate chrome.exe
+        chrome_exe: Optional[str] = None
+        for cand in [
+            os.environ.get("ProgramFiles", "") + r"\Google\Chrome\Application\chrome.exe",
+            os.environ.get("ProgramFiles(x86)", "") + r"\Google\Chrome\Application\chrome.exe",
+            os.environ.get("LocalAppData", "") + r"\Google\Chrome\Application\chrome.exe",
+        ]:
+            if cand and os.path.isfile(cand):
+                chrome_exe = cand
+                break
+
+        if not chrome_exe:
+            return {
+                "status": "FAILED",
+                "debugging_port": arguments.port,
+                "url": arguments.url or "",
+                "extension_loaded": False,
+                "message": "Google Chrome executable was not found on this system.",
+            }
+
+        cmd_args = [
+            f'"{chrome_exe}"',
+            f"--remote-debugging-port={arguments.port}",
+        ]
+        ext_loaded = False
+        if arguments.load_extension and proj and proj.chrome_extension:
+            ext_dir = Path(proj.root) / proj.chrome_extension.get("path", "chrome_extension")
+            if ext_dir.is_dir():
+                cmd_args.append(f'--load-extension="{ext_dir}"')
+                ext_loaded = True
+
+        if arguments.url:
+            cmd_args.append(f'"{arguments.url}"')
+
+        try:
+            subprocess.Popen(" ".join(cmd_args), shell=True)
+            for _ in range(15):
+                time.sleep(0.3)
+                if probe_port_listening(arguments.port):
+                    break
+            is_ready = probe_port_listening(arguments.port)
+            return {
+                "status": "SUCCESS" if is_ready else "LAUNCHED",
+                "debugging_port": arguments.port,
+                "url": arguments.url or "",
+                "extension_loaded": ext_loaded,
+                "message": f"Controlled Chrome launched on port {arguments.port} (extension_loaded={ext_loaded}).",
+            }
+        except Exception as exc:
+            return {
+                "status": "ERROR",
+                "debugging_port": arguments.port,
+                "url": arguments.url or "",
+                "extension_loaded": False,
+                "message": f"Failed to launch Chrome: {exc}",
+            }
+
+
 def create_project_tools() -> list[Tool]:
     return [
         ProjectDiscoverTool(),
         ProjectRunTool(),
         ProjectStopTool(),
         ProjectLogsTool(),
+        ProjectFileReadTool(),
+        ProjectFileRunTool(),
+        ControlledChromeTool(),
     ]
