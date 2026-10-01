@@ -55,6 +55,7 @@ def _llm_down(decision) -> bool:
 # Per-request flags (context variables, so concurrent requests never see each other's):
 _IN_CLAUSE: ContextVar[bool] = ContextVar("router_in_clause", default=False)  # routing one step of a multi-step request
 _NO_MODEL: ContextVar[bool] = ContextVar("router_no_model", default=False)    # deterministic lanes only (live preview)
+_QUALIFIED: ContextVar[bool] = ContextVar("router_qualified", default=False)  # routing the core of a qualified command
 
 
 class SmartRouter:
@@ -135,11 +136,133 @@ class SmartRouter:
                 request = request.model_copy(update={"text": english})
         except Exception:
             pass
+        said = self._discourse(request)
+        if said is not None:
+            self._record(said)
+            return said
         decision = await self._route(request)
         decision = await self._tell_me(request, decision)
         decision = self._sanity(decision, request.text or "")
         decision = await self._last_clause(request, decision)
-        return self._check_recipient(decision, request.text or "")
+        decision = self._check_recipient(decision, request.text or "")
+        decision = self._vague(request, decision)
+        if decision.intent != "clarify":
+            decision = await self._qualified(request, decision)
+        return self._plausible(request, decision)
+
+    def _plausible(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """The matched tool must act on a real target: a control is not an app, a question about a document's content
+        is not a file search, "the screenshot" is not a file name. Re-route, resolve, plan or ask - never guess."""
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent:
+            return decision
+        from jarvis.core.router.targets import check_target, verb_mismatch
+        text = request.text or ""
+        norm = decision.normalized_text or ""
+        verdicts = [check_target(s.tool, s.arguments, text, norm) for s in decision.subcommands] if decision.subcommands \
+            else [check_target(decision.intent, decision.slots or {}, text, norm)]
+        if not decision.subcommands and verb_mismatch(text, decision.intent, self._is_read_only(decision.intent)):
+            # "create a calendar event using the time in that email" never ends at a read-only tool (get_time)
+            verdicts.append({"kind": "planner", "reason": "the verb asks for a change the matched tool cannot make"})
+        verdict = next((v for v in verdicts if v), None)
+        if verdict is None:
+            return decision
+        quals = (decision.slots or {}).get("qualifiers")
+        if verdict["kind"] == "reroute" and not decision.subcommands:
+            slots = dict(verdict["slots"])
+            if quals:
+                slots["qualifiers"] = quals
+            return decision.model_copy(update={"intent": verdict["intent"], "slots": slots})
+        if verdict["kind"] == "clarify" and not decision.subcommands:
+            return self._decision(request, RouteLane.CLARIFY, decision.intent, {k: v for k, v in (decision.slots or {}).items()
+                                                                               if k not in ("name", "path", "query")},
+                                  verdict["question"], ReasonCode.MISSING_REQUIRED_SLOT)
+        return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None,
+                             slots={"qualifiers": quals} if quals else {}, confidence=0.6, source=RouteSource.COMPLEXITY_GATE,
+                             complexity=ComplexityLevel.COMPLEX, needs_planner=True, normalized_text=decision.normalized_text,
+                             reason_code=ReasonCode.MULTI_STEP)
+
+    def _decision(self, request: CommandRequest, lane: RouteLane, intent: str | None, slots: dict | None = None,
+                  clarification: str | None = None, reason: ReasonCode = ReasonCode.EXACT_PATTERN) -> RouteDecision:
+        return RouteDecision(request_id=request.request_id, lane=lane, intent=intent, slots=slots or {}, confidence=0.95,
+                             source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE,
+                             normalized_text=(request.text or "").strip().lower(), clarification=clarification,
+                             reason_code=reason, candidate_count=1, routing_ms=0.0)
+
+    def _discourse(self, request: CommandRequest) -> RouteDecision | None:
+        """Sentence shapes decided before any intent matching: a permission claimed by content (refused), a standing
+        rule for the future (kept, not executed now) and the owner's list of rules."""
+        from jarvis.core.router import discourse
+        text = request.text or ""
+        if discourse.borrowed_authority(text):
+            return self._decision(request, RouteLane.REJECT, None, {"refused": "borrowed_authority"},
+                                  discourse.BORROWED_AUTHORITY_REPLY, ReasonCode.NEGATED_ACTION)
+        low = " ".join(clean_for_matching(text).lower().split()).strip(" .!")
+        if discourse.RULES_LIST.match(low) or discourse.RULES_CLEAR.match(low):
+            return self._decision(request, RouteLane.LANE_0, "standing_rules",
+                                  {"action": "clear" if discourse.RULES_CLEAR.match(low) else "list"})
+        rule = discourse.standing_rule(text)
+        if rule is not None:
+            return self._decision(request, RouteLane.LANE_0, "standing_rule", rule)
+        return None
+
+    async def _qualified(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """'install ollama, but stop for any administrator approval': route the command without its conditions when
+        the conditions got in the way (swallowed into a name, or nothing matched), and keep them as slots."""
+        if _IN_CLAUSE.get() or _QUALIFIED.get():
+            return decision
+        from jarvis.core.router.discourse import slot_has_qualifier, split_qualifiers
+        core, quals = split_qualifiers(request.text or "")
+        if not quals:
+            return decision
+        strong = decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and bool(decision.intent)
+        qwords = set(re.findall(r"[a-z']+", quals["qualifier"].lower()))
+
+        def leaked(v) -> bool:  # "use the result I opened earlier rather than repeating the search" -> query "than repeating..."
+            w = re.findall(r"[a-z']+", v.lower()) if isinstance(v, str) else []
+            return len(w) >= 2 and sum(x in qwords for x in w) / len(w) >= 0.6
+        contaminated = strong and (slot_has_qualifier(decision.slots or {})
+                                   or any(leaked((decision.slots or {}).get(k)) for k in ("name", "query", "path", "message", "target", "text")))
+        if strong and not contaminated:
+            return decision.model_copy(update={"slots": {**(decision.slots or {}), "qualifiers": quals}})
+        negated = decision.lane == RouteLane.REJECT and decision.reason_code == ReasonCode.NEGATED_ACTION
+        if not (contaminated or negated or decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY)):
+            return decision
+        token = _QUALIFIED.set(True)
+        try:
+            inner = await self.route(request.model_copy(update={"text": core}))
+        finally:
+            _QUALIFIED.reset(token)
+        # Without its conditions the command must still be safe to take as said: a read-only answer, a step the owner
+        # asked to approve first, or the same tool that already matched (only its name / query is cleaned).
+        safe = contaminated or self._is_read_only(inner.intent or "") or quals.get("require_approval") or quals.get("preview")
+        if not contaminated and (len(self._split_steps(core)) > 1
+                                 or re.search(rf"(?:,|\band\b|\bthen\b)\s*(?:then\s+)?(?:{self._STEP_VERBS}|list|compare|tell|give|run|"
+                                              rf"execute|attach|summari[sz]e|translate|explain)\b", core, re.I)):
+            safe = False  # "find the scripts, list them": several steps - the planner reads them with their conditions
+        usable = inner.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and bool(inner.intent) and bool(safe) \
+            and not (inner.subcommands and not contaminated) \
+            and not any(v[:4] in (inner.intent or "") for v in quals.get("constraints", []) if len(v) >= 4)
+        if usable:
+            return inner.model_copy(update={"request_id": request.request_id,
+                                            "slots": {**(inner.slots or {}), "qualifiers": quals}})
+        if inner.lane == RouteLane.CLARIFY and inner.intent and inner.clarification \
+                and inner.reason_code == ReasonCode.MISSING_REQUIRED_SLOT:
+            return inner.model_copy(update={"request_id": request.request_id})  # "update the package": which package?
+        if contaminated:  # the matched tool would act on a condition as if it were a name: let the planner read it
+            return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={"qualifiers": quals},
+                                 confidence=0.6, source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.COMPLEX,
+                                 needs_planner=True, normalized_text=decision.normalized_text, reason_code=ReasonCode.MULTI_STEP)
+        return decision
+
+    def _vague(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """'use the thing from yesterday and send it to him': nothing concrete to act on - ask instead of guessing."""
+        if _IN_CLAUSE.get() or decision.lane not in (RouteLane.LANE_2, RouteLane.CLARIFY):
+            return decision
+        from jarvis.core.router.discourse import vague_request
+        question = vague_request(request.text or "")
+        if not question:
+            return decision
+        return self._decision(request, RouteLane.CLARIFY, "clarify", {}, question, ReasonCode.LOW_CONFIDENCE)
 
     async def _tell_me(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         """'tell me how many unread messages I have' asks for information: route what comes after 'tell me'.
@@ -348,8 +471,9 @@ class SmartRouter:
 
         # 3a. "Reply to everyone who messaged me ... don't reply in groups": the constraint is part of the
         # request, not a negation of it, so this is decided before the negation guard.
-        from jarvis.core.router.extended import match_bulk_reply
-        bulk_decision = match_bulk_reply(clean_text, request_id)
+        from jarvis.core.router.extended import match_auto_reply, match_bulk_reply
+        # the original wording: cleaning drops a leading "for the next hour," that is the auto-reply window
+        bulk_decision = match_auto_reply(original_text, request_id) or match_bulk_reply(clean_text, request_id)
         if bulk_decision:
             bulk_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
             bulk_decision.breakdown_ms = breakdown

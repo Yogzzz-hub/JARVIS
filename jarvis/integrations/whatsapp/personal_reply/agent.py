@@ -721,11 +721,16 @@ class PersonalReplyAgent:
 
     # ------------------------------------------------------------------ grants / modes
     def enable(self, contact_ids: list[str], expires_at: float, everyone: bool = False, names: Optional[list[str]] = None,
-               note: str = "") -> dict[str, Any]:
+               note: str = "", exclude: Optional[list[str]] = None, exclude_names: Optional[list[str]] = None) -> dict[str, Any]:
         now = self.clock()
         if everyone:
             g = self.policy.grant(GrantScope.ALL_DIRECT_CONTACTS, [], expires_at, now=now, note=note)
-            msg = (f"Auto replies to all direct contacts are on for the next {_duration_words(expires_at - now)} "
+            left_out = list(dict.fromkeys(exclude or []))
+            if left_out:  # an everyone-grant lists the people it leaves out
+                self.store.update_grant_contacts(g.grant_id, left_out)
+                g.contact_ids = left_out
+            but = (" except " + ", ".join(exclude_names or [self.store.display_name(c) for c in left_out])) if left_out else ""
+            msg = (f"Auto replies to all direct contacts{but} are on for the next {_duration_words(expires_at - now)} "
                    f"(until {_fmt_until(expires_at)}). Group chats remain disabled.")
         else:
             scope = GrantScope.CONTACT if len(contact_ids) == 1 else GrantScope.CONTACTS

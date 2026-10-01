@@ -89,9 +89,11 @@ def classify(text: str) -> Optional[tuple[str, dict]]:
                               r"download|recording|dictation|screen\s+share)\b", rest):
         return "cancel_task", {**slots, "scope": _scope(rest), "keep_listening": True}
 
-    # 2. resource usage
-    if (re.search(r"\b(?:utili[sz]ation|resources?\s+(?:usage|use|used)|(?:memory|ram)\b(?:\s+\w+){0,2}?\s+(?:usage|use|used|load|consum\w*))\b", rest)
-            or (re.search(r"\b(?:cpu|processor|gpu|vram|ram|resources?)\b", rest)
+    # 2. resource usage ("the paragraph that discusses memory usage" is a topic, "attached resources" are attachments)
+    topic = re.search(r"\b(?:discuss\w*|mention\w*|about|regarding|talks?\s+about|explain\w*|describ\w*|covers?|paragraph|section|"
+                      r"chapter|article|page|document|pdf|notes?|essay|report|slides?|attach\w*)\b", rest)
+    if not topic and (re.search(r"\b(?:utili[sz]ation|resources?\s+(?:usage|use|used)|(?:memory|ram)\b(?:\s+\w+){0,2}?\s+(?:usage|use|used|load|consum\w*))\b", rest)
+            or (re.search(r"\b(?:cpu|processor|gpu|vram|ram)\b", rest)
                 and re.search(r"\b(?:usage|use|used|using|load|loaded|percent|how\s+(?:busy|hard)|busy|utili[sz]\w*|right\s+now|"
                               r"current(?:ly)?|live|consum\w*)\b|%", rest)
                 # "how much RAM does this laptop have" asks for the size, not the load
@@ -118,7 +120,11 @@ def classify(text: str) -> Optional[tuple[str, dict]]:
     stuck = bool(re.search(r"\b(?:stuck|hung|hanging|frozen|freez\w*|not\s+responding|taking\s+(?:so\s+|too\s+)?long)\b", rest))
     running = re.search(r"\b(?:current(?:ly)?|now|running|executing|in\s+progress|active|going\s+on|progress|how\s+far|reached|"
                         r"which\s+step|what\s+step|still)\b", rest)
-    if (has_task and (running or stuck)) \
+    # a question or a request for a report - "type a request to explain the current error" creates something instead
+    lead = re.sub(r"^[\s,;.]*(?:(?:just|so|and|then|but|please|now|also)\s+)*", "", rest)
+    asks = re.match(r"^(?:what|what's|which|who|how|is|are|was|were|has|have|did|does|do|any|anything|show|tell|give|list|report|"
+                    r"display|check|status|progress)\b", lead) or re.search(r",\s*(?:is|are|what|how|which)\b", rest)
+    if asks and (has_task and (running or stuck)) \
             or re.search(r"\bwhat\s+are\s+you\s+(?:doing|working\s+on|busy\s+with|running)\b", rest) \
             or re.search(r"\b(?:is\s+)?(?:anything|something|any\s+task|any\s+job)\s+(?:stuck|running|still\s+running|hung|frozen|"
                          r"not\s+responding)\b", rest) \

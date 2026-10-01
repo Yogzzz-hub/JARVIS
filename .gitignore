@@ -13,6 +13,7 @@ jarvis/screenshots/
 *.db-journal
 *.db-wal
 *.db-shm
+jarvis/db/standing_rules.json
 
 # Local credentials & secrets
 config/google_client_secret.json

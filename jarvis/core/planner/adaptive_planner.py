@@ -325,10 +325,16 @@ class AdaptivePlanner:
     ) -> str:
         tools_json = json.dumps([t.model_dump() for t in candidate_tools], indent=1)
         ctx_str = json.dumps(context or {}, indent=1, default=str)
+        try:  # the owner's standing rules ("don't create anything until I approve") bind every plan
+            from jarvis.core.rules import get_rulebook
+            rules = get_rulebook().prompt_block()
+        except Exception:
+            rules = ""
         return (
             f"Available Tools:\n{tools_json}\n\n"
             f"Current Context:\n{ctx_str}\n\n"
-            f'User Request: "{text}"\n\n'
+            + (f"{rules}\n\n" if rules else "")
+            + f'User Request: "{text}"\n\n'
             "TaskGraph JSON:"
         )
 
