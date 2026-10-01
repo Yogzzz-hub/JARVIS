@@ -49,4 +49,5 @@ models/jde/encoders/
 reports/
 docs/*
 !docs/WHATSAPP_PERSONAL_REPLY_AGENT.md
+!docs/FULL_COMPUTER_AGENT_AUDIT.md
 config/profile.toml

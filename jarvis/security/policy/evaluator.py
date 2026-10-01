@@ -75,9 +75,30 @@ class PolicyEvaluator:
         args: dict[str, Any],
         graph_id: str = "",
         node_id: str = "",
+        task_id: str = "",
     ) -> PolicyDecision:
         """Evaluates policy for a single task node deterministically in microseconds."""
         t0 = time.perf_counter_ns()
+
+        # 0. Task-Scoped Capability Check
+        if tool_def is not None and task_id:
+            try:
+                from jarvis.security.policy.scope import get_task_scope_manager
+                scope = get_task_scope_manager().get_scope(task_id)
+                if scope is not None:
+                    allowed, scope_err = scope.check_tool(tool_def.name)
+                    if not allowed:
+                        eval_ms = (time.perf_counter_ns() - t0) / 1e6
+                        return PolicyDecision(
+                            decision=PolicyDecisionType.DENY,
+                            risk=tool_def.risk,
+                            reason_code=PolicyReasonCode.UNKNOWN_TOOL_RISK,
+                            rule_id="RULE_TASK_SCOPE_RESTRICTION",
+                            constraints={"error": scope_err},
+                            evaluated_ms=eval_ms,
+                        )
+            except Exception:
+                pass
 
         # 1. Tool existence check
         if tool_def is None:

@@ -103,6 +103,7 @@ class ExecutionEngine:
             arg_dict,
             graph_id=graph_id,
             node_id=node_id,
+            task_id=request_id,
         )
 
         if dry_run_policy:

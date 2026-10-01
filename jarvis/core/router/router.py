@@ -378,10 +378,11 @@ class SmartRouter:
             return chat()
         if decision.intent == "forget_fact" and not re.match(r"^(?:please\s+)?(?:forget|delete|remove|erase|clear|wipe)\b", clean):
             return chat()
-        looks_up = re.match(r"^(?:read|list|find|search|get|check|show|recall|summari[sz]e|diagnose|describe)_", decision.intent) or \
-            decision.intent.endswith(("_status", "_info", "_history", "_events", "_recent", "_actions", "_answer", "_processes")) or \
+        looks_up = re.match(r"^(?:read|list|find|search|get|check|show|recall|summari[sz]e|diagnose|describe|project)_", decision.intent) or \
+            decision.intent.endswith(("_status", "_info", "_history", "_events", "_recent", "_actions", "_answer", "_processes", "_logs", "_diff")) or \
             decision.intent in ("get_time", "quick_answer", "wifi_status", "contact_info", "knowledge_search", "document_qa",
-                                "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get")
+                                "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get",
+                                "project_logs", "project_discover", "database_status", "git_diff", "code_search")
         if self._STATE_QUESTION.match(clean) and not looks_up and not self._is_read_only(decision.intent):
             return chat()
         return decision
@@ -479,6 +480,285 @@ class SmartRouter:
         except Exception:
             pass
         return decision
+
+    def _match_computer_agent(self, clean_lower: str, routing_text: str, request_id: str, t0: float, breakdown: dict) -> RouteDecision | None:
+        """High-speed deterministic routing for task-scoped computer agent operations."""
+        # 1. Project Discovery & Architecture Summarization
+        m_proj_disc = re.match(
+            r"^(?:please )?(?:open|inspect|summarize|understand|explain|go through)(?: my| the)? ([a-zA-Z0-9_\-\.\s]+?) project(?: and (?:summarize it|explain what it does|tell me what it does))?$"
+            r"|^(?:open my|open the) ([a-zA-Z0-9_\-\.\s]+?) project$"
+            r"|^(?:go through (?:the whole|this|my) project(?: and (?:explain what it does|summarize it))?|summarize this project|understand the whole project|explain this project|explain how it works)$"
+            r"|^(?:look through this repo and tell me how (.+?) works)$",
+            clean_lower,
+        )
+        if m_proj_disc:
+            p_name = (m_proj_disc.group(1) or m_proj_disc.group(2) or "").strip()
+            p_slots = {"project_name": p_name} if p_name else {}
+            p_disc_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="project_discover",
+                slots=p_slots,
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, p_disc_dec, self.registry_version)
+            self._record(p_disc_dec)
+            return p_disc_dec
+
+        # 2. Project Run / Start
+        m_proj_run = re.match(
+            r"^(?:please )?(?:run|start|launch|bring up) (?:the |my )?project(?: and check database)?$"
+            r"|^(?:run|start|launch|bring up)(?: my| the)? ([a-zA-Z0-9_\-\.]+) project$"
+            r"|^(?:start|run) (?:the )?(?:backend and frontend|frontend and backend)$"
+            r"|^(?:run|bring up|start) (?:my |the )?automate(?: project| thing)?(?: and get it running)?$"
+            r"|^(?:run it|bring the automate thing up and get it running)$",
+            clean_lower,
+        )
+        if m_proj_run:
+            p_name = (m_proj_run.group(1) or ("automate" if "automate" in clean_lower else "")).strip()
+            run_slots = {"project_name": p_name} if p_name else {}
+            if "backend" in clean_lower and "frontend" in clean_lower:
+                run_slots["components"] = ["backend", "frontend"]
+            p_run_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="project_run",
+                slots=run_slots,
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, p_run_dec, self.registry_version)
+            self._record(p_run_dec)
+            return p_run_dec
+
+        # 3. Project Stop
+        if re.match(r"^(?:please )?(?:stop|shutdown|kill) (?:the |my )?project(?: components)?$|^(?:stop|kill) (?:the )?(?:backend and frontend|frontend and backend)$|^stop project components safely$", clean_lower):
+            p_stop_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="project_stop",
+                slots={},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, p_stop_dec, self.registry_version)
+            self._record(p_stop_dec)
+            return p_stop_dec
+
+        # 4. Project Logs & Diagnostic
+        m_proj_logs = re.match(
+            r"^(?:please )?(?:show|view|read|get|check)(?: the)? (?:backend|frontend|project) logs?$"
+            r"|^(?:why isn't the backend (?:starting|working)|find why the backend isn't starting|read backend error|read backend logs|show backend logs)$"
+            r"|^(?:why is (?:the )?backend failing|why isn't (?:the )?project running|why isn't (?:the )?frontend starting)$",
+            clean_lower,
+        )
+        if m_proj_logs:
+            comp = "backend" if "backend" in clean_lower else ("frontend" if "frontend" in clean_lower else "project")
+            p_logs_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="project_logs",
+                slots={"component": comp},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, p_logs_dec, self.registry_version)
+            self._record(p_logs_dec)
+            return p_logs_dec
+
+        # 5. Database Status
+        if re.match(r"^(?:please )?(?:check whether the database is connected|check database connection|check database|is database connected|is database running|database status)$", clean_lower):
+            db_status_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="database_status",
+                slots={},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, db_status_dec, self.registry_version)
+            self._record(db_status_dec)
+            return db_status_dec
+
+        # 6. Git Diff
+        if re.match(r"^(?:please )?(?:show me the diff|show (?:me )?(?:the )?changes|show diff|git diff)$", clean_lower):
+            diff_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="git_diff",
+                slots={},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, diff_dec, self.registry_version)
+            self._record(diff_dec)
+            return diff_dec
+
+        # 7. Run Project Tests
+        if re.match(r"^(?:please )?(?:run the tests(?: again)?|run tests(?: again)?|run project tests|rerun tests|test project)$", clean_lower):
+            test_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="run_project_tests",
+                slots={"repo_path": "."},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, test_dec, self.registry_version)
+            self._record(test_dec)
+            return test_dec
+
+        # 8. Code Repair & Error Fixing Loop
+        if re.match(r"^(?:please )?(?:fix the issue|fix the error|fix it|fix this project|fix backend|repair the issue|fix the backend problem and rerun the tests)$", clean_lower):
+            repair_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="code_repair_loop",
+                slots={"error_summary": "Traceback: check backend error"},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, repair_dec, self.registry_version)
+            self._record(repair_dec)
+            return repair_dec
+
+        # 9. Code Search / Error Source
+        m_code_search = re.match(
+            r"^(?:please )?(?:locate source file causing error|find the source of the error|find error source|open the error file)$"
+            r"|^(?:where is (.+?) (?:handled|defined|located|generated))$",
+            clean_lower,
+        )
+        if m_code_search:
+            q_sym = (m_code_search.group(1) or "error").strip()
+            code_search_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="code_search",
+                slots={"query": q_sym},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, code_search_dec, self.registry_version)
+            self._record(code_search_dec)
+            return code_search_dec
+
+        # 10. Hackathon Autofill
+        if re.match(r"^(?:please )?(?:fill (?:this |the )?(?:hackathon|registration|submission) form|autofill hackathon(?: registration)?)$", clean_lower):
+            hack_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="hackathon_autofill",
+                slots={},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, hack_dec, self.registry_version)
+            self._record(hack_dec)
+            return hack_dec
+
+        # 11. Exam / Assessment Helper
+        m_exam = re.match(
+            r"^(?:please )?(?:solve|answer|help with|help me with)(?: this| the| a)?(?: [a-zA-Z0-9_\-]+)*? (?:exam|quiz|test|assessment|practice question|mock test)(?: question)?(?:: (.+))?$",
+            clean_lower,
+        ) or re.match(
+            r"^(?:please )?(?:solve|answer|help with) (?:this |the |a )?(?:practice question|mock question|homework question|quiz question|exam question)(?:: (.+))?$",
+            clean_lower,
+        )
+        if m_exam:
+            q_text = (m_exam.group(1) or clean_lower).strip()
+            is_mock = any(k in clean_lower for k in ("practice", "mock", "study", "homework"))
+            exam_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="exam_assessment_helper",
+                slots={"question": q_text, "is_practice_or_mock": is_mock},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, exam_dec, self.registry_version)
+            self._record(exam_dec)
+            return exam_dec
+
+        # 12. Take Screenshot and Send to Phone
+        if re.match(r"^(?:please )?(?:take (?:a )?screenshot and send (?:it )?to (?:my )?phone|send (?:a |the )?screenshot to (?:my )?phone)$", clean_lower):
+            shot_phone_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="compound_screenshot_phone",
+                slots={},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.COMPOUND,
+                subcommands=[
+                    SubCommand(intent="take_screenshot", tool="take_screenshot", arguments={}),
+                    SubCommand(intent="android_push_file", tool="android_push_file", arguments={"path": "latest_screenshot"}),
+                ],
+                normalized_text=clean_lower,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self.cache.put(routing_text, shot_phone_dec, self.registry_version)
+            self._record(shot_phone_dec)
+            return shot_phone_dec
+
+        return None
 
     async def _route(self, request: CommandRequest | str) -> RouteDecision:
         t0 = perf_counter_ns()
@@ -1194,6 +1474,11 @@ class SmartRouter:
             self._record(generic_ambig)
             return generic_ambig
 
+        # 3b-comp. COMPUTER AGENT: PROJECT, CODE, DATABASE, DEV ROUTING (< 0.1 ms)
+        comp_decision = self._match_computer_agent(clean_lower, routing_text, request_id, t0, breakdown)
+        if comp_decision:
+            return comp_decision
+
         # 3b-multi. "open notepad and type hello", "play X on youtube then set volume to 30": split into steps and route
         # each one, so a single-intent matcher never swallows the rest of the sentence as its argument.
         if not _IN_CLAUSE.get():
@@ -1852,6 +2137,8 @@ class SmartRouter:
             self.cache.put(routing_text, loc_decision, self.registry_version)
             self._record(loc_decision)
             return loc_decision
+
+        # (Computer agent matchers handled early at 3b-comp)
 
         m_install = re.match(r"^(?:please )?(?:install|setup|download and install) ([a-zA-Z0-9_\-\.\s]+?)(?: using winget| via winget)?$", clean_lower)
         if m_install:

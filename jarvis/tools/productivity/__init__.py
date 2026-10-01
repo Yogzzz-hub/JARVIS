@@ -16,10 +16,13 @@ from jarvis.tools.productivity.meeting_notes import MeetingNotesTool
 from jarvis.tools.productivity.media_tools import ExtractAudioTool, TrimClipTool
 from jarvis.tools.productivity.briefing import PersonalBriefingTool, StudyFocusTool
 from jarvis.tools.productivity.developer_tools import GitStatusTool, RunProjectTestsTool, DiagnoseErrorTool
+from jarvis.tools.productivity.project_tools import create_project_tools
+from jarvis.tools.productivity.code_tools import create_code_tools
+from jarvis.tools.productivity.database_tools import create_database_tools
 
 
 def create_productivity_tools() -> list[Tool]:
-    return [
+    base_prod = [
         DictationTool(),
         VoiceEditTool(),
         DictationModeControlTool(),
@@ -42,6 +45,7 @@ def create_productivity_tools() -> list[Tool]:
         RunProjectTestsTool(),
         DiagnoseErrorTool(),
     ]
+    return base_prod + create_project_tools() + create_code_tools() + create_database_tools()
 
 
 __all__ = [

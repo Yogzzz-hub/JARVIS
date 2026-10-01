@@ -307,6 +307,47 @@ class TextResourceRef(BaseResourceRef):
 
 
 @dataclass
+class ProjectResourceRef(BaseResourceRef):
+    """Tracks a resolved software project for 'run it', 'summarize it', 'fix this project' workflows."""
+    project_id: str = ""
+    root: str = ""
+    languages: List[str] = field(default_factory=list)
+    frameworks: List[str] = field(default_factory=list)
+    ports: List[int] = field(default_factory=list)
+    status: str = "IDLE"  # IDLE, RUNNING, ERROR
+
+    def __post_init__(self):
+        self.resource_type = "PROJECT"
+        if not self.canonical_identifier and self.root:
+            self.canonical_identifier = self.root
+        if not self.display_name and self.root:
+            self.display_name = os.path.basename(self.root.rstrip("/\\"))
+
+    def revalidate(self) -> bool:
+        self.last_verified = time.time()
+        self.is_valid = bool(self.root and os.path.isdir(self.root))
+        return self.is_valid
+
+
+@dataclass
+class ProcessResourceRef(BaseResourceRef):
+    """Tracks a running project process started by JARVIS for status and clean termination."""
+    process_id: str = ""
+    project_id: str = ""
+    component: str = ""  # frontend, backend, database, worker
+    pid: int = 0
+    port: Optional[int] = None
+    status: str = "RUNNING"  # RUNNING, STOPPED, FAILED
+
+    def __post_init__(self):
+        self.resource_type = "PROCESS"
+        if not self.canonical_identifier:
+            self.canonical_identifier = f"proc_{self.component}_{self.pid}"
+        if not self.display_name:
+            self.display_name = f"{self.component} (PID {self.pid})"
+
+
+@dataclass
 class ResultSet:
     """Stores ordered / numbered query results for ordinal follow-up resolution."""
     result_set_id: str
