@@ -1,0 +1,520 @@
+1|window_op.focus|open_app|*CLARIFY|reopen whichever editor I had open before
+2|open_app|*CLARIFY|start up my web browser
+3|window_op.focus|switch_window|switch over to spotify
+4|window_op.focus|return to whatever app I had open a moment ago
+5|window_op.close|close_app|close_window|*CLARIFY|shut the app in front
+6|window_op.close|close_window|*CLARIFY|close just the settings window and nothing else
+7|minimize_window|window_op.minimize|minimise the current window
+8|maximize_window|window_op.fullscreen|window_op.maximize|blow this window up to full screen
+9|window_op.restore|put this window back to its normal size
+10|window_op.arrange|snap_window|move chrome over to the left half
+11|window_op.arrange|snap_window|dock antigravity on the right side
+12|window_op.arrange|arrange_windows|show chrome next to antigravity
+13|window_op.move|window_op.arrange|snap_window|shift this window to the opposite side
+14|window_op.resize|shrink this window a bit
+15|window_op.arrange|move_resize_window|send chrome over to the second screen
+16|window_op.list|which programs do I have open
+17|window_op.find|my calculator window disappeared, find it
+18|window_op.focus|bring me back to the editor
+19|open_app|launch the file explorer
+20|open_known_folder|list_directory|open my downloads folder
+21|open_known_folder|show the documents folder
+22|open_known_folder|take me to my desktop folder
+23|pc_quick_action|open_system_settings|open settings on windows
+24|open_system_settings|bring up the display settings
+25|open_system_settings|open the sound settings page
+26|open_system_settings|show network settings
+27|open_system_settings|go to bluetooth settings
+28|window_op.info|open the settings page for this app
+29|window_op.active|which app is in front right now
+30|ui_op.modal|is a dialog box blocking the window
+31|dialog_interaction|ui_op.click|dismiss this popup
+32|screen_click|ui_op.click|hit save
+33|ui_op.menu|*PLANNER|from the file menu pick save as
+34|browser_quick_action|ui_op.click|ide_op.tab|switch to tab two
+35|ui_op.select|pick python in this dropdown
+36|ui_op.check|switch that setting on
+37|ui_op.click|*CLARIFY|select option number one
+38|ui_op.slider|move this slider to 70%
+39|ui_op.scroll|scroll down inside this panel
+40|ui_op.expand|expand this tree
+41|ui_op.collapse|collapse this section
+42|ui_op.read|describe_screen|read me what this dialog says
+43|ui_op.find|desktop_ui_click|locate the submit button
+44|ui_op.explain|why is the continue button greyed out
+45|watch_op.when|let me know once continue becomes clickable
+46|watch_op.when|tell me as soon as the app has opened
+47|watch_op.when|let me know when that window is closed
+48|window_op.restore_layout|launch_workspace|bring back my coding layout
+49|window_op.save_layout|save_workspace|save this window arrangement
+50|ui_op.next_focus|jump to the next input field
+51|cancel_task|stop_all|cancel everything you are doing
+52|pause_task|pause just the current task
+53|open_app|launch chrome
+54|open_website|browser_op.open|navigate to github.com
+55|search_web|browser_op.search|look up tensorflow cnn docs online
+56|browser_op.site_search|search this website for pricing
+57|browser_op.official|*PLANNER|get me the official docs for this
+58|browser_quick_action|browser_op.tab_new|open a new tab
+59|browser_quick_action|browser_op.tab_close|close the current tab
+60|browser_op.tab_next|browser_quick_action|switch to the next tab
+61|browser_quick_action|browser_op.tab_previous|switch to the previous tab
+62|browser_op.tab_switch|switch to the youtube tab
+63|browser_op.tab_switch|jump to the github tab
+64|browser_quick_action|reopen the tab I closed
+65|browser_op.duplicate|duplicate the current tab
+66|browser_op.open_result|*CLARIFY|open that result in another tab
+67|browser_quick_action|browser_op.back|window_op.focus|go back one page
+68|browser_quick_action|browser_op.forward|go forward a page
+69|browser_quick_action|reload this page
+70|browser_op.stop|stop the page from loading
+71|browser_op.url|what's the url of this page
+72|browser_op.copy_url|copy the link of this page
+73|browser_op.title|what is this page called
+74|browser_op.find|find the word pricing on the page
+75|browser_quick_action|scroll the page down
+76|browser_quick_action|scroll the page up
+77|browser_quick_action|scroll to the top of the page
+78|browser_quick_action|scroll all the way down
+79|browser_op.heading|jump to the installation section
+80|screen_click|ui_op.click|click continue
+81|ui_op.click|screen_click|browser_op.open_link|click the documentation link
+82|browser_op.open_result|open result number three
+83|ui_op.focus|click into the search box
+84|dictate_text|ui_op.type|type machine learning in here
+85|ui_op.clear|text_op.clear|empty this box
+86|text_op.copy|copy this paragraph of text
+87|pc_quick_action|paste it into this field
+88|browser_autofill|fill in the fields you know but do not submit
+89|ui_op.select|*CLARIFY|select india from the list
+90|ui_op.check|tick the newsletter checkbox
+91|ui_op.select|screen_click|ui_op.click|pick the free plan
+92|browser_op.upload|deliver_op|*PLANNER|upload the pdf we found
+93|deliver_op|browser_op.upload|*PLANNER|attach the screenshot I just captured
+94|ui_op.remove_attachment|delete the screenshot attachment
+95|browser_op.download|*PLANNER|download that pdf
+96|watch_op.download_done|let me know when the download is done
+97|file_op.open_latest_download|open the file I just downloaded
+98|file_op.reveal|show that download in its folder
+99|web_task|browser_op.read|*PLANNER|summarise this page
+100|browser_op.read|*PLANNER|summarise just the installation section
+101|*PLANNER|compare this page with the other tab
+102|browser_op.detect_login|tell me whether this page needs a login
+103|watch_op.when|standing_rule|pause if a captcha shows up
+104|watch_op.skip_ads|skip the ad once the skip button shows
+105|find_file|look for my presentation file
+106|find_file|list every pdf I have
+107|find_file|knowledge_search|which file did I write about batch normalization in
+108|find_file|find the pdfs inside downloads
+109|find_file|show me the files from yesterday
+110|find_file|pdfs from last tuesday between 2 and 6 pm
+111|file_op.search|files that are between 20 and 200 megabytes
+112|find_file|file_op.search|get my most recent report
+113|file_op.search|which pdf here is the oldest
+114|file_op.search|what's the biggest file in this folder
+115|find_file|the latest file about yolo
+116|open_file|*CLARIFY|open that pdf file
+117|file_op.open_with|*CLARIFY|open this file in edge
+118|file_op.reveal|*CLARIFY|where is this file located
+119|file_op.open_folder|*CLARIFY|open the folder it is in
+120|rename_file|*CLARIFY|rename this sandbox file to final report
+121|copy_file|*CLARIFY|copy this into my project folder
+122|move_file|*CLARIFY|move this file into reports
+123|file_op.duplicate|*CLARIFY|duplicate this file
+124|delete_file|*CLARIFY|delete this test file
+125|file_op.restore|*CLARIFY|get the test file back from the recycle bin
+126|create_folder|make a new folder named results
+127|rename_file|*CLARIFY|rename this sandbox folder
+128|open_file|*CLARIFY|open pdf number three
+129|open_file|*CLARIFY|open the one before that
+130|open_file|*CLARIFY|open the next one in the list
+131|*PLANNER|document_qa|compare these two report files
+132|document_qa|*PLANNER|knowledge_search|give me a summary of this pdf
+133|document_qa|knowledge_search|*PLANNER|what does this document say about cnns
+134|document_qa|knowledge_search|*PLANNER|find the transfer learning section
+135|knowledge_search|which of my files talk about precision and recall
+136|*PLANNER|document_qa|compare the yolo sections across these pdfs
+137|file_op.relocate|*CLARIFY|that file was moved, locate it again
+138|file_op.verify_deleted|*CLARIFY|confirm the deleted file is gone from the index
+139|watch_op.when|notify me when a new pdf lands in this folder
+140|file_op.open_newest|open the newest file created in this folder
+141|localsend_file|deliver_op|send the pdf to my phone
+142|phone_op.pull|android_pull_file|bring my latest phone screenshot over here
+143|deliver_op|*PLANNER|*CLARIFY|attach the file we found just now
+144|file_op.copy_path|*CLARIFY|copy the path of this file
+145|file_op.copy_path|*CLARIFY|copy the path of this folder
+146|list_directory|file_op.list|*CLARIFY|what's inside this folder
+147|find_file|file_op.search|show only the pictures in here
+148|find_duplicates|file_op.search|is there another file with the same name
+149|find_file|find the report that has final in its name
+150|find_file|arun's report from september
+151|find_file|images created this week
+152|find_file|which files did I edit today
+153|open_file|file_op.open_latest_download|*CLARIFY|open the pdf I downloaded before
+154|move_file|*CLARIFY|*PLANNER|move this download into my project folder
+155|move_file|*PLANNER|*CLARIFY|archive these selected reports into a folder
+156|file_op.verify|*CLARIFY|verify the file actually moved
+157|dictate_text|dictation_mode_control|*CLARIFY|start dictating here
+158|dictation_mode_control|stop dictation
+159|dictation_mode_control|pause the typing
+160|dictation_mode_control|resume typing
+161|text_op.press|voice_edit|dictation_mode_control|add a new line
+162|text_op.press|voice_edit|dictation_mode_control|start a new paragraph
+163|text_op.delete|erase the last letter
+164|text_op.delete|remove the last word
+165|text_op.delete|get rid of the last sentence
+166|text_op.delete|delete this paragraph
+167|pc_quick_action|text_op.undo|undo the last change
+168|pc_quick_action|text_op.redo|redo that
+169|pc_quick_action|text_op.select|select everything
+170|text_op.select|highlight the previous word
+171|text_op.select|highlight the last sentence
+172|text_op.select|select the paragraph I'm in
+173|pc_quick_action|text_op.copy|copy it
+174|pc_quick_action|text_op.cut|cut this
+175|pc_quick_action|paste it right here
+176|text_op.replace|change "React" to "Next.js"
+177|text_op.capitalize|capitalise the word before
+178|text_op.lower|lowercase the previous word
+179|text_op.upper|make that all caps
+180|text_op.caret|move the cursor one word to the left
+181|text_op.caret|move the cursor one word right
+182|text_op.caret|jump to the beginning of the document
+183|text_op.caret|jump to the end of the text
+184|dictate_text|*CLARIFY|type literally "send the file"
+185|dictation_mode_control|dictate_text|switch to code dictation
+186|dictate_text|voice_edit|*CLARIFY|*PLANNER|period, new line, close bracket
+187|standing_rule|dictation_mode_control|only type when this box has focus
+188|standing_rule|dictation_mode_control|stop typing if I leave this editor
+189|compound|window_op.focus|*PLANNER|return to the editor and keep typing
+190|ui_op.type|type this in the second input field
+191|ui_op.clear|text_op.clear|clear this text field
+192|ui_op.read|describe_screen|read out what's in this box
+193|ui_op.copy|copy what's in this field
+194|deliver_op|pc_quick_action|paste the screenshot in here
+195|pc_quick_action|paste keeping the formatting
+196|text_op.paste_plain|paste this without formatting
+197|compound|*PLANNER|lowercase this and then paste it
+198|*PLANNER|*CHAT|summarise the selected text
+199|*PLANNER|*CHAT|rewrite this so it is clearer
+200|*PLANNER|*CHAT|translate the selection into english
+201|text_op.count|how many words does this field have
+202|text_op.find|find authentication in this text
+203|text_op.replace|replace all "React" with "Next.js"
+204|text_op.template|*CLARIFY|paste my bug report template here
+205|text_op.append|*CLARIFY|add this sentence at the end
+206|text_op.prepend|*CLARIFY|put this line at the very top
+207|text_op.save|save this document now
+208|text_op.save_as|save it as notes.txt
+209|antigravity_ide_control|open_app|launch antigravity
+210|project_discover|ide_op.open_project|open the jarvis project
+211|ide_op.open_project|project_discover|switch over to the creo project
+212|open_file|ide_op.open_file|project_file_read|open payments.py
+213|ide_op.tab_close|close this editor tab
+214|ide_op.tab_next|next editor tab
+215|ide_op.tab_previous|previous editor tab
+216|ide_op.open_file|open_file|switch to app.py
+217|ide_op.focus|move focus to the code editor
+218|ide_op.focus|put the cursor in the ai prompt
+219|ide_op.focus|show the terminal panel
+220|ide_op.focus|show me the problems panel
+221|ide_op.focus|show the project file explorer
+222|dictate_text|ide_op.focus|dictate into the ai prompt
+223|dictate_text|ide_op.type|type this into the open file
+224|ide_op.attach|deliver_op|*PLANNER|attach the report we found
+225|ide_op.attach|deliver_op|attach the latest screenshot to the prompt
+226|ide_op.remove_attachment|remove the first attached file
+227|ide_op.list_attachments|which files are attached
+228|ide_op.send|send the prompt
+229|ide_op.cancel|stop generating
+230|watch_op.ide_done|watch_op.when|tell me when the reply is finished
+231|ide_op.read|read me the latest ai answer
+232|ide_op.copy_response|copy the last ai response
+233|ide_op.focus|*PLANNER|keep going in the same ai chat
+234|ide_op.key|start a fresh ai chat
+235|code_search|ide_op.search|knowledge_search|where is UserService defined
+236|code_search|ide_op.find_symbol|find the login handler in the code
+237|ide_op.definition|go to definition
+238|ide_op.references|find all references of this symbol
+239|ide_op.read_error|describe_screen|diagnose_error|what does this error mean
+240|ide_op.copy_error|copy this error message
+241|diagnose_error|*PLANNER|*CHAT|explain the current error
+242|*PLANNER|browser_op.official|research the official fix for this error
+243|run_project_tests|run the tests for this project
+244|project_stop|ide_op.cancel|stop the tests that are running
+245|run_project_tests|project_logs|*PLANNER|show me just the failing tests
+246|*PLANNER|ide_op.open_file|open the file of the first failing test
+247|project_logs|*PLANNER|summarise what the terminal printed
+248|git_status|show the git status
+249|git_diff|show the current git diff
+250|ide_op.focus|open the source control panel
+251|ide_op.save|text_op.save|save the file
+252|ide_op.save_all|save all open files
+253|ide_op.format|format this file
+254|ide_op.rename|rename the symbol to user_id
+255|ide_op.docs|*PLANNER|open documentation for this symbol
+256|screen_op.capture|take_screenshot|screenshot the editor window
+257|deliver_op|ide_op.attach|*PLANNER|attach the chrome screenshot
+258|file_op.reveal|project_discover|*CLARIFY|open the project folder in explorer
+259|watch_op.when|let me know when the build is done
+260|project_discover|*PLANNER|give me an overview of this project's structure
+261|android_connect|connect to my android phone
+262|android_open_app|launch spotify on the phone
+263|android_home|press home on my phone
+264|android_back|press back on the phone
+265|phone_op.key|show the recent apps on my phone
+266|phone_op.key|switch back to the last app on my phone
+267|phone_op.close_app|force stop my test app on the phone
+268|phone_op.relaunch|restart my app on the phone
+269|phone_op.dev|list_installed_applications|which apps are on my phone
+270|phone_op.installed|check_app_installed|is spotify on my phone
+271|phone_op.settings|open the app info for this app on my phone
+272|phone_op.settings|android_quick_action|open wifi settings on my phone
+273|phone_op.settings|android_quick_action|open bluetooth settings on the phone
+274|phone_op.settings|android_quick_action|open the display settings on my phone
+275|phone_op.settings|open notification settings for this app on my phone
+276|phone_op.volume|set my phone's media volume to 40 percent
+277|android_key|phone_op.key|mute the phone's media
+278|phone_op.key|android_key|unmute my phone
+279|media_control|phone_op.media|play
+280|pause_task|media_control|phone_op.media|pause
+281|media_control|phone_op.media|next track
+282|media_control|phone_op.media|previous track
+283|video_op.seek_by|phone_op.media|skip 30 seconds ahead
+284|video_op.seek_by|phone_op.media|go back 15 seconds
+285|phone_op.media_state|what song is playing on my phone
+286|android_screenshot|phone_op.screenshot|take a phone screenshot
+287|phone_op.pull|android_pull_file|show the phone screenshot on my pc
+288|phone_op.record|start recording my phone screen
+289|phone_op.record|stop the phone screen recording
+290|phone_op.ui_tree|what controls are on my phone screen
+291|phone_op.find|find the submit button on my phone
+292|android_tap_text|phone_op.tap|tap continue on my phone
+293|phone_op.focus|focus the message box on my phone
+294|ui_op.type|phone_op.type|type hello into this field on my phone
+295|phone_op.dictate|dictate what I say into this box on my phone
+296|phone_op.clear|clear this textbox on my phone
+297|ui_op.scroll|browser_quick_action|scroll down on my phone
+298|phone_op.swipe|swipe up on this list on my phone
+299|phone_op.read_screen|read what's on my phone screen
+300|phone_op.read_screen|*PLANNER|summarise my phone screen
+301|phone_op.notifications|android_notifications|find the newest gmail notification on my phone
+302|android_notifications|phone_op.notifications|what notifications did I get on my phone
+303|phone_op.open_notification|*CLARIFY|open that gmail notification on my phone
+304|phone_op.dismiss_notification|*CLARIFY|dismiss that notification on my phone
+305|android_status|phone_op.dev|how much battery does my phone have
+306|phone_op.dev|how much memory is my phone using
+307|phone_op.dev|how much free storage is on my phone
+308|phone_op.dev|android_status|is the phone connected to the internet
+309|localsend_file|android_push_file|deliver_op|push this pdf to my phone
+310|phone_op.pull|android_pull_file|copy today's phone screenshot to my pc
+311|phone_op.dev|install the latest test apk on my phone
+312|phone_op.dev|show the logs of my app on the phone
+313|phone_op.open_url|*CLARIFY|open this page on my phone so I can continue there
+314|deliver_op|localsend_file|*CLARIFY|*PLANNER|send this file to my phone and open it
+315|phone_op.pull|*CLARIFY|copy this phone file to the pc
+316|phone_op.pull|android_pull_file|show the screenshot I just took on my phone
+317|deliver_op|send the screenshot to my phone
+318|localsend_text|put the copied text onto my phone
+319|phone_op.clipboard|*CLARIFY|get the text I copied on my phone
+320|deliver_op|localsend_file|*CLARIFY|send my last download to my phone
+321|*PLANNER|*CLARIFY|upload a file from my phone to this page
+322|deliver_op|attach my phone screenshot to antigravity
+323|deliver_op|*PLANNER|send a screenshot of the browser to my phone
+324|*PLANNER|compound|find my newest report and send it to my phone
+325|*PLANNER|localsend_text|*CLARIFY|save this summary into my phone's notes
+326|watch_op.when|notify me on my phone when this is done
+327|*PLANNER|*CLARIFY|open the pc project linked to this phone notification
+328|watch_op.when|*PLANNER|retry the transfer once my phone is back online
+329|*PLANNER|*CLARIFY|continue playing this on my phone
+330|phone_op.open_url|*CLARIFY|open this link on my phone
+331|phone_op.pc_url|*CLARIFY|open the page I have on my phone here on the pc
+332|localsend_text|send the selected text to my phone
+333|localsend_file|*CLARIFY|*PLANNER|send the selected files to my phone
+334|phone_op.pull|*CLARIFY|*PLANNER|copy the selected phone files to my pc
+335|phone_op.pull|copy today's phone screenshots to my pc
+336|project_discover|ide_op.open_project|open my jarvis project on the computer
+337|browser_quick_action|browser_op.tab_new|open a new chrome tab on the pc
+338|window_op.focus|antigravity_ide_control|bring antigravity to the foreground
+339|system_op.status|resource_usage|send me the pc's cpu and ram usage
+340|android_status|phone_op.dev|show my phone's battery and storage
+341|*PLANNER|translate the copied text and send it to my phone
+342|*PLANNER|summarise the phone screenshot on the pc
+343|*PLANNER|compare the pdf on the pc with the one on my phone
+344|*PLANNER|*CLARIFY|is this phone file already on my pc
+345|*PLANNER|download this here and open it on my phone
+346|*PLANNER|take a screenshot on my phone and attach it to the pc chat
+347|*PLANNER|grab my phone app's error and open the matching project on the pc
+348|*PLANNER|capture_note|save this idea to both my pc notes and phone notes
+349|resume_task|*CLARIFY|resume the pc task I paused from the phone
+350|cancel_task|cancel the background task on the pc from my phone
+351|file_op.reveal|*CLARIFY|show me where on the pc the phone file was saved
+352|phone_op.recent|*CLARIFY|which file was I looking at on my phone
+353|*PLANNER|*CLARIFY|open the last pdf from my phone on the pc
+354|phone_op.current_app|what app is open on my phone right now
+355|phone_op.key|*CLARIFY|bring that phone app back to the front
+356|*CLARIFY|do it on my phone instead of the pc
+357|*CLARIFY|do this on the pc, not on the phone
+358|*CLARIFY|send it to whichever device I used before
+359|deliver_op.verify|*CLARIFY|did the file really arrive on my phone
+360|watch_op.when|let me know when my phone is back online
+361|watch_op.when|tell me when my phone battery is charged enough
+362|watch_op.when|once the phone screenshot arrives, open it here
+363|standing_rule|if the phone transfer fails, carry on with the pc steps
+364|*PLANNER|deliver_op|send the pdf and the screenshot to my phone but not the video
+365|read_whatsapp_messages|show recent messages from arun
+366|read_whatsapp_messages|*PLANNER|knowledge_search|find the message where arun talked about the deadline
+367|summarize_whatsapp_messages|summarise the last ten messages
+368|reply_whatsapp_message|write a short reply to arun
+369|*PLANNER|*CLARIFY|make the reply sound more casual
+370|*PLANNER|*CLARIFY|translate my draft into english
+371|deliver_op|*PLANNER|*CLARIFY|attach the pdf we found to the message
+372|deliver_op|*PLANNER|*CLARIFY|attach that screenshot to the message
+373|ui_op.remove_attachment|*CLARIFY|remove the attached image
+374|*PLANNER|*CLARIFY|preview exactly what will be sent
+375|confirm_ticket|send it now
+376|recent_actions|previous_outcome|was that message really sent
+377|standing_rule|don't resend if you're not sure it went
+378|whatsapp_action|read_whatsapp_messages|*CLARIFY|open my chat with barath
+379|*CLARIFY|*CHAT|which arun are you talking about
+380|gmail_list_recent|*PLANNER|summarise today's important emails
+381|gmail_list_recent|*PLANNER|search my emails about the project
+382|gmail_create_draft|*CLARIFY|write an email draft about this report
+383|*PLANNER|*CLARIFY|attach this report to the email draft
+384|calendar_list_events|what do I have on my calendar tomorrow
+385|calendar_create_event|*CLARIFY|draft a calendar event for tomorrow afternoon
+386|*PLANNER|knowledge_search|find my newest drive doc about jarvis
+387|*PLANNER|find the drive file this email mentions
+388|android_notifications|*PLANNER|which notifications need my attention
+389|android_notifications|phone_op.notifications|gmail_list_recent|only show gmail notifications
+390|android_notifications|phone_op.notifications|*CLARIFY|show notifications from this person
+391|phone_op.open_notification|*CLARIFY|open the notification I mentioned
+392|phone_op.dismiss_notification|*CLARIFY|dismiss this notification
+393|whatsapp_auto_reply|reply to yoga for the next half hour
+394|whatsapp_auto_reply|turn off every auto reply
+395|whatsapp_auto_reply|standing_rule|*CLARIFY|only auto reply in direct chats
+396|reply_whatsapp_message|whatsapp_auto_reply|*CLARIFY|answer yoga the way I usually write
+397|reply_whatsapp_message|whatsapp_auto_reply|*CLARIFY|reply in my normal tanglish style
+398|standing_rule|whatsapp_auto_reply|suggest replies but never send them
+399|standing_rule|reply_whatsapp_message|check with me before sending any reply
+400|standing_rule|hold any replies about payments for me
+401|standing_rule|don't auto reply to people without a style profile
+402|standing_rule|*REJECT|never reply twice to one message
+403|standing_rule|*CLARIFY|wait for the real whatsapp message to load
+404|reply_whatsapp_message|show me how you would answer yoga
+405|whatsapp_action|*PLANNER|*CLARIFY|rebuild yoga's style profile from approved history
+406|standing_rule|*CLARIFY|*PLANNER|use my default style for this new contact
+407|*PLANNER|capture_note|save a summary of this chat into my notes
+408|capture_note|save this message as a note file
+409|calendar_create_event|*PLANNER|*CLARIFY|make a draft event from this email
+410|*PLANNER|open the project for my next meeting
+411|*PLANNER|research this message's topic using official sources
+412|find_file|knowledge_search|find files on my pc related to this message
+413|todo|*PLANNER|*CLARIFY|turn this notification into a task
+414|watch_op.when|let me know when this long task is done
+415|watch_op.when|only notify me if this workflow fails
+416|standing_rule|keep non urgent notifications quiet during my quiet hours
+417|resource_usage|system_op.status|which process is eating my cpu
+418|resource_usage|system_op.status|how much memory am I using
+419|resource_usage|system_op.status|how busy is the gpu
+420|system_op.status|how much free disk space do I have
+421|network_info|is the computer connected to the internet
+422|system_op.status|how long has this pc been running
+423|battery_status|how much charge does my laptop have
+424|system_op.audio|which speaker is being used right now
+425|volume_set|turn the volume to 35 percent
+426|volume_mute|volume_set|mute the computer
+427|volume_unmute|volume_set|unmute the sound
+428|system_op.audio|switch the audio output to my headphones
+429|task_status|what are you working on right now
+430|previous_outcome|what went wrong with the last command
+431|cancel_task|cancel the task in the foreground
+432|cancel_task|cancel only the background work
+433|pause_task|pause the workflow
+434|resume_task|resume the paused task
+435|task_status|list the jobs running in the background
+436|task_status|is any task stuck
+437|system_diagnostics|jarvis_availability|run a health check on jarvis
+438|jarvis_availability|which jarvis components are down
+439|system_op.models|which local models are available
+440|system_op.models|unload the vision model after this
+441|system_op.models|keep the planner model loaded this session
+442|standing_rule|system_op.models|ease off background work while I'm dictating
+443|workflow_op.run|start my morning routine
+444|workflow_op.preview|preview what this workflow is going to do
+445|pause_task|workflow_op.pause|stop after the current verified step
+446|resume_task|workflow_op.resume|continue from the last safe point
+447|workflow_op.cancel_schedule|cancel tomorrow's scheduled run
+448|workflow_op.schedule|*CLARIFY|do this every morning
+449|watch_op.download_done|watch_op.when|ping me when this download completes
+450|watch_op.when|notify me when a pdf shows up in this folder
+451|watch_op.when|let me know when antigravity closes
+452|watch_op.when|let me know when my phone connects again
+453|watch_op.when|tell me when this page changes
+454|watch_op.ide_done|watch_op.when|let me know when it has finished generating
+455|watch_op.skip_ads|skip ads as soon as the skip button appears
+456|watch_op.when|alert me only if the build fails
+457|workflow_op.create|turn these steps into a workflow
+458|workflow_op.clone|duplicate this workflow
+459|workflow_op.disable|turn this workflow off
+460|workflow_op.enable|*CLARIFY|switch it back on
+461|workflow_op.run|run the workflow with downloads as the folder
+462|*PLANNER|run the tests and search the docs at the same time
+463|*PLANNER|if the tests pass open the report, if not show the errors
+464|*PLANNER|*CLARIFY|try that read only search a different way
+465|previous_outcome|recent_actions|what did you retry and why
+466|*PLANNER|tell me the steps you would take but don't do them
+467|*PLANNER|previous_outcome|why did you choose those steps
+468|cancel_task|stop all jarvis tasks right now
+469|*PLANNER|find my latest report, summarise it, then open the official docs
+470|*PLANNER|look up the docs while the tests are running
+471|compound|*PLANNER|first find the file then open the folder it is in
+472|standing_rule|if a step that doesn't depend on others fails, keep going with the rest
+473|*CLARIFY|send this to arun
+474|*CLARIFY|throw that away
+475|*CLARIFY|use this strange tool for something
+476|*CHAT|what is whatsapp for
+477|*PLANNER|what's ollama? install it and then open it
+478|*PLANNER|open this pdf and tell me what it is about
+479|*PLANNER|list my pdfs, then open the second
+480|*PLANNER|*CHAT|*CLARIFY|talk about cuda, then switch back to ollama
+481|find_file|pdfs about cnn from this week in downloads
+482|open_app|use chrome, no actually edge
+483|*CLARIFY|localsend_file|send the pdf but not the screenshot
+484|*CLARIFY|send it to him
+485|open_file|*CLARIFY|open the file I had open earlier
+486|resume_task|workflow_op.resume|*PLANNER|resume from the last step that was verified
+487|file_op.relocate|*PLANNER|*CLARIFY|the file was moved, find it and carry on
+488|refresh_applications|*PLANNER|the app got updated, find its new exe
+489|*PLANNER|*CLARIFY|the page changed, find that control again
+490|standing_rule|dictation_mode_control|I switched windows, only continue typing once I'm back
+491|standing_rule|keep doing the pc parts if my phone disconnects
+492|standing_rule|only use a bigger model when the small one isn't sure
+493|standing_rule|use vision only when the accessibility tree can't find it
+494|ui_op.explain|why is it not letting me continue
+495|*PLANNER|compare what these two windows show
+496|*PLANNER|compare my pdf against the official documentation
+497|*PLANNER|*CLARIFY|explain the difference using these files and this page
+498|phone_op.open_url|*CLARIFY|*PLANNER|carry on with this on my phone
+499|capture_note|*PLANNER|*CLARIFY|add this to my project notes
+500|file_op.open_with|*CLARIFY|open this with an app that can edit it
+501|open_app|I need a place to jot down a quick note
+502|media_control|pause_task|video_op.pause|pause that
+503|watch_op.when|press the button as soon as it shows up
+504|watch_op.ide_done|watch_op.when|let me know when antigravity is done
+505|task_status|what are you doing at the moment
+506|previous_outcome|what exactly went wrong
+507|recent_actions|previous_outcome|are you sure that message went through
+508|standing_rule|if you can't tell whether it sent, don't send it again
+509|*PLANNER|plan it out but don't run anything
+510|gmail_create_draft|*PLANNER|*CLARIFY|draft the email but don't send it
+511|find_file|*CLARIFY|*PLANNER|search only the current folder
+512|whatsapp_auto_reply|take care of yoga's messages for 30 minutes
+513|response_policy|keep your answers short for this session
+514|reply_whatsapp_message|whatsapp_auto_reply|*CLARIFY|reply to yoga the way I normally do
+515|ui_op.explain|find the disabled continue button and tell me what's blocking it
+516|watch_op.when|once the download completes, open the folder it's in
+517|*PLANNER|download the pdf, push it to my phone and open the folder on the pc
+518|*PLANNER|look up this error and put the fix into my ide prompt
+519|watch_op.when|*PLANNER|keep an eye on the build while I work on something else
+520|system_op.audit|*PLANNER|which capability is missing for this task
