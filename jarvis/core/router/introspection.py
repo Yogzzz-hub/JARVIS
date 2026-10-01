@@ -92,7 +92,8 @@ def classify(text: str) -> Optional[tuple[str, dict]]:
     # 2. resource usage ("the paragraph that discusses memory usage" is a topic, "attached resources" are attachments)
     topic = re.search(r"\b(?:discuss\w*|mention\w*|about|regarding|talks?\s+about|explain\w*|describ\w*|covers?|paragraph|section|"
                       r"chapter|article|page|document|pdf|notes?|essay|report|slides?|attach\w*)\b", rest)
-    if not topic and (re.search(r"\b(?:utili[sz]ation|resources?\s+(?:usage|use|used)|(?:memory|ram)\b(?:\s+\w+){0,2}?\s+(?:usage|use|used|load|consum\w*))\b", rest)
+    # the phone's memory is the phone's state, not this PC's
+    if not topic and not re.search(r"\b(?:phone|mobile|android)\b", rest) and (re.search(r"\b(?:utili[sz]ation|resources?\s+(?:usage|use|used)|(?:memory|ram)\b(?:\s+\w+){0,2}?\s+(?:usage|use|used|load|consum\w*))\b", rest)
             or (re.search(r"\b(?:cpu|processor|gpu|vram|ram)\b", rest)
                 and re.search(r"\b(?:usage|use|used|using|load|loaded|percent|how\s+(?:busy|hard)|busy|utili[sz]\w*|right\s+now|"
                               r"current(?:ly)?|live|consum\w*)\b|%", rest)
@@ -106,7 +107,7 @@ def classify(text: str) -> Optional[tuple[str, dict]]:
             and re.search(r"\b(?:fail\w*|succe\w*|complet\w*|finish\w*|result\w*|outcome|happen\w*|went|go|status|error\w*|wrong|work\w*|"
                           r"done|skip\w*|broke\w*)\b", rest):
         return "previous_outcome", slots
-    if re.fullmatch(r"(?:what|which\s+\w+)\s+(?:failed|went\s+wrong|broke)(?:\s+(?:just\s+now|last\s+time|earlier))?", rest):
+    if re.fullmatch(r"(?:what|which\s+\w+)\s+(?:(?:exactly|actually|just)\s+)?(?:failed|went\s+wrong|broke)(?:\s+(?:just\s+now|last\s+time|earlier))?", rest):
         return "previous_outcome", slots
 
     # 5. which parts work / are down (needs a component word: "what are you working on" is about tasks)

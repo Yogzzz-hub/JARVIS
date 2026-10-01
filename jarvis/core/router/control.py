@@ -74,13 +74,22 @@ _STOP_ALL = re.compile(
 _PAUSE_TASK = re.compile(
     r"^(?:please\s+)?pause\s+(?:just\s+|only\s+)?(?:the\s+|this\s+|my\s+)?(?:current\s+|running\s+)?(?:task|job|workflow|work|plan)"
     r"(?:\s+only)?$|^(?:pause|stop|halt)\s+(?:right\s+)?after\s+(?:the\s+)?(?:current|this|next)\s+(?:verified\s+)?step$")
+_CANCEL_TASK = re.compile(
+    r"^(?:please\s+)?(?:cancel|stop|abort|kill|end|terminate)\s+(?:the\s+|my\s+|that\s+)?(?:pc\s+|laptop\s+|computer\s+)"
+    r"(?:(?P<bg>background)\s+|running\s+|current\s+)?(?:task|job|workflow|work)s?$")
 _RESUME_TASK = re.compile(
-    r"^(?:please\s+)?(?:resume|unpause|continue|carry\s+on\s+with)\s+(?:the\s+|my\s+|that\s+)?(?:paused\s+)?(?:task|job|workflow|work|plan)"
+    r"^(?:please\s+)?(?:resume|unpause|continue|carry\s+on\s+with)\s+(?:the\s+|my\s+|that\s+)?(?:paused\s+)?(?:pc\s+|laptop\s+|computer\s+)?"
+    r"(?:paused\s+)?(?:task|job|workflow|work|plan)"
     r"(?:\s+(?:I|i)\s+paused.*)?$|^resume\s+(?:it|that)$|^(?:continue|resume|carry\s+on|pick\s+up)\s+(?:from\s+)?(?:where\s+(?:it|you|we)"
     r"\s+(?:safely\s+)?(?:stopped|left\s+off|paused)|(?:the\s+)?last\s+(?:verified|safe|good)\s+(?:step|point))$")
 
 
 def _task_control(cleaned: str):
+    # where the owner says it from is not part of the request: "cancel the PC task from my phone"
+    cleaned = re.sub(r"\s+(?:from|on|via|using|through)\s+(?:my\s+|the\s+)?(?:phone|mobile|android)$", "", cleaned)
+    m = _CANCEL_TASK.match(cleaned)
+    if m:
+        return "cancel_task", {"scope": "background" if m.group("bg") else "foreground", "keep_listening": True}
     if _STOP_ALL.match(cleaned):
         return "cancel_task", {"scope": "all", "keep_listening": True}
     if _PAUSE_TASK.match(cleaned):

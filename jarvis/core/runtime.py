@@ -292,7 +292,39 @@ class Runtime:
                 self.bus.emit("operator.watch", "", text=text)
                 asyncio.run_coroutine_threadsafe(self._announce(text), loop)
 
-            get_watch_manager()._notify = notify
+            def dispatch(text: str):
+                # A fresh, empty context: the follow-up gets its own route, policy check and task-scope grant
+                # instead of inheriting whatever command happened to be running on the watch thread.
+                import concurrent.futures
+                import contextvars
+                from jarvis.core.commands.contracts import CommandRequest
+                req = CommandRequest(text=text, source="cli", metadata={"origin": "watch"})
+                done: concurrent.futures.Future = concurrent.futures.Future()
+
+                def start() -> None:
+                    task = loop.create_task(self.service.handle(req))
+
+                    def finished(t: asyncio.Task) -> None:
+                        if t.cancelled():
+                            done.cancel()
+                        elif t.exception() is not None:
+                            done.set_exception(t.exception())
+                        else:
+                            done.set_result(t.result())
+
+                    task.add_done_callback(finished)
+
+                loop.call_soon_threadsafe(start, context=contextvars.Context())
+                return done
+
+            wm = get_watch_manager()
+            wm._notify = notify
+            from jarvis.tools.system.operator_tools import _get_hub
+            _get_hub().tasks = self.service.tasks
+            _get_hub().registry = self.registry
+            wm.dispatch = dispatch
+            from jarvis.core.operator.workflows import get_workflows
+            get_workflows().start(dispatch)
         except Exception as exc:
             logging.getLogger("jarvis.runtime").debug("Operator start failed: %s", exc)
 

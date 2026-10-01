@@ -402,7 +402,8 @@ def classify_dictation_turn(text: str, state: DictationState) -> Optional[Dictat
                 text=m_start_colon.group("txt").strip(),
             )
 
-        m_start_app = re.match(r"^(?:start typing|start dictation|begin typing|type mode)(?:\s+(?:in|into|on)\s+(?P<app>[\w\s]+?))?$", lowered)
+        m_start_app = re.match(r"^(?:start typing|start dictation|begin typing|type mode)(?:\s+(?:here|in this (?:box|field|text ?box)|"
+                               r"(?:in|into|on)\s+(?P<app>[\w\s]+?)))?$", lowered)
         if m_start_app:
             return DictationTurn(
                 turn_type=DictationTurnType.START_DICTATION,

@@ -63,6 +63,16 @@ _KEEP_WHILE = re.compile(r"^keep\s+.{2,60}\s+(?:responsive|running|alive|availab
                          r"(?:while|whenever|during|when)\b")
 _IGNORE = re.compile(r"^(?:always\s+)?(?:ignore|disregard)\s+(?:any\s+|all\s+|the\s+)?(?:instructions?|commands?|prompts?|requests?|orders?|"
                      r"text)\s+(?:written\s+|found\s+|that\s+(?:appear|are)\s+|you\s+(?:see|find)\s+)?(?:in|inside|within|from|on)\b")
+# "pause if I leave this editor", "use vision only if the tree can't find it", "reduce background work while I'm
+# dictating": a behaviour verb bound to a condition about the owner or JARVIS - how to behave from now on, not a step
+_POLICY_IF = re.compile(r"^(?:[^;]{3,60};\s*)?(?:please\s+)?(?:only\s+)?(?:(?P<verb>pause|stop|wait|hold|resume|continue|keep\s+going|"
+                        r"reduce|lower|limit|avoid|fall\s+back)\b(?P<body>[^,;]{0,80}?)\s+(?:only\s+)?|(?P<verb2>use|prefer|switch|"
+                        r"suggest|draft)\b(?P<body2>[^,;]{0,80}?)\s+only\s+)(?:if|when|whenever|while|unless|during|until)\s+"
+                        r"(?P<cond>.{3,120})$")
+_HOLD = re.compile(r"^(?:please\s+)?hold\s+(?:back\s+)?(?:all\s+|any\s+)?(?:[\w-]+\s+)?(?:replies|messages|notifications|alerts|"
+                   r"sends?)\b")
+_DONT_SEND = re.compile(r"^(?:only\s+)?(?:suggest|propose|draft)\s+(?:my\s+|the\s+)?(?:replies|responses|answers)\b.*\b(?:but|and)\s+"
+                        r"(?:don'?t|do\s+not|never)\s+(?:send|post|reply)\b")
 _LATER_IF = re.compile(r"^(?:unload|free|release|swap)\b.*\b(?:if|when|once|after)\b")
 # "tell me when the documents don't contain enough information": how answers should behave, not a one-off question
 _TELL_IF_SOURCES = re.compile(r"^(?:tell|let|warn|alert)\s+me\s+(?:know\s+)?(?:when(?:ever)?|if)\s+(?:the\s+|my\s+)?(?:documents?|"
@@ -130,6 +140,16 @@ _APPROVE_FIRST = re.compile(r"\b(?:create|send|post|submit|make|book|share|uploa
                             r"check\w*|permission|consent|ask\w*)\b")
 
 
+def _conditional_policy(t: str) -> bool:
+    m = _POLICY_IF.match(t)
+    if not m:
+        return False
+    from jarvis.core.router.capability_intents import _condition
+    if _condition(m.group("cond")) is not None and (m.group("verb") or m.group("verb2")) not in ("stop", "pause", "wait", "hold"):
+        return False      # "continue the transfer when my phone reconnects": an observable event - a watch, not a rule
+    return True
+
+
 def standing_rule(text: str) -> Optional[dict]:
     """{"rule", "topic", "built_in", "reply"} when the sentence states how JARVIS should behave from now on."""
     raw = " ".join((text or "").replace("’", "'").split()).strip()
@@ -141,7 +161,8 @@ def standing_rule(text: str) -> Optional[dict]:
     scoped = _SCOPE.search(raw.lower()) or re.search(r"\bwithout\s+(?:my|your|asking|showing|telling|checking)\b", t)
     is_rule = bool(neg and (scoped or _META.match(neg.group("body")))) or bool(_IGNORE.match(t)) \
         or bool(cond and _POLICY_THEN.match(cond.group("then"))) \
-        or bool(_PREFER.match(t) or _KEEP_WHILE.match(t) or _LATER_IF.match(t) or _TELL_IF_SOURCES.match(t))
+        or bool(_PREFER.match(t) or _KEEP_WHILE.match(t) or _LATER_IF.match(t) or _TELL_IF_SOURCES.match(t)) \
+        or bool(_HOLD.match(t) or _DONT_SEND.search(t)) or _conditional_policy(t)
     if not is_rule:
         return None
     rule = raw.rstrip(" .!") + "."

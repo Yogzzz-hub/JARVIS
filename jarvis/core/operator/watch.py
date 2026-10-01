@@ -47,6 +47,9 @@ class WatchManager:
         self._thread: Optional[threading.Thread] = None
         self._wake = threading.Event()
         self._stop = False
+        # Re-runs the owner's own deferred command ("when X, open it") through CommandService - fresh route,
+        # fresh policy, fresh task-scope grant. Set by the runtime; None means "announce only".
+        self.dispatch: Optional[Callable[[str], None]] = None
 
     def add(self, w: Watch, timeout_s: float = 1800.0) -> Watch:
         now = self._clock()
@@ -226,6 +229,37 @@ class WatchManager:
                   act=lambda: message, interval=interval, max_actions=1)
         self.add(w, timeout_s)
         return OperatorOutcome(True, f"I'll let you know when {description}.", evidence={"watch_id": w.id})
+
+    def when(self, kind: str, description: str, predicate: Callable[[], bool], then: str = "", message: str = "",
+             interval: float = 2.0, timeout_s: float = 3600.0,
+             also_notify: Optional[Callable[[str], None]] = None) -> OperatorOutcome:
+        """Conditional follow-up: when ``predicate`` turns true, announce it and (if given) run ``then`` - the
+        owner's own words captured when they asked - as a new command. Nothing runs early; on timeout nothing runs."""
+        said = message or f"{description[:1].upper()}{description[1:]}."
+
+        def act():
+            if also_notify is not None:
+                try:
+                    also_notify(said)
+                except Exception as e:
+                    logger.info("watch notification failed: %s", e)
+            if then and self.dispatch is not None:
+                try:
+                    self.dispatch(then)
+                except Exception as e:
+                    logger.info("watch follow-up %r failed: %s", then, e)
+                    return f"{said} I couldn't start '{then}': {e}"
+                return f"{said} Now: {then}."
+            return said
+
+        def check():
+            v = predicate()                      # True -> fire; "done_silent" -> scope over, nothing to say
+            return v if isinstance(v, str) else ("done" if v else None)
+
+        w = Watch(kind=kind, description=description, check=check, act=act, interval=interval, max_actions=1)
+        self.add(w, timeout_s)
+        tail = f", then {then}" if then else ""
+        return OperatorOutcome(True, f"Watching: when {description}{tail}.", evidence={"watch_id": w.id, "then": then})
 
 
 _mgr: Optional[WatchManager] = None

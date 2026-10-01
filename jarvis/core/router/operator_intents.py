@@ -95,7 +95,8 @@ _VERBS = ("go switch return take bring jump flip head open launch start show mak
           "notify watch stop cancel previous window windows other second third fourth fifth first last result results link "
           "video videos screenshot download phone mobile prompt agent changes edits suggestions seconds minutes minute "
           "second hours automatically characters italic times watching installer updates refresh three four five "
-          "seven eight third fifth phone paste refresh sidebar response discard skipping image")
+          "seven eight third fifth phone paste refresh sidebar response discard skipping image symbol definition "
+          "references attachment notification workflow slider dropdown recording settings bluetooth problems")
 _OP_VOCAB: frozenset[str] = frozenset(
     w for w in re.findall(r"[a-z]{4,}", " ".join((_IDES, _APPS, _FAMILY, _ROLE, _UNITS, _RESOURCE, _VERBS)))
 )
@@ -114,6 +115,9 @@ def _repair(t: str) -> str:
             cands = [v for v in _OP_VOCAB if v[0] == w[0] and len(v) == 5 and _edit_distance(w, v) == 1]
         else:
             cands = [v for v in _OP_VOCAB if v[0] == w[0] and abs(len(v) - len(w)) <= 1 and _edit_distance(w, v) <= 1]
+        # an inflection is not a typo: "deleted" is not "delete", "paragraph" is not "paragraphs"
+        cands = [v for v in cands if not (v.startswith(w) and v[len(w):] in ("s", "d", "es", "ed")
+                                          or w.startswith(v) and w[len(v):] in ("s", "d", "es", "ed"))]
         if len(cands) > 1:   # prefer the word the typo drops a letter from ("miute" -> "minute", not "mute")
             longer = [v for v in cands if len(v) == len(w) + 1]
             cands = longer if len(longer) == 1 else cands
@@ -144,7 +148,8 @@ def _clean(t: str) -> str:
 
 
 def _single(t: str, raw: str, rid: str, mode: str) -> Optional[RouteDecision]:
-    for fn in (_window, _deliver, _ide, _text_edit, _video, _watch, _browser, _ui):
+    from jarvis.core.router.capability_intents import match_capability
+    for fn in (match_capability, _window, _deliver, _ide, _text_edit, _video, _watch, _browser, _ui):
         d = fn(t, raw, rid, mode)
         if d is not None:
             # an object slot that swallowed a second step ("the second result in a new tab and find pricing") means
@@ -157,8 +162,8 @@ def _single(t: str, raw: str, rid: str, mode: str) -> Optional[RouteDecision]:
 
 
 def match_operator(t: str, raw: str, request_id: str, mode: str = "") -> Optional[RouteDecision]:
-    """t: lower-cased routing text; raw: original wording; mode: app family in front ('' when unknown)."""
-    t = _clean(t)
+    """t: routing text; raw: original wording (its casing is kept for typed text); mode: app family in front."""
+    t = _clean(t.lower())
     if not t:
         return None
     d = _single(t, raw, request_id, mode)
@@ -290,12 +295,17 @@ def _deliver(t, raw, rid, mode):
             re.sub(r"^(the|my)\s+|\s+window$", "", sc).strip()
     m = re.match(rf"^(?P<verb>paste|attach|put|drop|insert|add|upload|send|share|throw|give|transfer|push)\s+"
                  rf"(?P<res>(?:the |that |this |my |it|them|those)?(?:last |latest |recent |new |same )?"
-                 rf"(?:phone |pc |laptop |computer |screen |desktop )?(?:{_RESOURCE})?"
+                 rf"(?:phone |pc |laptop |computer |screen |desktop |browser |chrome |edge |window |app )?(?:{_RESOURCE})?"
                  rf"(?:\s+(?:i|you)\s+(?:just\s+)?(?:took|made|captured|copied|downloaded|got))?)\s+"
-                 rf"(?:in|into|to|onto|on|inside|over to|in the|to the)\s+(?P<dest>.+)$", rest)
+                 rf"(?:in|into|to|onto|on|inside|over to|in the|to the)\s+(?P<dest>.+)$", rest) or \
+        re.match(r"^(?P<verb>paste|attach|put|drop|insert)\s+(?P<res>(?:the |that |this |my )?(?:last |latest |new )?"
+                 r"(?:screenshot|screen shot|image|picture|photo|file|pdf|document|report|download|downloaded file|link|url))\s+"
+                 r"(?P<dest>here)$", rest)
     if not m:
         return None
     verb, res, dest = m.group("verb"), (m.group("res") or "it").strip(), m.group("dest").strip()
+    if dest == "here":
+        dest = "this window"
     dest = re.sub(r"^(?:the|my)\s+", "", dest)
     if not capture_first and not re.search(rf"\b(?:{_RESOURCE})\b", res):
         return None

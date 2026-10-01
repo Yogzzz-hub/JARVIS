@@ -113,7 +113,8 @@ FOLLOWUP = re.compile(
     rf"|^what\s+(?:did|have)\s+{_U}\s+(?:actually\s+|really\s+|even\s+)?(?:just\s+)?(?:send|sent|write|wrote|type|typed|say|said|reply|replied|do|done|open|opened)"
     rf"|^what\s+(?:was|is)\s+(?:the|that|your|my)\s+(?:message|msg|reply|last\s+(?:message|reply|action|command))"
     rf"|^what\s+(?:just\s+)?happened|^what\s+was\s+that"
-    rf"|^(?:did|has|was)\s+(?:it|that|the\s+message|the\s+msg|my\s+message)\s+(?:get\s+|been\s+)?(?:sen[dt]|delivered|work|go\s+through|done)"
+    rf"|^(?:did|has|was)\s+(?:it|that|the\s+message|the\s+msg|my\s+message|that\s+(?:message|msg|text|mail|email|reply))\s+"
+    rf"(?:(?:actually|really|definitely|even|successfully|properly)\s+)?(?:get\s+|been\s+)?(?:sen[dt]|delivered|work|go\s+through|done)"
     rf"|^did\s+{_U}\s+(?:send|sent|do|open|finish|reply)\s+(?:it|that|the\s+message)"
     rf"|^(?:repeat\s+that|say\s+that\s+again|come\s+again|what\s+did\s+{_U}\s+say)"
     rf"|^where\s+did\s+{_U}\s+(?:save|put|send)\s+(?:it|that)"
@@ -131,7 +132,8 @@ FOLLOWUP = re.compile(
     rf"|^(?:say|repeat)\s+(?:that|it)\s+(?:again|one\s+more\s+time|once\s+more|1\s+more\s+time)|^(?:pardon|sorry)\s*\??$|^come\s+again"
     rf"|^did\s+my\s+(?:message|msg|text|whatsapp|mail|email)\s+(?:to\s+[a-z .'-]{{1,30}}?\s+)?(?:go(?:\s+through|\s+out)?|get\s+(?:sent|delivered|there|through)|send|reach|arrive|land)$"
     rf"|^who\s+did\s+{_U}\s+(?:just\s+)?(?:message|text|send\s+(?:it|that|a\s+message)\s+to|reply\s+to)"
-    rf"|^what\s+(?:actually\s+)?failed|^why\s+did\s+(?:it|that|the\s+task|the\s+command)\s+fail"
+    rf"|^what\s+(?:actually\s+|exactly\s+|just\s+)?failed|^what\s+did\s+{_U}\s+(?:retry|re-?try|skip|undo|redo|roll\s+back|"
+    rf"verify|check|change|fix)\b|^why\s+did\s+(?:it|that|the\s+task|the\s+command)\s+fail"
     rf"|^which\s+(?:step|action|part)\s+failed|^what\s+went\s+wrong")
 
 
@@ -149,7 +151,7 @@ def answer_followup(text: str, log: Optional[ActionLog] = None) -> str:
     last = log.last() or log.last(include_chat=True)
     if last is None:
         return "I haven't done anything for you in the last few hours."
-    if re.search(r"\b(?:what\s+failed|why\s+did\s+(?:it|that|the\s+task)\s+fail|which\s+step\s+failed|what\s+went\s+wrong)\b", t):
+    if re.search(r"\b(?:what\s+(?:exactly\s+|actually\s+)?failed|why\s+did\s+(?:it|that|the\s+task)\s+fail|which\s+step\s+failed|what\s+went\s+wrong)\b", t):
         if last.ok:
             return f"The last action ({last.describe()}) succeeded without errors."
         return f"{last.describe()} failed: {last.reply or last.extra.get('reason') or last.state.lower()}."

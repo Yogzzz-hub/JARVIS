@@ -200,7 +200,10 @@ class IDEOperator:
                   "save_all": "ctrl+k s", "close_tab": "ctrl+w", "next_tab": "ctrl+tab", "previous_tab": "ctrl+shift+tab",
                   "go_to_line": "ctrl+g", "find": "ctrl+f", "find_in_files": "ctrl+shift+f", "format": "shift+alt+f",
                   "comment": "ctrl+/", "explorer": "ctrl+shift+e", "agent_panel": "ctrl+alt+b", "zoom_in": "ctrl+=",
-                  "zoom_out": "ctrl+-", "split_editor": "ctrl+\\", "undo": "ctrl+z", "redo": "ctrl+y"}
+                  "zoom_out": "ctrl+-", "split_editor": "ctrl+\\", "undo": "ctrl+z", "redo": "ctrl+y",
+                  "definition": "f12", "references": "shift+f12", "rename": "f2", "problems": "ctrl+shift+m",
+                  "output": "ctrl+shift+u", "symbol": "ctrl+t", "open_recent": "ctrl+r", "search": "ctrl+shift+f",
+                  "terminal": "ctrl+`", "editor": "ctrl+1", "escape": "escape"}
         seq = chords.get(action)
         if not seq:
             return OperatorOutcome(False, f"I don't know the IDE action '{action}'.", needs="clarify")
@@ -218,3 +221,79 @@ class IDEOperator:
             return w
         from jarvis.core.operator.screen import ScreenOperator
         return ScreenOperator(self._desktop).read(w.resource, adapter=self._adapter_factory(w.resource))
+
+    # -- navigation, panels, agent control, errors (each through the IDE's own keys/buttons) ---------------------
+    PANELS = {"explorer": "explorer", "files": "explorer", "terminal": "terminal", "agent": "agent_panel",
+              "chat": "agent_panel", "problems": "problems", "errors": "problems", "output": "output",
+              "search": "search", "editor": "editor", "code": "editor", "sidebar": "toggle_sidebar"}
+
+    def panel(self, name: str, ide: str = "") -> OperatorOutcome:
+        key = self.PANELS.get((name or "").lower().strip())
+        if not key:
+            return OperatorOutcome(False, f"Which panel - {', '.join(sorted(set(self.PANELS)))}?", needs="clarify")
+        return self.key(key, ide=ide)
+
+    def goto(self, kind: str, text: str = "", ide: str = "") -> OperatorOutcome:
+        """symbol / search / open_recent: open the IDE's own picker and type the query (never presses run)."""
+        out = self.key(kind, ide=ide)
+        if out.ok and text:
+            self.desktop.type_text(text)
+            out.message = f"{out.message} Looking for '{text}'."
+        return out
+
+    def rename_symbol(self, new_name: str, ide: str = "") -> OperatorOutcome:
+        """F2 rename of the symbol under the cursor; the IDE's refactor is undoable with Ctrl+Z."""
+        if not re.fullmatch(r"[A-Za-z_$][\w$]{0,80}", new_name or ""):
+            return OperatorOutcome(False, "What should the new name be?", needs="clarify")
+        out = self.key("rename", ide=ide)
+        if not out.ok:
+            return out
+        d = self.desktop
+        d.press(parse_chord("ctrl+a"))
+        d.type_text(new_name)
+        d.press(parse_chord("enter"))
+        return OperatorOutcome(True, f"Renamed the symbol to {new_name} (Ctrl+Z undoes it).", resource=out.resource,
+                               evidence={"verified": None})
+
+    def stop(self, ide: str = "") -> OperatorOutcome:
+        """Cancel the agent's current generation via its own Stop button."""
+        w, adapter, bad = self._ready(ide)
+        if bad:
+            return bad
+        if adapter is None:
+            return OperatorOutcome(False, "I can't see the IDE's buttons.", needs="vision")
+        if self.generating(ide) is False:
+            return OperatorOutcome(True, "The agent isn't running anything.", resource=w)
+        for name in BUSY_NAMES:
+            out = self.ui.invoke(adapter, UITarget(name=name, role="button"), approved=True)
+            if out.ok:
+                ok = self.desktop.wait_until(lambda: self.generating(ide) is False, timeout=5.0)
+                return OperatorOutcome(ok, "Stopped the agent." if ok else "I pressed Stop; it still looks busy.",
+                                       resource=w, evidence={"verified": ok})
+        return OperatorOutcome(False, "I don't see a Stop button.")
+
+    def problems(self, ide: str = "") -> OperatorOutcome:
+        """Open the Problems panel and read it back (as data)."""
+        out = self.key("problems", ide=ide)
+        if not out.ok:
+            return out
+        read = self.read_response(ide)
+        if read.ok:
+            read.evidence = dict(read.evidence or {}, untrusted=True)
+        return read
+
+    def attachments(self, ide: str = "", remove: str = "") -> OperatorOutcome:
+        """List the chips on the agent prompt, or remove one (the first / named / all) via its own remove button."""
+        w, adapter, bad = self._ready(ide)
+        if bad:
+            return bad
+        if adapter is None:
+            return OperatorOutcome(False, "I can't see the IDE's prompt box.", needs="vision")
+        if remove:
+            return self.ui.remove_attachment(adapter, remove)
+        chips = [c for c in adapter.snapshot() if (c.role or "").lower() in ("chip", "listitem", "button")
+                 and re.search(r"\.(png|jpe?g|gif|pdf|txt|md|py|ts|js|json)$|attachment|image", c.name or "", re.I)
+                 and not re.search(r"^(remove|delete|close)\b", c.name or "", re.I)]
+        return OperatorOutcome(True, "; ".join(c.name for c in chips) or "Nothing is attached.", resource=w,
+                               evidence={"count": len(chips), "untrusted": True})
+

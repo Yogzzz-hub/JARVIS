@@ -261,6 +261,12 @@ def stop_everything(tasks, current) -> tuple[str, dict]:
         watches = get_watch_manager().cancel()
     except Exception:
         pass
+    workflows = 0
+    try:
+        from jarvis.core.operator.workflows import get_workflows
+        workflows = get_workflows().cancel_running()
+    except Exception:
+        pass
     dictation = False
     try:
         from jarvis.core.desktop.dictation_controller import get_dictation_controller
@@ -275,9 +281,12 @@ def stop_everything(tasks, current) -> tuple[str, dict]:
         parts.append(f"{len(cancelled)} task{'s' if len(cancelled) != 1 else ''}")
     if watches:
         parts.append(f"{watches} watch{'es' if watches != 1 else ''}")
+    if workflows:
+        parts.append(f"{workflows} workflow{'s' if workflows != 1 else ''}")
     if dictation:
         parts.append("dictation")
     msg = ("Stopped " + ", ".join(parts) + ". Steps already in progress may finish.") if parts else \
         "Nothing was running - everything is already stopped."
-    return msg + " I'm still listening.", {"cancelled": cancelled, "watches": watches, "dictation": dictation,
+    return msg + " I'm still listening.", {"cancelled": cancelled, "watches": watches, "workflows": workflows,
+                                           "dictation": dictation,
                                            "scope": "all", "listening": True}

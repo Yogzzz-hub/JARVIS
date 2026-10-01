@@ -6,6 +6,7 @@ from jarvis.core.commands.contracts import CommandRequest
 from jarvis.core.router.cache import HotRouteCache
 from jarvis.core.router.catalog import IntentCatalog
 from jarvis.core.router.complexity import check_complexity_gate, check_deterministic_compound
+from jarvis.core.router.capability_intents import is_read_action
 from jarvis.core.router.control import match_control
 from jarvis.core.router.disambiguation import disambiguate_app
 from jarvis.core.router.fuzzy import match_fuzzy
@@ -61,6 +62,10 @@ _QUALIFIED: ContextVar[bool] = ContextVar("router_qualified", default=False)  # 
 _RUN_UP = re.compile(r"^\W*(?:(?:hey|ok|okay|hi)\s+)?(?:jarvis\W+)?(?:um+|uh+|so)?\W*(?:when(?:ever)?\s+you\s+(?:get|have)\s+a\s+"
                      r"(?:sec(?:ond)?|minute|moment|chance)|if\s+you\s+(?:can|could|don'?t\s+mind)|real\s+quick|quick\s+one)"
                      r"\s*,\s*", re.I)
+# "open my project on the PC" (said from the phone or not): this PC is where JARVIS acts by default
+_ACT_HERE = re.compile(r"^\W*(?:(?:hey|ok|okay)\s+)?(?:jarvis\W+)?(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:open|launch|start|run|"
+                       r"show|play|bring|close|switch|take|make|create|put)\b", re.I)
+_ON_THIS_PC = re.compile(r"\s+(?:on|in)\s+(?:my|the|this)\s+(?:pc|computer|laptop)(?=\W*$)", re.I)
 
 
 class SmartRouter:
@@ -165,6 +170,13 @@ class SmartRouter:
                 request = request.model_copy(update={"text": english})
         except Exception:
             pass
+        dashed = re.sub(r"\s*[\u2014\u2013]\s*", ", ", request.text or "")     # "use Chrome—actually Edge"
+        if dashed != request.text and dashed.strip():
+            request = request.model_copy(update={"text": dashed})
+        if not re.search(r"\b(?:phone|mobile|android)\b", request.text or "", re.I) and _ACT_HERE.match(request.text or ""):
+            here = _ON_THIS_PC.sub("", request.text or "")
+            if here != request.text and len(here.split()) >= 2:
+                request = request.model_copy(update={"text": here})
         run_up = _RUN_UP.sub("", request.text or "", count=1)
         if run_up != request.text and run_up.strip():
             # "hey jarvis, when you get a sec, switch to the gmail tab": politeness before the command, not a condition
@@ -402,8 +414,7 @@ class SmartRouter:
             decision.intent in ("get_time", "quick_answer", "wifi_status", "contact_info", "knowledge_search", "document_qa",
                                 "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get",
                                 "project_logs", "project_discover", "database_status", "git_diff", "code_search") or \
-            (decision.intent.endswith("_op") and (decision.slots or {}).get("action") in (
-                "status", "read", "state", "tab_list", "results", "list", "find"))  # operator reads: "is antigravity done"
+            is_read_action(decision.intent, decision.slots or {})  # operator reads: "is antigravity done"
         if self._STATE_QUESTION.match(clean) and not looks_up and not self._is_read_only(decision.intent):
             return chat()
         return decision
@@ -413,7 +424,8 @@ class SmartRouter:
     async def _last_clause(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         """'before i forget, open brave' / 'someone's coming, minimize everything': when the whole sentence is not
         understood, the command after a leading remark is. Only an action found that way is taken."""
-        weak = decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY) and decision.reason_code != ReasonCode.QUESTION_NOT_COMMAND
+        weak = decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY) and decision.reason_code != ReasonCode.QUESTION_NOT_COMMAND \
+            and not (decision.slots or {}).get("deliberate_plan")   # a branch / parallel request planned on purpose
         if not weak or _IN_CLAUSE.get():
             return decision
         m = self._REMARK_THEN_COMMAND.match(clean_for_matching(request.text or "").strip())
@@ -455,6 +467,17 @@ class SmartRouter:
                     return decision.model_copy(update={"slots": {**decision.slots, "recipient": m.group("who"),
                                                                  "message": m.group("msg").strip()}})
             who = "to"  # unknown: ask who it is for
+        msg = str((decision.slots or {}).get("message") or "").strip(" .!?'\"").lower()
+        if decision.intent in ("send_whatsapp_message", "send_whatsapp_bulk") and \
+                re.fullmatch(r"(?:it|that|this|them|these|those|that one|this one|the same)", msg):
+            # "send that to Arun": a pronoun is not the message - say what, or send a file/screenshot by name
+            return RouteDecision(request_id=decision.request_id, lane=RouteLane.CLARIFY, intent=decision.intent,
+                                 slots={k: v for k, v in decision.slots.items() if k != "message"}, confidence=0.4,
+                                 source=decision.source, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text,
+                                 clarification=f"What should I send{' to ' + who.title() if who else ''}? Tell me the "
+                                               "message, or name the file or screenshot.",
+                                 reason_code=ReasonCode.LOW_CONFIDENCE, missing_slots=["message"])
         if who and who.strip(" .'\"") in self._NOT_A_CONTACT:
             return RouteDecision(request_id=decision.request_id, lane=RouteLane.CLARIFY, intent=decision.intent,
                                  slots={k: v for k, v in decision.slots.items() if k not in ("recipient", "to")}, confidence=0.4,

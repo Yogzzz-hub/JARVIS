@@ -145,6 +145,17 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
             return _verdict("reroute", intent="dialog_interaction", slots={"action": "dismiss"})
         if re.search(rf"\b{_UI}\b", name):
             return _verdict("planner", reason="names a control inside a window, not an app")
+        if re.match(r"^(?:stop|start|open|close|run|kill|restart|launch|quit|exit)\b", name):
+            # "stop test app" read as close_app "stop test": a verb is never part of an app's name
+            return _verdict("clarify", question="Which app do you mean? Tell me its name.")
+        if re.fullmatch(r"(?:open\s+|close\s+)?(?:square\s+|curly\s+|round\s+)?(?:brackets?|paren\w*|braces?|quotes?|"
+                        r"quotation\s+marks?)", name):
+            return _verdict("clarify", question="Do you mean the symbol? While dictating, say 'open bracket' and I'll type it.")
+        if re.match(r"^(?:the\s+)?(?:next|previous|prior|other|first|second|third|last|same)\s+(?:file|tab|page|result|link|"
+                    r"item|one|document|pdf|photo|image|video|song|track|message|chat)s?$", name):
+            what = name.split()[-1]
+            return _verdict("clarify", question=f"Which {what} do you mean? Show or search the list first, then say "
+                                                f"'open the second one'.")
         if intent == "open_app" and re.search(r"\b(?:file|document|doc|pdf|report|folder|photo|image|screenshot|"
                                               r"spreadsheet|presentation|notes?)s?\b", name) \
                 and re.search(rf"\b{_REF_WORDS}\b|\b(?:we|i|you)\b", name):
@@ -174,6 +185,11 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
             what = {"install_software": "install", "uninstall_software": "uninstall", "update_software": "update",
                     "close_app": "close", "check_app_installed": "check", "get_app_location": "locate"}.get(intent, "open")
             return _verdict("clarify", question=f"Which {'package' if 'package' in name else 'app'} should I {what}?")
+        return None
+    if intent == "android_open_app":
+        app = str(slots.get("app_name") or slots.get("name") or "").strip().lower()
+        if re.match(r"^(?:this|that|the|my)\s+(?:file|url|link|page|pdf|document|photo|screenshot|tab)\b|^(?:page|link|url)\b", app):
+            return _verdict("planner", reason="names a file or page to put on the phone, not an app")
         return None
     if intent == "find_file":
         query = str(slots.get("query") or "").strip().lower()
@@ -226,6 +242,11 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
             return _verdict("clarify", question="Do you mean text in the field you're typing in? Say e.g. 'delete the "
                                                 "last 3 words', or name the file.")
         path = str(slots.get("path") or slots.get("source") or slots.get("name") or "").strip().lower()
+        ref = re.match(r"^(?:this|that|these|those|the\s+current|the\s+selected)\s+(?P<noun>[a-z]{2,20})$", path)
+        if ref and not re.fullmatch(rf"(?:{_FILE_WORDS})s?|item|one|thing|folder|directory|attachment", ref.group("noun")):
+            # "rename this symbol", "delete this line", "move this smybol": the thing in front is not a file
+            return _verdict("clarify", question=f"'{ref.group('noun')}' isn't a file I can see. If it's in the editor or a "
+                                                f"field, say e.g. 'rename this symbol to X' in the IDE; otherwise name the file.")
         said = re.search(r"[\\/]", path) and not re.search(r"[\\/]", low)  # a folder the resolver added, not the owner
         base = re.split(r"[\\/]", path)[-1] if said else path
         if base and _BARE_FILE.match(base) and not re.search(r"\.\w{2,4}$", base) \

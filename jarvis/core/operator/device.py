@@ -38,8 +38,16 @@ APPS = {"whatsapp": "com.whatsapp", "youtube": "com.google.android.youtube", "ch
         "drive": "com.google.android.apps.docs", "meet": "com.google.android.apps.tachyon"}
 _PKG = re.compile(r"^[a-zA-Z][\w]*(\.[\w]+)+$")
 DEV_OPS = ("logcat", "packages", "battery", "install_apk", "uninstall", "open_url", "screen_state", "storage",
-           "device_info", "clear_app_data")
+           "device_info", "clear_app_data", "memory", "online")
 DEV_NEEDS_APPROVAL = {"install_apk", "uninstall", "clear_app_data"}
+
+
+SETTINGS_ACTIONS = {"wifi": "android.settings.WIFI_SETTINGS", "bluetooth": "android.settings.BLUETOOTH_SETTINGS",
+                    "display": "android.settings.DISPLAY_SETTINGS", "sound": "android.settings.SOUND_SETTINGS",
+                    "battery": "android.intent.action.POWER_USAGE_SUMMARY", "storage": "android.settings.INTERNAL_STORAGE_SETTINGS",
+                    "location": "android.settings.LOCATION_SOURCE_SETTINGS", "settings": "android.settings.SETTINGS",
+                    "apps": "android.settings.APPLICATION_SETTINGS", "notifications": "android.settings.NOTIFICATION_SETTINGS",
+                    "developer": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"}
 
 
 class Adb:
@@ -337,9 +345,6 @@ class DeviceOperator:
             return OperatorOutcome(False, "I never type passwords or codes - please enter it on the phone.", needs="user")
         return self.ui.set_value(self.adapter(), target or "text field", text)
 
-    def media(self, op: str) -> OperatorOutcome:
-        return self.key({"toggle": "play_pause"}.get(op, op))
-
     def notifications(self) -> OperatorOutcome:
         bad = self._gate(needs_unlocked=False)
         if bad:
@@ -394,6 +399,8 @@ class DeviceOperator:
         if bad:
             return bad
         a = self.adb
+        if op in ("memory", "online"):
+            return self.status(op)
         if op == "logcat":
             n = int(arg) if arg.isdigit() else 200
             _, out, _ = a.run(["logcat", "-d", "-t", str(min(n, 2000))], timeout=10)
@@ -440,18 +447,7 @@ class DeviceOperator:
                                    else f"That didn't work: {err or out}")
         return OperatorOutcome(False, "Not supported.")
 
-
-SETTINGS_ACTIONS = {"wifi": "android.settings.WIFI_SETTINGS", "bluetooth": "android.settings.BLUETOOTH_SETTINGS",
-                    "display": "android.settings.DISPLAY_SETTINGS", "sound": "android.settings.SOUND_SETTINGS",
-                    "battery": "android.intent.action.POWER_USAGE_SUMMARY", "storage": "android.settings.INTERNAL_STORAGE_SETTINGS",
-                    "location": "android.settings.LOCATION_SOURCE_SETTINGS", "settings": "android.settings.SETTINGS",
-                    "apps": "android.settings.APPLICATION_SETTINGS", "notifications": "android.settings.NOTIFICATION_SETTINGS",
-                    "developer": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"}
-
-
-def _device_extras():
-    """Phone primitives added for the 520-capability set; still argv-only ADB, still lock- and approval-aware."""
-
+    # ---- phone primitives for the 520-capability set: argv-only ADB, lock- and approval-aware
     def recents(self) -> OperatorOutcome:
         return self.key("recents")
 
@@ -759,10 +755,66 @@ def _device_extras():
         _, out, _ = self.adb.run(["logcat", "-d", "-t", str(min(lines, 2000)), f"--pid={pid.split()[0]}"], timeout=10)
         return OperatorOutcome(True, (out or "")[-8000:] or "No log lines yet.", evidence={"untrusted": True, "package": pkg})
 
-    for fn in (recents, previous_app, settings, volume, media, media_state, current_app, relaunch, installed, ui_tree,
-               read_screen, find, focus, clear, swipe, notifications_filtered, open_notification, dismiss_notification,
-               status, pull, open_url, record, app_logs):
-        setattr(DeviceOperator, fn.__name__, fn)
+    def has_file(self, name: str, folder: str = "/sdcard/Download") -> OperatorOutcome:
+        """Did a pushed file really land? Size-checked listing of one plain file name (no shell metacharacters)."""
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        if not re.fullmatch(r"[\w .()+,-]{1,120}", name or "") or not re.fullmatch(r"/sdcard/[\w/ .-]{0,120}", folder):
+            return OperatorOutcome(False, "That file name is not one I can check safely.", needs="clarify")
+        code, out, _ = self.adb.run(["shell", "ls", "-l", f"'{folder.rstrip('/')}/{name}'"])
+        ok = code == 0 and name in (out or "") and "No such file" not in (out or "")
+        return OperatorOutcome(ok, f"Yes - {name} is on the phone in {folder}." if ok else
+                               f"{name} is not in {folder} on the phone.", evidence={"verified": ok})
+
+    def notify(self, text: str, title: str = "JARVIS") -> OperatorOutcome:
+        """A heads-up notification on the phone (Android 10+ `cmd notification post`); text is the owner's own notice."""
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        body = re.sub(r"[^\w .,:;!?'()%/-]", " ", text)[:240]
+        code, out, err = self.adb.run(["shell", "cmd", "notification", "post", "-S", "bigtext", "-t", title[:40],
+                                       "jarvis", body])
+        ok = code == 0 and "error" not in (out or err or "").lower()
+        return OperatorOutcome(ok, "Sent the notice to your phone." if ok else
+                               "Your phone didn't accept the notification (needs Android 10 or newer).",
+                               evidence={"verified": ok})
+
+    def page_url(self) -> OperatorOutcome:
+        """The page open in the phone's Chrome, via Chrome's own USB remote-debugging socket (read-only)."""
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        import json
+        import urllib.request
+        code, _, err = self.adb.run(["forward", "tcp:9333", "localabstract:chrome_devtools_remote"])
+        if code != 0:
+            return OperatorOutcome(False, f"I can't reach Chrome on the phone ({err or 'no debugging socket'}).")
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:9333/json", timeout=3) as r:
+                tabs = [t for t in json.loads(r.read().decode()) if t.get("type") == "page" and t.get("url")]
+        except Exception:
+            tabs = []
+        finally:
+            self.adb.run(["forward", "--remove", "tcp:9333"])
+        if not tabs:
+            return OperatorOutcome(False, "I can't see a page in Chrome on your phone - in Chrome on the phone turn on "
+                                          "Settings > Developer options > USB debugging, or share the link instead.",
+                                   needs="user")
+        t = tabs[0]
+        return OperatorOutcome(True, t["url"], evidence={"url": t["url"], "title": t.get("title", ""), "untrusted": True})
+
+    def clipboard(self) -> OperatorOutcome:
+        """Android 10+ only lets the foreground keyboard read the clipboard; say so instead of pretending."""
+        bad = self._gate()
+        if bad:
+            return bad
+        code, out, _ = self.adb.run(["shell", "cmd", "clipboard", "get-primary-clip"])
+        text = (out or "").strip()
+        if code == 0 and text and "unknown" not in text.lower() and "error" not in text.lower():
+            return OperatorOutcome(True, text[:4000], evidence={"text": text[:4000], "untrusted": True})
+        return OperatorOutcome(False, "Android doesn't let me read the phone's clipboard. Share the text to the PC "
+                                      "(LocalSend / Quick Share) and I'll pick it up from there.", needs="user")
 
 
 def canonical(role: str) -> str:
@@ -770,7 +822,6 @@ def canonical(role: str) -> str:
     return canonical_role(role)
 
 
-_device_extras()
 
 _dev: Optional[DeviceOperator] = None
 

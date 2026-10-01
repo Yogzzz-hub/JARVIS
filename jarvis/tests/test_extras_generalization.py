@@ -30,7 +30,7 @@ SPEC = {
     'Attach the screenshot we just captured.': 'PLAN',
     "Type a request to explain the current error, but don't send it yet.": 'PLAN',
     'Show me what files are currently attached.': 'ASK|PLAN',
-    'Send the prompt and tell me when the response actually finishes.': 'PLAN',
+    'Send the prompt and tell me when the response actually finishes.': 'PLAN|compound',   # send, then a scoped watch
     'Find the current build error and copy only the important part.': 'PLAN',
     'Open the file containing the function mentioned in that error.': 'PLAN',
     'Run the approved tests and summarize only failures.': 'PLAN',
@@ -128,9 +128,9 @@ SPEC = {
     'Open the file we found earlier.': 'ASK',
     'Open the application.': 'ASK',
     'Click the same browser control.': 'ASK',
-    'Continue typing.': 'PLAN',
+    'Continue typing.': 'PLAN|dictation_mode_control',
     'Send the file to my phone.': 'localsend_file',
-    'Continue the task.': 'PLAN',
+    'Continue the task.': 'PLAN|resume_task',
     'Retry the read-only search using another method.': 'PLAN',
     "Don't retry the send because the result is uncertain.": 'RULE',
     'Resume from the last verified step rather than starting everything again.': 'PLAN',
@@ -142,9 +142,9 @@ SPEC = {
     'Resume the workflow from the last completed node.': 'PLAN',
     'Run the browser and file branches in parallel.': 'PLAN',
     'If the file search fails, skip only steps that depend on that file.': 'RULE',
-    'Run this workflow every morning except weekends.': 'PLAN',
+    'Run this workflow every morning except weekends.': 'PLAN|workflow_op',          # saved workflows can be scheduled
     'Cancel future runs without interrupting the one already finishing.': 'PLAN',
-    'Show me exactly what the workflow would do before activating it.': 'PLAN',
+    'Show me exactly what the workflow would do before activating it.': 'PLAN|workflow_op',   # dry-run preview
     'Clone this workflow but replace the Drive step with a local-file step.': 'PLAN',
     # e20_models
     'Open Calculator.': 'open_app',

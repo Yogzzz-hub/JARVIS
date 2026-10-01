@@ -685,7 +685,8 @@ _LOGIN = re.compile(
 _DICTATION_START = re.compile(
     r"^(?:(?:start|begin|turn on|enable|activate|switch on)\s+)?(?:voice typing|voice type|dictation|dictating|live typing|"
     r"typing mode|speech to text|talk to type)(?:\s+(?:in|into|on)\s+(?P<a1>.+))?$"
-    r"|^type\s+(?:what|whatever|everything|all that|what ever)\s+i\s+(?:say|speak|tell)(?:\s+(?:in|into|on)\s+(?P<a2>.+))?$"
+    r"|^(?:start\s+)?typ(?:e|ing)\s+(?:what|whatever|everything|all that|what ever)\s+i\s+(?:say|speak|tell)"
+    r"(?:\s+(?:in|into|on)\s+(?:this\s+(?:box|field|text\s?box)|(?P<a2>.+)))?$"
     r"|^(?:dictate|voice type)(?:\s+(?:in|into|on)\s+(?P<a3>.+))?$"
     r"|^start\s+(?:typing|dictating|writing)\s+(?:in|into|on)\s+(?P<a4>.+)$")
 
@@ -723,10 +724,13 @@ def match_voice_and_screen(t: str, raw: str, request_id: str) -> Optional[RouteD
 def match_dictation(t: str, request_id: str) -> Optional[RouteDecision]:
     """'start voice typing', 'type what I say in claude', 'dictate into notepad' -> live dictation into that box."""
     m = re.fullmatch(r"(?P<a>start|begin|turn\s+on|enable|switch\s+on|activate|enter|stop|end|turn\s+off|disable|switch\s+off|deactivate|exit|quit|"
-                     r"leave|pause|finish)\s+(?:the\s+|voice\s+)?(?:dictation|voice\s+typing|typing\s+mode)(?:\s+mode)?(?:\s+now)?", t)
+                     r"leave|pause|finish)\s+(?:the\s+|voice\s+)?(?P<code>code\s+)?(?:dictation|voice\s+typing|typing\s+mode)(?:\s+mode)?(?:\s+now)?", t)
     if m:
         on = m.group("a").split()[0] in ("start", "begin", "enable", "activate", "enter") or m.group("a").endswith("on")
-        return _decision(request_id, t, "dictation_mode_control", {"action": "start" if on else "stop"})
+        mode = {"mode": "code"} if m.group("code") and on else {}
+        return _decision(request_id, t, "dictation_mode_control", {"action": "start" if on else "stop", **mode})
+    if re.fullmatch(r"(?:continue|resume|keep|carry\s+on)\s+(?:typing|dictating|dictation|writing)(?:\s+(?:now|again|here))?", t):
+        return _decision(request_id, t, "dictation_mode_control", {"action": "resume"})
     m = _DICTATION_START.match(t)
     if not m:
         return None

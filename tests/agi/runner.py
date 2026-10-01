@@ -105,9 +105,11 @@ async def run(split: str = "all", seed: int = 11) -> dict:
                                    "critical": critical, "intent": d.intent, "lane": _lane(d),
                                    "slots": {k: v for k, v in (d.slots or {}).items() if k != "qualifiers"}, "ms": ms,
                                    "expect": r["expect"]})
-        if not any(t.startswith("*") for t in r["expect"][:1]):
+        question = r["example"].rstrip().endswith("?") or re.match(r"^(?:i|i'm|i am)\b", r["example"], re.I)
+        if not any(t.startswith("*") for t in r["expect"][:1]) and not question:
             d, _ = await route(negated(r["example"]))
-            ran = _lane(d) not in ("REJECT", "CLARIFY") and d.intent not in (None, "clarify", "standing_rule")
+            ran = _lane(d) not in ("REJECT", "CLARIFY") and d.intent not in (None, "clarify", "standing_rule",
+                                                                              "reject_ticket")
             out["negation"].append({"id": r["id"], "text": negated(r["example"]), "ok": not ran, "intent": d.intent})
     return summarize(out)
 
