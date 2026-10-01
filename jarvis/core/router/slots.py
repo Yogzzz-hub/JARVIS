@@ -226,7 +226,8 @@ def parse_folder_path(val: str) -> FolderRef:
     cleaned = collapse_spaced_letters(cleaned)
     lowered = cleaned.casefold()
 
-    if lowered in ("that folder", "the folder", "this folder", "same folder", "that directory", "the directory", "same directory", "it"):
+    from jarvis.core.router.targets import _BARE_FILE
+    if lowered in ("that folder", "the folder", "this folder", "same folder", "that directory", "the directory", "same directory", "it") or _BARE_FILE.match(lowered):
         return FolderRef(cleaned)
 
     from jarvis.security.paths import canonicalize_path

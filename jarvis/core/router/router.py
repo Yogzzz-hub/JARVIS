@@ -288,9 +288,9 @@ class SmartRouter:
         if usable:
             return inner.model_copy(update={"request_id": request.request_id,
                                             "slots": {**(inner.slots or {}), "qualifiers": quals}})
-        if inner.lane == RouteLane.CLARIFY and inner.intent and inner.clarification \
-                and inner.reason_code == ReasonCode.MISSING_REQUIRED_SLOT:
-            return inner.model_copy(update={"request_id": request.request_id})  # "update the package": which package?
+        if inner.lane == RouteLane.CLARIFY and inner.intent and inner.clarification:
+            slots = {**(inner.slots or {}), "qualifiers": quals} if quals else (inner.slots or {})
+            return inner.model_copy(update={"request_id": request.request_id, "slots": slots})
         if contaminated:  # the matched tool would act on a condition as if it were a name: let the planner read it
             return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={"qualifiers": quals},
                                  confidence=0.6, source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.COMPLEX,
@@ -2053,6 +2053,7 @@ class SmartRouter:
                 path_lower = path_val.casefold()
                 is_deictic = (
                     path_lower in ("the file", "the document", "the pdf", "the spreadsheet", "the report", "file", "document",
+                                   "screenshot", "the screenshot", "that screenshot", "this screenshot",
                                    "that file", "that document", "that pdf", "that spreadsheet", "that report", "this file", "this pdf")
                     or path_lower.startswith(("that ", "this ", "the "))
                 )
@@ -2067,7 +2068,7 @@ class SmartRouter:
                             ambig_dec = RouteDecision(
                                 request_id=request_id,
                                 lane=RouteLane.CLARIFY,
-                                intent="clarify",
+                                intent=pattern_match.intent,
                                 slots={},
                                 confidence=0.5,
                                 source=RouteSource.EXACT,
@@ -2084,11 +2085,11 @@ class SmartRouter:
                     if is_deictic:
                         type_word = path_lower.split()[-1]
                         type_display = type_word.upper() if type_word in ("pdf", "doc") else type_word
-                        clarify_msg = f"Which {type_display} do you mean?" if type_display in ("PDF", "DOC", "document", "file", "spreadsheet", "report") else f"Which file would you like me to {pattern_match.intent.split('_')[0]}?"
+                        clarify_msg = f"Which {type_display} do you mean?" if type_display in ("PDF", "DOC", "document", "file", "spreadsheet", "report", "screenshot") else f"Which file would you like me to {pattern_match.intent.split('_')[0]}?"
                         ambig_file = RouteDecision(
                             request_id=request_id,
                             lane=RouteLane.CLARIFY,
-                            intent="clarify",
+                            intent=pattern_match.intent,
                             slots={},
                             confidence=0.5,
                             source=RouteSource.EXACT,
@@ -2364,7 +2365,7 @@ class SmartRouter:
                    + verbs + r")\b|$))", r"play \1 on youtube", t, flags=re.I)
         # "close chrome and edge" -> close chrome ; close edge
         m = re.match(r"^(close|quit|exit|kill)\s+([a-z0-9 .+-]+?(?:\s*(?:,|\band\b)\s*[a-z0-9 .+-]+?)+)$", t, flags=re.I)
-        if m and not re.search(rf"(?:,|\band\b)\s*(?:{verbs})\b", m.group(2), flags=re.I):
+        if m and not re.search(r"\bnot\b", m.group(2), flags=re.I) and not re.search(rf"(?:,|\band\b)\s*(?:{verbs})\b", m.group(2), flags=re.I):
             names = [n.strip() for n in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", m.group(2)) if n.strip()]
             t = " ; ".join(f"{m.group(1)} {n}" for n in names)
         t = re.sub(rf"\s*,?\s*\b(?:and\s+)?then\b\s*,?\s*(?=(?:{verbs})\b)", " ; ", t, flags=re.I)
@@ -2380,7 +2381,7 @@ class SmartRouter:
         if not re.match(rf"^(?:{self._FIRST_VERBS})\b", lowered):
             return None
         commands_part = re.split(r"\b(?:type|write|saying)\b", lowered, maxsplit=1)[0]  # typed text is the user's words
-        if re.search(r"\b(?:wait|sorry|actually|i mean|instead|rather|no no|scratch that)\b|\bno\s*,|\band not\b|\b(?:if (?:you're|you are) not sure|ask me|clarify)\b", commands_part):
+        if re.search(r"\b(?:wait|sorry|actually|i mean|instead|rather|no no|scratch that)\b|\bno\s*,|\band not\b|,\s*not\b|\bbut\s+not\b|\brather\s+than\b|\binstead\s+of\b|\b(?:if (?:you're|you are) not sure|ask me|clarify)\b", commands_part):
             return None  # a correction or negation or ambiguity directive, not a list of steps
         # one action that reads like two ("take a screenshot and paste it in whatsapp", "copy this and paste in notepad")
         from jarvis.core.router.extended import match_extended

@@ -583,16 +583,19 @@ class DictationTool(Tool):
 
     def run(self, arguments: DictateInput) -> dict[str, Any]:
         from jarvis.core.desktop.dictation_controller import get_dictation_controller
+        formatted = format_dictation(arguments.text) if arguments.text else ""
         ctrl = get_dictation_controller()
-        if not ctrl.is_active:
-            ctrl.start(app_name=arguments.target_app or "", initial_text=arguments.text or "")
+        was_active = ctrl.is_active
+        if not was_active:
+            ctrl.start(app_name=arguments.target_app or "", initial_text=formatted)
+            ctrl.stop()
         else:
-            if arguments.text:
-                ctrl.on_stable_text(arguments.text)
+            if formatted:
+                ctrl.on_stable_text(formatted)
         return {
-            "formatted_text": ctrl.buffer.committed_text or arguments.text,
-            "target_app": ctrl.target.app_name or "active window",
-            "characters": len(ctrl.buffer.committed_text or arguments.text),
+            "formatted_text": formatted or ctrl.buffer.committed_text or arguments.text,
+            "target_app": ctrl.target.app_name or arguments.target_app or "active window",
+            "characters": len(formatted or ctrl.buffer.committed_text or arguments.text),
             "status": "inserted",
             "action_taken": "typed",
         }

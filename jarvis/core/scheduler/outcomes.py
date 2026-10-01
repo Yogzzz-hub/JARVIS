@@ -157,7 +157,7 @@ class ResultAggregator:
 
         # 2. Partial Success
         if status == CommandStatus.PARTIAL_SUCCESS:
-            sentences = []
+            sentences = [f"Completed {len(success_nodes)} of {len(action_outcomes)} steps."]
             # Success descriptions
             s_names = [cls._friendly_cap_name(a) for a in success_nodes]
             if s_names:

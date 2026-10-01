@@ -703,7 +703,7 @@ def match_voice_and_screen(t: str, raw: str, request_id: str) -> Optional[RouteD
     if re.fullmatch(r"what\s+does\s+(?:this|the|that)\s+(?:popup|pop-up|pop\s+up|dialog|dialogue|message|window|box|notification|error|warning|alert)\s+say"
                     r"|(?:(?:can|could)\s+you\s+)?see\s+my\s+(?:screen|display|monitor)"
                     r"|what\s+am\s+i\s+(?:looking\s+at|seeing)(?:\s+(?:right\s+)?now)?"
-                    r"|(?:summari[sz]e|read(?:\s+out)?|explain)\s+(?:what(?:'s|\s+is)\s+on\s+my\s+screen|my\s+screen|the\s+screen)"
+                    r"|(?:summari[sz]e|read(?:\s+out)?|explain|describe)\s+(?:what(?:'s|\s+is)\s+on\s+my\s+screen|my\s+screen|the\s+screen|(?:the\s+)?(?:visible\s+|current\s+)?(?:error|warning|popup|pop-up|dialog))"
                     r"|what(?:'s|\s+is)\s+(?:this|that)\s+(?:error|popup|pop-up|warning|message)(?:\s+(?:on\s+(?:my|the)\s+screen|here))?"
                     r"|what\s+does\s+(?:this|that)\s+(?:error|popup|pop-up|warning|message|dialog)(?:\s+(?:on\s+(?:my|the)\s+screen|here))?\s+mean"
                     r"|what(?:'s|\s+is|\s+does)\s+(?:this|that|the)\s+(?:popup|pop-up|pop\s+up|dialog|dialogue|window|box|notification|error|warning|alert|screen)\s+(?:saying|say|telling\s+me)"
@@ -864,8 +864,8 @@ def match_google(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
 
 
 _DEVICE = r"(?:pc|computer|laptop|system|machine|desktop|windows)"
-_FOLDERS = {"downloads": "downloads", "download": "downloads", "documents": "documents", "docs": "documents",
-            "desktop": "desktop", "pictures": "pictures", "photos": "pictures", "videos": "videos", "music": "music"}
+_FOLDERS = {"downloads": "Downloads", "download": "Downloads", "documents": "Documents", "docs": "Documents",
+            "desktop": "Desktop", "pictures": "Pictures", "photos": "Pictures", "videos": "Videos", "music": "Music"}
 _SETTINGS = {"sound": "sound", "audio": "sound", "display": "display", "screen": "display", "bluetooth": "bluetooth",
              "wifi": "wifi", "wi-fi": "wifi", "network": "network", "internet": "network", "apps": "apps",
              "app": "apps", "windows": "settings", "system": "settings", "device manager": "device_manager"}
@@ -879,7 +879,7 @@ _KNOWLEDGE_Q = re.compile(
     r"|^(?:is|are)\s+.+\s+(?:better|worse|faster|safer)\s+than\b"
     r"|^(?:how\s+(?:do|can|should|would)\s+i|how\s+to)\s+(?!.*\b(?:phone|whatsapp)\b)"
     r"|^why\s+(?:is|are|does|do|did|can't|won't|isn't)\b"
-    r"|^(?:explain|define)\s+(?!(?:this|the|my)\s+(?:error|screen|popup|message))"
+    r"|^(?:explain|define)\s+(?!(?:this|the|my|a|an|visible|current|on[- ]screen)?\s*(?:error|screen|popup|pop-up|message|warning|dialog|alert)\b)"
     r"|^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?difference\s+between\b"
     r"|^i\s+(?:was|am|'m)\s+(?:just\s+|really\s+)?(?:wondering|curious)\b|^i\s+wonder\s+(?:how|why|what|if|whether)\b"
     r"|^what\s+(?:does|do)\s+.+?\s+(?:actually\s+|exactly\s+|really\s+)?do(?:\s+exactly)?$|^what\s+(?:is|are)\s+.+?\s+(?:actually\s+)?(?:used\s+)?for$"

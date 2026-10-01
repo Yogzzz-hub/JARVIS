@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import unittest
+import pytest
+
+pytest.importorskip("PySide6")
+
 from jarvis.ui.events import (
     AssistantState,
     ConnectionState,

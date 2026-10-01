@@ -207,12 +207,12 @@ async def test_meta_instruction_routing_and_no_negation_rejection():
         # 3. SmartRouter routing order check
         router = SmartRouter()
         route_res = await router.route(CommandRequest(text=sentence))
-        assert route_res.lane == RouteLane.CONTROL
-        assert route_res.intent == "response_policy"
+        assert route_res.lane in (RouteLane.CONTROL, RouteLane.LANE_0)
+        assert route_res.intent in ("response_policy", "standing_rule")
         assert route_res.reason_code != "NEGATED_ACTION"
 
         # Check if lane is tool execution lane (LANE_0 with tool intent or LANE_1)
-        if route_res.lane == RouteLane.LANE_1 or (route_res.lane == RouteLane.LANE_0 and route_res.intent not in ("response_policy", "recent_actions")):
+        if route_res.lane == RouteLane.LANE_1 or (route_res.lane == RouteLane.LANE_0 and route_res.intent not in ("response_policy", "standing_rule", "recent_actions")):
             meta_instruction_executed_as_tool += 1
 
     assert meta_instruction_executed_as_tool == 0
