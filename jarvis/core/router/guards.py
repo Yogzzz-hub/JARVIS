@@ -57,12 +57,31 @@ def check_negation(text: str) -> tuple[bool, list[dict[str, Any]]]:
     if re.match(r"^(?:please\s+)?(?:don't|dont|do not)\s+(?:let\s+me\s+)?forget\b", lowered):
         return False, constraints
 
-    # Check "don't X, do Y" or "don't X, open Y instead"
-    m_split = re.match(r"^(?:don't|do not|never)\s+([^,]+),\s*(?:instead\s+)?(.+)$", lowered)
+    # Check "don't <action> <target>, just <inquire>" (e.g. "don't open notepad, just tell me whether it's installed")
+    m_split = re.match(r"^(?:don't|do not|never)\s+([^,]+),\s*(?:just\s+)?(.+)$", lowered)
     if m_split:
         negated = m_split.group(1).strip()
         positive = m_split.group(2).strip()
         positive = re.sub(r"\s+instead$", "", positive)
+
+        # Entity resolution across negation: resolve "it" to the entity in the negated phrase
+        m_neg_act = re.match(r"^(?P<verb>open|launch|start|run|delete|remove|close|install)\s+(?P<ent>.+)$", negated)
+        if m_neg_act:
+            neg_verb = m_neg_act.group("verb")
+            neg_ent = m_neg_act.group("ent").strip()
+            # If positive clause asks about installation status:
+            if re.search(r"\b(?:whether\s+it'?s?|if\s+it'?s?|is\s+it)\s+installed\b", positive) or positive in ("whether it's installed", "if it's installed", "is it installed"):
+                positive = f"is {neg_ent} installed"
+            elif re.search(r"\b(?:whether\s+it'?s?|if\s+it'?s?|is\s+it)\s+(?:running|active|open)\b", positive):
+                positive = f"is {neg_ent} running"
+            elif re.search(r"\b(?:its|the)\s+size\b", positive):
+                positive = f"get size of {neg_ent}"
+
+            constraints.append({"type": f"no_{neg_verb}", "target": neg_ent})
+            constraints.append({"type": "negative_action", "target": negated, "forbidden_action": neg_verb, "entity": neg_ent})
+            constraints.append({"type": "positive_override", "target": positive})
+            return False, constraints
+
         constraints.append({"type": "negative_action", "target": negated})
         constraints.append({"type": "positive_override", "target": positive})
         return False, constraints
@@ -85,12 +104,26 @@ def check_negation(text: str) -> tuple[bool, list[dict[str, Any]]]:
             constraints.append({"type": "negative_action", "target": target})
             return True, constraints
 
-    # Check for embedded negation clause (e.g. "open chrome but don't close edge")
-    if " but don't " in lowered or " and don't " in lowered or " without " in lowered or " except " in lowered:
-        parts = re.split(r"\b(?:but\s+don't|and\s+don't|without|except)\b", lowered)
-        if len(parts) > 1:
-            clause = parts[1].strip()
-            constraints.append({"type": "negative_action", "target": clause})
+    # Check for embedded negation clause (e.g. "open chrome but don't close edge", "show me messages from arun, but don't reply to him", "see that pdf, not edit or move it")
+    if re.search(r"\b(?:,\s*not\s+|,\s*but\s+not\s+|but\s+don't|and\s+don't|without|except)\b", lowered):
+        parts = re.split(r"\b(?:,\s*not\s+|,\s*but\s+not\s+|but\s+don't|and\s+don't|without|except)\b", lowered, maxsplit=1)
+        if len(parts) == 2:
+            primary = parts[0].strip().rstrip(",;.- ")
+            clause = parts[1].strip().rstrip(",;.- ")
+            forbidden = []
+            if re.search(r"\b(?:reply|send|message|text)\b", clause):
+                forbidden.extend(["reply", "send"])
+            if re.search(r"\b(?:edit|modify|alter|change|overwrite)\b", clause):
+                forbidden.append("modify")
+            if re.search(r"\b(?:delete|remove|erase|trash)\b", clause):
+                forbidden.append("delete")
+            if re.search(r"\b(?:open|launch|start)\b", clause):
+                forbidden.append("open")
+            neg_dict: dict[str, Any] = {"type": "negative_action", "target": clause}
+            if forbidden:
+                neg_dict["forbidden_actions"] = forbidden
+            constraints.append(neg_dict)
+            return False, constraints
 
     return False, constraints
 
@@ -103,6 +136,8 @@ def is_informational_or_question(original_text: str, routing_text: str) -> bool:
     - 'Is Chrome open?' -> True (query state)
     - 'Is Chrome installed?' -> True (query state)
     - 'Why did Chrome crash?' -> True (informational)
+    - 'I'm only asking what WhatsApp does; don't open it.' -> True (informational)
+    - 'Can you tell me how deleting a file works without deleting anything?' -> True (informational)
     - 'Open Chrome' -> False (command)
     - 'Can you open Chrome?' -> False (normalize strips 'can you', leaving 'open chrome' command)
     """
@@ -117,7 +152,7 @@ def is_informational_or_question(original_text: str, routing_text: str) -> bool:
         r"what(?:'s| is) (?:the )?(?:jarvis |system |backend )?status.*|"
         r"what(?:'s| is| are) (?:the )?(?:latest |top )?news.*|search news.*|today(?:'s)? news.*|"
         r"what(?: are)?(?: the)? (?:unread |recent )?messages?.*|who messaged me.*|any(?: urgent| unread)? messages?.*|"
-        r"what(?:'s| is| are)(?: the)? (?:unread |recent )?whatsapp.*|"
+        r"what(?:'s| is| are)(?: the)? (?:unread |recent )?whatsapp (?:messages?|msgs?|texts?|chats?|updates?).*|"
         r"(?:how much )?(?:memory|ram)(?: is)? (?:currently )?(?:available|free|used)(?: on this pc)?|"
         r"(?:is )?(?:my )?(?:android )?phone (?:connected|linked|reachable).*|"
         r"describe (?:what'?s? )?(?:on )?(?:my )?screen.*|what(?:'s| is)? on (?:my )?screen.*|"
@@ -129,6 +164,19 @@ def is_informational_or_question(original_text: str, routing_text: str) -> bool:
         routing_clean,
     ):
         return False
+
+    # Meta-informational / knowledge question patterns
+    if re.search(
+        r"\b(?:i'?m\s+(?:only|just)\s+asking|just\s+asking|just\s+curious|"
+        r"can\s+(?:you|jarvis)\s+(?:tell\s+me\s+|explain\s+)?(?:how|what|why)\b|"
+        r"(?:tell\s+me|explain)\s+(?:how|what|why)\b|"
+        r"what\s+does\s+[a-zA-Z0-9_\-\s]+\s+(?:do|mean|work|provide)\b|"
+        r"how\s+does\s+[a-zA-Z0-9_\-\s]+\s+work\b|"
+        r"can\s+(?:jarvis|you)\s+use\s+[a-zA-Z0-9_\-\s]+\??$|"
+        r"how\s+(?:do\s+i|can\s+i|to)\s+(?:delete|install|open|use|send|configure)\b)",
+        orig_clean,
+    ):
+        return True
 
     # Direct question prefixes
     for prefix in INFORMATIONAL_PREFIXES:

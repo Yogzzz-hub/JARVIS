@@ -19,6 +19,7 @@ from jarvis.tools.system.assistant_tools import ReminderService, set_reminder_se
     ("what is 25 times 4", "100"),
     ("what is 25 * 4 + 10", "110"),
     ("calculate 15% of 240", "36"),
+    ('"what is 15% of 240"', "36"),
     ("square root of 144", "12"),
     ("what's 2 to the power of 10", "1,024"),
     ("what is 7 factorial", "5,040"),

@@ -94,6 +94,15 @@ def _path_from_actions(phrase: str) -> str:
     return ""
 
 
+_FILE_WORDS = (r"file|document|doc|docx|pdf|report|folder|photo|image|picture|screenshot|video|song|music|spreadsheet|sheet|"
+               r"presentation|slides|deck|notes?|resume|cv|invoice|receipt|certificate|zip|script|code|download|xlsx|pptx|csv|txt")
+# a name / query that is really a whole command ("use the current logged-in session", "retry the read-only search")
+_COMMAND_LIKE = re.compile(r"^(?:use|retry|try|make|do|send|keep|run|start|go|take|get|put|tell|show|give|let|bring|move|copy|paste|"
+                           r"attach|upload|prepare|create|compare|summari[sz]e|repeat|redo|undo|click|type|press)\s+"
+                           r"(?:the|a|an|my|this|that|it|me|your|another|some|all)\b")
+_SENTENCE_SLOTS = {"save_workspace": "name", "launch_workspace": "name", "create_folder": "path", "search_notes": "query",
+                   "search_web": "query", "find_file": "query", "knowledge_search": "question", "set_reply_language": "mode"}
+
 _CHANGE_VERB = re.compile(r"^(?:(?:please|now|then|and|also|just|jarvis|hey\s+jarvis|can\s+you|could\s+you)[\s,]+)*"
                           r"(?P<v>create|schedule|book|draft|compose|attach|upload|paste|insert|install|uninstall|delete|remove|"
                           r"rename|move|copy|save|store|submit|post|publish|reply|forward)\b(?!\s+(?:on|along|ahead|me\b))", re.I)
@@ -116,9 +125,13 @@ _ANTECEDENT = re.compile(r"\b(?:need|want|get|download|grab|use|have|like|love)\
 
 
 def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> Optional[dict]:
-    """None when the route can run as it is; otherwise a verdict: reroute / planner / clarify."""
+    """None when the route can run as it is; otherwise a verdict: reroute / rematch / planner / clarify."""
     slots = slots or {}
     low = " ".join((text or "").lower().replace("’", "'").split())
+    key = _SENTENCE_SLOTS.get(intent)
+    value = str(slots.get(key) or "").strip().lower() if key else ""
+    if value and _COMMAND_LIKE.match(value) and not (intent == "search_web" and value.startswith(("show", "tell"))):
+        return _verdict("planner", reason="the whole command was taken as a name or a query")
     if intent in APP_INTENTS:
         name = str(slots.get("name") or slots.get("app") or "").strip().lower()
         if not name:
@@ -157,7 +170,10 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
         return None
     if intent == "find_file":
         query = str(slots.get("query") or "").strip().lower()
-        probe = query or low
+        probe = low if not re.search(r"[a-z0-9]", query) else query  # "*" (constraints only): read the whole request
+        if re.search(r"\b(?:said|says|told|tell|wrote|texted|messaged|replied|asked|chat(?:ted)?|messages?|whats\s*app)\b", low) \
+                and not re.search(rf"\b(?:{_FILE_WORDS})s?\b|\.\w{{2,4}}\b", low):
+            return _verdict("rematch", reason="asks what someone said, not for a file")
         if re.search(rf"\b{_UI}\b", probe):
             return _verdict("planner", reason="looks for a control on screen, not a file")
         if re.search(r"\b(?:in|on|from|inside)\s+(?:my\s+|the\s+)?(?:google\s+drive|drive|one\s*drive|gmail|inbox|e-?mails?|web|"

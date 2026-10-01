@@ -164,7 +164,7 @@ class SearchEngine:
                 pass
         breakdown["exact_lookup_ms"] = (time.perf_counter_ns() - t_exact_0) / 1e6
 
-        if exact_candidates and not query.semantic and not query.temporal_hint:
+        if exact_candidates and not query.semantic and not query.temporal_hint and not query.size_min_bytes and not query.size_max_bytes and not query.time_start_iso:
             # If type_hint requested, check if any matches
             if not query.type_hint or any(c.get("extension") == query.type_hint.casefold() for c in exact_candidates):
                 reranked, is_ambig, clarify = rerank_search_results(
@@ -188,14 +188,40 @@ class SearchEngine:
         candidates: list[dict] = []
         tokens = query.tokens or ([clean_text] if clean_text else [])
 
-        if not tokens and query.type_hint:
-            # Type-only query (e.g. "show python scripts", "find pdfs")
-            order_clause = "modified_ns DESC, open_count DESC" if (query.latest or query.temporal_hint) else "open_count DESC, modified_ns DESC"
-            where_clause = "extension = ? AND is_available = 1"
-            params: list[Any] = [query.type_hint.casefold()]
+        if not tokens and (query.type_hint or query.size_min_bytes is not None or query.size_max_bytes is not None or query.time_start_iso or query.time_end_iso):
+            # Constraint-only query (e.g. "show files bigger than 20MB", "find pdfs from last Tuesday")
+            where_parts = ["is_available = 1"]
+            params: list[Any] = []
+            if query.type_hint:
+                where_parts.append("extension = ?")
+                params.append(query.type_hint.casefold())
             if query.directory_hint:
-                where_clause += " AND path_norm LIKE ?"
+                where_parts.append("path_norm LIKE ?")
                 params.append(f"%{query.directory_hint.lower()}%")
+            if query.size_min_bytes is not None:
+                where_parts.append("size_bytes > ?")
+                params.append(query.size_min_bytes)
+            if query.size_max_bytes is not None:
+                where_parts.append("size_bytes < ?")
+                params.append(query.size_max_bytes)
+            if query.time_start_iso:
+                try:
+                    from datetime import datetime as dt_cls
+                    ns_start = int(dt_cls.fromisoformat(query.time_start_iso).timestamp() * 1e9)
+                    where_parts.append("modified_ns >= ?")
+                    params.append(ns_start)
+                except Exception:
+                    pass
+            if query.time_end_iso:
+                try:
+                    from datetime import datetime as dt_cls
+                    ns_end = int(dt_cls.fromisoformat(query.time_end_iso).timestamp() * 1e9)
+                    where_parts.append("modified_ns <= ?")
+                    params.append(ns_end)
+                except Exception:
+                    pass
+            order_clause = "modified_ns DESC, open_count DESC"
+            where_clause = " AND ".join(where_parts)
             try:
                 cur = con.execute(
                     f"""

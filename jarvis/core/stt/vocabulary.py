@@ -45,52 +45,75 @@ class VocabularyBiasProvider:
     def generate_prompt(self, active_context: str = "") -> str:
         """Generate vocabulary bias prompt for Whisper.
 
-        Returns a short text that biases recognition toward known entities.
+        Returns a short text that biases recognition toward known entities,
+        kept small (< 30 words / 150 chars) to prevent context overflow.
         """
-        terms = set()
+        import re
 
-        # 1. Static technical terms
-        terms.update(self._static_terms)
+        def _is_clean_term(t: str) -> bool:
+            if not t or len(t) < 2 or len(t) > 30:
+                return False
+            if t[0].isdigit():
+                return False
+            digits = sum(c.isdigit() for c in t)
+            if digits > 2:
+                return False
+            return any(c.isalpha() for c in t)
 
-        # 2. Custom terms
-        terms.update(self.custom_terms)
+        ordered_terms: list[str] = []
+        seen: set[str] = set()
+
+        def _add_term(raw: str):
+            c = re.sub(r"[\U00010000-\U0010ffff\u2600-\u26ff\u2700-\u27bf\ufe00-\ufe0f]", "", str(raw or ""))
+            c = " ".join(c.split())
+            if _is_clean_term(c) and c.lower() not in seen:
+                seen.add(c.lower())
+                ordered_terms.append(c)
+
+        # 1. Static technical terms (highest priority)
+        for term in self._static_terms:
+            _add_term(term)
+
+        # 2. Custom terms (e.g. key user contacts)
+        for term in self.custom_terms:
+            _add_term(term)
 
         # 3. App names from resolver
         if self.app_resolver:
             try:
-                for name in self.app_resolver.list_apps()[:30]:
-                    terms.add(name)
+                for name in self.app_resolver.list_apps()[:20]:
+                    _add_term(name)
             except Exception:
                 pass
 
         # 4. Recent files from working memory
         if self.working_memory:
             try:
-                for entry in self.working_memory.recent_files()[:20]:
+                for entry in self.working_memory.recent_files()[:10]:
                     if isinstance(entry, str):
-                        # Extract filename stem
-                        stem = entry.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
-                        stem = stem.rsplit(".", 1)[0]
-                        terms.add(stem)
+                        stem = entry.rsplit("\\", 1)[-1].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                        _add_term(stem)
                     elif hasattr(entry, "name"):
-                        terms.add(entry.name)
+                        _add_term(entry.name)
             except Exception:
                 pass
 
         # 5. Active context
         if active_context:
-            terms.add(active_context)
+            _add_term(active_context)
 
-        # Build prompt — keep under max_tokens (rough word count)
-        all_terms = sorted(terms)
+        # Build prompt — keep strictly under max_tokens / max 30 words / 150 chars
+        max_words = min(int(self.max_tokens or 30), 30)
         prompt_parts = []
         word_count = 0
-        for term in all_terms:
+        char_count = 0
+        for term in ordered_terms:
             words = len(term.split())
-            if word_count + words > self.max_tokens:
+            if word_count + words > max_words or char_count + len(term) > 150:
                 break
             prompt_parts.append(term)
             word_count += words
+            char_count += len(term) + 2
 
         if not prompt_parts:
             return ""

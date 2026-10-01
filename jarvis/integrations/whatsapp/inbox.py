@@ -298,6 +298,15 @@ class WhatsAppInbox:
                     item.chat_name,
                 ),
             )
+            if item.is_from_me:
+                conn.execute(
+                    """
+                    UPDATE whatsapp_messages
+                    SET replied = 1, is_read = 1
+                    WHERE (chat_id = ? OR sender_id = ?) AND is_from_me = 0 AND timestamp <= ?
+                    """,
+                    (item.chat_id, item.chat_id, item.timestamp),
+                )
             conn.commit()
 
         logger.info(
@@ -693,7 +702,7 @@ class WhatsAppInbox:
         return t if len(parts) <= words else " ".join(parts[:words]) + "..."
 
     def summarize_inbox(self, include_groups: bool = False, group: Optional[str] = None,
-                        max_people: int = 5) -> Dict[str, Any]:
+                        max_people: int = 5, max_age_hours: Optional[float] = 48.0) -> Dict[str, Any]:
         """What is unread, who sent it and what each person said - one line per person, attributed exactly.
 
         Unread follows WhatsApp's own badges when the bridge reports them. Questions and requests are flagged

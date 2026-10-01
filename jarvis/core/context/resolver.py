@@ -167,6 +167,7 @@ class ReferenceResolver:
         # ---------------------------------------------------------------------
         # 2. Ordinal references: "the second one", "open the 1st", "item number 2", "second file"
         # ---------------------------------------------------------------------
+        TIME_UNITS = ("week", "month", "year", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "weekend", "night", "morning", "evening", "afternoon")
         for ord_word, idx in ORDINAL_MAP.items():
             if (
                 f"the {ord_word}" in text
@@ -174,16 +175,25 @@ class ReferenceResolver:
                 or f"{ord_word} file" in text
                 or f"{ord_word} result" in text
                 or f"{ord_word} document" in text
+                or f"{ord_word} pdf" in text
+                or f"{ord_word} image" in text
                 or f"{ord_word} app" in text
                 or f"{ord_word} option" in text
                 or re.match(rf"^(?:the\s+)?{ord_word}$", text)
             ):
-                return self._resolve_ordinal(idx, ord_word, expected_slot_type=slot_type)
+                # Guard against temporal expressions like "second week", "last Tuesday"
+                m_after = re.search(rf"\b{ord_word}\s+([a-z]+)\b", text)
+                if m_after and m_after.group(1) in TIME_UNITS:
+                    continue
+                # Guard against "called final report"
+                if "called " in text and ord_word in text[text.find("called "):]:
+                    continue
+                return self._resolve_ordinal(idx, ord_word, expected_slot_type=slot_type, text=text)
 
         m_num = re.search(r"\b(?:item\s+number|number|result)\s+(\d+)\b", text)
         if m_num:
             idx = int(m_num.group(1)) - 1
-            return self._resolve_ordinal(idx, str(idx + 1), expected_slot_type=slot_type)
+            return self._resolve_ordinal(idx, str(idx + 1), expected_slot_type=slot_type, text=text)
 
         # ---------------------------------------------------------------------
         # 3. Follow-up after failure: "Install it" after "I couldn't find VLC"
@@ -650,73 +660,228 @@ class ReferenceResolver:
             source="NO_MATCH",
         )
 
-    def _resolve_ordinal(self, idx: int, ord_label: str, expected_slot_type: Optional[str] = None) -> ReferenceResolution:
-        """Resolves ordinal index from active ResultSet or recent search results."""
-        # 1. Try active ResultSet from working memory
+    def _resolve_ordinal(
+        self,
+        idx: int,
+        ord_label: str,
+        expected_slot_type: Optional[str] = None,
+        filter_type: Optional[str] = None,
+        filter_folder: Optional[str] = None,
+        text: str = "",
+    ) -> ReferenceResolution:
+        """Resolves ordinal index from active ResultSet, recent search results, or target folder.
+        STRICT INVARIANT: Filter FIRST (by type and folder), deterministic ordering, then apply ordinal.
+        NEVER fallback to a non-matching file type.
+        """
+        # Infer filter_type and filter_folder from text if not provided
+        if text:
+            if not filter_type:
+                for ft in ("pdf", "image", "doc", "document", "docx", "script", "python", "txt", "notes"):
+                    if re.search(rf"\b{ft}s?\b", text, re.I):
+                        filter_type = ft
+                        break
+            if not filter_folder:
+                for fld in ("downloads", "documents", "desktop", "pictures", "music", "videos"):
+                    if re.search(rf"\b{fld}\b", text, re.I):
+                        filter_folder = fld
+                        break
+
+        ext_candidates = EXTENSION_MAP.get(filter_type, [f".{filter_type}"]) if filter_type else None
+
+        def matches_filter(path_str: str) -> bool:
+            p_lower = path_str.casefold()
+            if ext_candidates is not None:
+                if not any(p_lower.endswith(ext.casefold()) for ext in ext_candidates):
+                    return False
+            if filter_folder is not None:
+                if filter_folder.casefold() not in p_lower:
+                    return False
+            return True
+
+        # 1. Try active ResultSet from working memory (filtered first)
         active_rs = getattr(self.working_memory, "get_active_result_set", lambda: None)()
         if active_rs and active_rs.resources:
-            target_res = active_rs.get_by_ordinal(idx)
-            if target_res:
-                ident = (
-                    getattr(target_res, "canonical_path", None)
-                    or getattr(target_res, "url", None)
-                    or getattr(target_res, "canonical_identifier", None)
-                    or getattr(target_res, "canonical_name", None)
-                    or getattr(target_res, "display_name", None)
-                    or str(target_res)
-                )
-                # Set as current resource
-                if hasattr(self.working_memory, "set_current_resource"):
-                    self.working_memory.set_current_resource(target_res)
+            filtered_rs = [
+                res for res in active_rs.resources
+                if matches_filter(getattr(res, "canonical_path", None) or getattr(res, "display_name", "") or str(res))
+            ]
+            if filtered_rs:
+                target_res = None
+                if idx == -1:
+                    target_res = filtered_rs[-1]
+                elif 0 <= idx < len(filtered_rs):
+                    target_res = filtered_rs[idx]
+
+                if target_res:
+                    ident = (
+                        getattr(target_res, "canonical_path", None)
+                        or getattr(target_res, "url", None)
+                        or getattr(target_res, "canonical_identifier", None)
+                        or getattr(target_res, "canonical_name", None)
+                        or getattr(target_res, "display_name", None)
+                        or str(target_res)
+                    )
+                    if hasattr(self.working_memory, "set_current_resource"):
+                        self.working_memory.set_current_resource(target_res)
+                    return ReferenceResolution(
+                        referent=ident,
+                        referent_type=getattr(target_res, "resource_type", "FILE"),
+                        confidence=ReferenceConfidence.HIGH,
+                        source="ACTIVE_RESULT_SET_ORDINAL",
+                        phrase=f"the {ord_label} one",
+                        score=1.0,
+                        resolved_resource=target_res,
+                    )
+                else:
+                    return ReferenceResolution(
+                        referent=None,
+                        referent_type="FILE",
+                        confidence=ReferenceConfidence.LOW,
+                        source="ORDINAL_OUT_OF_RANGE",
+                        clarification_prompt=f"Found only {len(filtered_rs)} {filter_type.upper() if filter_type else 'matching files'}, cannot select the {ord_label} one.",
+                    )
+            elif filter_type or filter_folder:
                 return ReferenceResolution(
-                    referent=ident,
-                    referent_type=getattr(target_res, "resource_type", "FILE"),
-                    confidence=ReferenceConfidence.HIGH,
-                    source="ACTIVE_RESULT_SET_ORDINAL",
-                    phrase=f"the {ord_label} one",
-                    score=1.0,
-                    resolved_resource=target_res,
+                    referent=None,
+                    referent_type="FILE",
+                    confidence=ReferenceConfidence.LOW,
+                    source="NO_MATCHING_TYPE_IN_RESULTSET",
+                    clarification_prompt=f"No {filter_type.upper() if filter_type else ''} files found in active results.",
                 )
 
-        # 2. Try raw recent search results
+        # 2. Try raw recent search results (filtered first)
         search_results = self.working_memory.get_recent_search_results()
         if search_results:
-            target = None
-            if idx == -1:
-                target = search_results[-1]
-            elif 0 <= idx < len(search_results):
-                target = search_results[idx]
+            filtered_search = [
+                r for r in search_results
+                if matches_filter(r.get("path", "") if isinstance(r, dict) else getattr(r, "path", str(r)))
+            ]
+            if filtered_search:
+                target = None
+                if idx == -1:
+                    target = filtered_search[-1]
+                elif 0 <= idx < len(filtered_search):
+                    target = filtered_search[idx]
 
-            if target:
-                target_path = target.get("path") if isinstance(target, dict) else getattr(target, "path", str(target))
-                f_ref = FileResourceRef(canonical_path=str(target_path))
-                if hasattr(self.working_memory, "set_current_resource"):
-                    self.working_memory.set_current_resource(f_ref)
-                return ReferenceResolution(
-                    referent=target_path,
-                    referent_type="SEARCH_RESULT",
-                    confidence=ReferenceConfidence.HIGH,
-                    source="RECENT_SEARCH_ORDINAL",
-                    phrase=f"the {ord_label} one",
-                    score=0.95,
-                    resolved_resource=f_ref,
-                )
+                if target:
+                    target_path = target.get("path") if isinstance(target, dict) else getattr(target, "path", str(target))
+                    f_ref = FileResourceRef(canonical_path=str(target_path))
+                    if hasattr(self.working_memory, "set_current_resource"):
+                        self.working_memory.set_current_resource(f_ref)
+                    return ReferenceResolution(
+                        referent=target_path,
+                        referent_type="SEARCH_RESULT",
+                        confidence=ReferenceConfidence.HIGH,
+                        source="RECENT_SEARCH_ORDINAL",
+                        phrase=f"the {ord_label} one",
+                        score=0.95,
+                        resolved_resource=f_ref,
+                    )
+                else:
+                    return ReferenceResolution(
+                        referent=None,
+                        referent_type="FILE",
+                        confidence=ReferenceConfidence.LOW,
+                        source="ORDINAL_OUT_OF_RANGE",
+                        clarification_prompt=f"Found only {len(filtered_search)} {filter_type.upper() if filter_type else 'matching files'} in search results, cannot select the {ord_label} one.",
+                    )
 
-        # 3. Try recent files
+        # 3. Check direct folder if specified (e.g. "inside Downloads")
+        if filter_folder:
+            fld_map = {
+                "downloads": Path.home() / "Downloads",
+                "documents": Path.home() / "Documents",
+                "desktop": Path.home() / "Desktop",
+                "pictures": Path.home() / "Pictures",
+                "music": Path.home() / "Music",
+                "videos": Path.home() / "Videos",
+            }
+            target_fld = fld_map.get(filter_folder.lower())
+            if target_fld and target_fld.exists():
+                matching_items = []
+                try:
+                    for item in sorted(target_fld.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+                        if item.is_file() and matches_filter(str(item)):
+                            matching_items.append(str(item))
+                except Exception:
+                    pass
+                if matching_items:
+                    target_path = None
+                    if idx == -1:
+                        target_path = matching_items[-1]
+                    elif 0 <= idx < len(matching_items):
+                        target_path = matching_items[idx]
+
+                    if target_path:
+                        f_ref = FileResourceRef(canonical_path=target_path)
+                        if hasattr(self.working_memory, "set_current_resource"):
+                            self.working_memory.set_current_resource(f_ref)
+                        return ReferenceResolution(
+                            referent=target_path,
+                            referent_type="FILE",
+                            confidence=ReferenceConfidence.HIGH,
+                            source="FOLDER_FILTERED_ORDINAL",
+                            phrase=f"the {ord_label} {filter_type or 'file'}",
+                            score=0.95,
+                            resolved_resource=f_ref,
+                        )
+                    else:
+                        return ReferenceResolution(
+                            referent=None,
+                            referent_type="FILE",
+                            confidence=ReferenceConfidence.LOW,
+                            source="ORDINAL_OUT_OF_RANGE",
+                            clarification_prompt=f"There are only {len(matching_items)} {filter_type.upper() if filter_type else 'files'} inside {filter_folder.capitalize()}, cannot select the {ord_label} one.",
+                        )
+                elif filter_type:
+                    return ReferenceResolution(
+                        referent=None,
+                        referent_type="FILE",
+                        confidence=ReferenceConfidence.LOW,
+                        source="NO_MATCHING_TYPE",
+                        clarification_prompt=f"No {filter_type.upper()} files found inside {filter_folder.capitalize()}.",
+                    )
+
+        # 4. Try recent files (filtered first)
         recent_files = self.working_memory.get_recent_files()
-        if recent_files and 0 <= idx < len(recent_files):
-            f_ref = FileResourceRef(canonical_path=recent_files[idx])
-            if hasattr(self.working_memory, "set_current_resource"):
-                self.working_memory.set_current_resource(f_ref)
-            return ReferenceResolution(
-                referent=recent_files[idx],
-                referent_type="FILE",
-                confidence=ReferenceConfidence.HIGH,
-                source="RECENT_FILES_ORDINAL",
-                phrase=f"the {ord_label} one",
-                score=0.90,
-                resolved_resource=f_ref,
-            )
+        if recent_files:
+            filtered_recent = [f for f in recent_files if matches_filter(f)]
+            if filtered_recent:
+                target_path = None
+                if idx == -1:
+                    target_path = filtered_recent[-1]
+                elif 0 <= idx < len(filtered_recent):
+                    target_path = filtered_recent[idx]
+
+                if target_path:
+                    f_ref = FileResourceRef(canonical_path=target_path)
+                    if hasattr(self.working_memory, "set_current_resource"):
+                        self.working_memory.set_current_resource(f_ref)
+                    return ReferenceResolution(
+                        referent=target_path,
+                        referent_type="FILE",
+                        confidence=ReferenceConfidence.HIGH,
+                        source="RECENT_FILES_ORDINAL",
+                        phrase=f"the {ord_label} one",
+                        score=0.90,
+                        resolved_resource=f_ref,
+                    )
+                else:
+                    return ReferenceResolution(
+                        referent=None,
+                        referent_type="FILE",
+                        confidence=ReferenceConfidence.LOW,
+                        source="ORDINAL_OUT_OF_RANGE",
+                        clarification_prompt=f"Found only {len(filtered_recent)} {filter_type.upper() if filter_type else 'files'}, cannot select the {ord_label} one.",
+                    )
+            elif filter_type:
+                return ReferenceResolution(
+                    referent=None,
+                    referent_type="FILE",
+                    confidence=ReferenceConfidence.LOW,
+                    source="NO_MATCHING_TYPE",
+                    clarification_prompt=f"No recent {filter_type.upper()} files found.",
+                )
 
         return ReferenceResolution(
             referent=None,

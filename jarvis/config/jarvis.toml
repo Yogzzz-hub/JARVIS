@@ -30,7 +30,7 @@ planner = true
 voice = true
 tts = true
 phone = true
-google = false
+google = true
 browser = true
 vision = true
 
@@ -43,7 +43,7 @@ vision = true
 fast = "qwen3.5:2b, qwen3.5:0.8b, qwen3:1.7b"        # uncertain-intent fallback: tiny and quick
 planner = "qwen3.5:4b, llama3.2:latest"             # normal multi-step planning and the tool-using agent
 chat = "qwen3.5:4b, llama3.2:latest"                # conversation, RAG answers, WhatsApp replies
-vision = "qwen3.5:4b, qwen2.5vl:3b"                 # screen understanding (multimodal), loaded only on demand
+vision = "qwen3.5:4b, qwen2.5vl:3b, moondream"                 # screen understanding (multimodal), loaded only on demand
 deep = "qwen3.6:35b-a3b"                            # hard planning/reasoning only; never pulled automatically
 embed = "nomic-embed-text"  # RAG embeddings (optional; lexical search works without it)
 base_url = "http://127.0.0.1:11434"

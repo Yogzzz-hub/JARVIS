@@ -192,12 +192,22 @@ def parse_app_name(val: str) -> ApplicationRef:
     for _ in range(5):
         prev = cleaned
         cleaned = re.sub(
-            r"^(?:uh|um|ah|like|you know|i mean|well|so|just|please|kindly|plz|hey jarvis|jarvis|hey|can you|could you|would you|open|launch|start|run|close|quit|kill|bring up|pull up|is|check if|do i have|i need|i want|give me|the|an|a|my)\s+",
+            r"^(?:uh|um|ah|like|you know|i mean|well|so|just|please|kindly|plz|hey jarvis|jarvis|hey|can you|could you|would you|open|launch|start|run|close|quit|kill|bring up|pull up|start up|fire up|load up|boot up|initialize|initialise|is|check if|do i have|i need|i want|give me|the|an|a|my|up)\s+",
             "",
             cleaned,
         ).strip()
         cleaned = re.sub(
-            r"\s+(?:for me please|for us please|for me|for us|please|kindly|plz|if you can|right now|quickly|immediately|now|bro|dude|yaar|da|app|application|program|software|window|on(?: the| my)? screen|up on(?: the| my)? screen|running|up|open|active|is there|is installed|on this computer|on this pc|on my pc|installed on this machine|installed on this pc|installed on disk|installed|located on disk|located|on this machine)$",
+            r"\s+(?:thing|tool|utility|app|application|program)\s+(?:(?:that|which)\s+)?(?:i|we)?\s*(?:normally|usually|always)?\s*(?:use|open|have)?$",
+            "",
+            cleaned,
+        ).strip()
+        cleaned = re.sub(
+            r"\s+(?:that|which)\s+(?:i|we)\s*(?:normally|usually|always)?\s*(?:use|open|have)$",
+            "",
+            cleaned,
+        ).strip()
+        cleaned = re.sub(
+            r"\s+(?:for me please|for us please|for me|for us|please|kindly|plz|if you can|right now|quickly|immediately|now|bro|dude|yaar|da|app|application|program|software|window|presentation\s+app|presentation\s+software|presentation|spreadsheet\s+software|spreadsheet\s+app|spreadsheet|web\s+browser|browser|media\s+player|player|on(?: the| my)? screen|up on(?: the| my)? screen|running|up|open|active|is there|is installed|on this computer|on this pc|on my pc|installed on this machine|installed on this pc|installed on disk|installed|located on disk|located|on this machine)$",
             "",
             cleaned,
         ).strip()

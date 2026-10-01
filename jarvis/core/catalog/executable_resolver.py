@@ -193,17 +193,42 @@ class ExecutableResolver:
 
         # Attempt COM WScript.Shell extraction on Windows
         if os.name == "nt":
+            shell = None
+            shortcut = None
+            co_init = False
             try:
+                import pythoncom
+                try:
+                    pythoncom.CoInitialize()
+                    co_init = True
+                except Exception:
+                    pass
                 import win32com.client
                 shell = win32com.client.Dispatch("WScript.Shell")
                 shortcut = shell.CreateShortcut(lnk_str)
-                target_path = shortcut.TargetPath
-                if target_path and target_path.strip():
-                    validated = self.validate_executable(target_path)
+                target_path = getattr(shortcut, "TargetPath", None)
+                if target_path and str(target_path).strip():
+                    validated = self.validate_executable(str(target_path))
                     if validated:
                         return validated, False
             except Exception as exc:
                 logger.debug("COM shortcut resolution failed for %s: %s", lnk_str, exc)
+            finally:
+                if shortcut is not None:
+                    try:
+                        del shortcut
+                    except Exception:
+                        pass
+                if shell is not None:
+                    try:
+                        del shell
+                    except Exception:
+                        pass
+                if co_init:
+                    try:
+                        pythoncom.CoUninitialize()
+                    except Exception:
+                        pass
 
         # Fallback: check if the .lnk file itself can be launched via ShellExecute
         return lnk_str, True

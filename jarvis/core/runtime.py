@@ -415,7 +415,7 @@ class Runtime:
                 terms += [c.display_name for c in ContactResolver()._contacts[:25] if c.display_name]
             except Exception:
                 pass
-            return VocabularyBiasProvider(custom_terms=terms, max_tokens=60).generate_prompt()
+            return VocabularyBiasProvider(custom_terms=terms, max_tokens=30).generate_prompt()
         except Exception:
             return ""
 

@@ -23,6 +23,11 @@ class SearchQuery:
     context_reference: bool = False
     semantic: bool = False
     directory_hint: str | None = None
+    time_start_iso: str | None = None
+    time_end_iso: str | None = None
+    size_min_bytes: int | None = None
+    size_max_bytes: int | None = None
+    exclude_patterns: list[str] = field(default_factory=list)
     tokens: list[str] = field(default_factory=list)
 
 @dataclass

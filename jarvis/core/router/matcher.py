@@ -32,6 +32,10 @@ def match_patterns(
                         continue
                     if any(sep in val for sep in (",", ";", " and ", " and then ", " then ", " play ", " message ", " send ", " check ", " search ", " find ")):
                         continue
+                    if re.search(r"\b(?:on|in|into|at|from|for|via|using|through)\s+(?:my\s+|the\s+)?(?:phone|mobile|android)\b", val):
+                        continue
+                    if re.search(r"\b(?:google\s+)?play\s*store\b", val):
+                        continue
 
                 # Guard: Do not let find_file swallow news, web, youtube, duplicate checking, app location, or UI element queries
                 if defn.name == "find_file" and "query" in raw_dict:

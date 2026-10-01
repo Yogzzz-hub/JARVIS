@@ -23,12 +23,11 @@ AMBIGUOUS_APPS = {
     "messenger": ("WhatsApp", "Telegram", "Facebook Messenger"),
     "code": ("Visual Studio Code", "CodeBlocks", "Claude Code"),
     "python": ("Python Interactive", "IDLE", "PyCharm"),
-    "explorer": ("File Explorer", "Internet Explorer"),
     "browser": ("Chrome", "Edge", "Firefox"),
 }
 
 GENERIC_RESOURCE_PATTERNS = (
-    re.compile(r"^(?:open|delete|remove|edit|view|show|print|share|export)\s+(?:the\s+)?(?:file|document|pdf|pdf\s+file|code\s+file|notes\s+file|log\s+file|archive|backup|spreadsheet|presentation|invoice|contract|report|image|receipt|script|dataset|audio|audio\s+recording|video|video\s+clip)$", re.I),
+    re.compile(r"^(?:(?:i\s+want\s+to\s+|can\s+i\s+|let\s+me\s+)?(?:open|delete|remove|edit|view|show|see|look\s+at|print|share|export))\s+(?:the\s+|that\s+|this\s+)?(?P<res_type>file|document|pdf|pdf\s+file|code\s+file|notes\s+file|log\s+file|archive|backup|spreadsheet|presentation|invoice|contract|report|image|receipt|script|dataset|audio|audio\s+recording|video|video\s+clip)$", re.I),
     re.compile(r"^(?:click|press|tap)\s+(?:the\s+)?(?:continue|submit|download|accept|confirm|next|ok)\s*(?:button|link)?(?:\s+on\s+(?:the\s+)?page)?$", re.I),
     re.compile(r"^(?:play|put\s+on)\s+(?:some\s+)?(?:music|songs?|tracks?|videos?|a\s+video)$", re.I),
     re.compile(r"^(?:connect\s+to|pair\s+with)\s+(?:my\s+)?(?:phone|mobile|device|display)$", re.I),
@@ -67,6 +66,18 @@ def plausible_app_match(query: str, candidate: str) -> bool:
     return compact.startswith(q) and len(q) / max(1, len(compact)) >= 0.34
 
 
+def is_launchable_application_name(name: str) -> bool:
+    """Filters out python scripts, internal utilities, test runners, and technical symbols."""
+    low = name.casefold().strip()
+    if any(p in low for p in ("plotly", "pytest", "pip", "wheel", "twine", "setup", "helper", "daemon", "stub", "broker")):
+        return False
+    if "_" in low:
+        return False
+    if low.endswith(("-cli", ".py", ".sh", ".bat", ".cmd", ".ps1")):
+        return False
+    return True
+
+
 def disambiguate_app(
     app_name: str,
     resolver: Any,
@@ -78,9 +89,7 @@ def disambiguate_app(
     clean_app = re.sub(r"\s+(?:on\s+(?:my\s+)?screen|for\s+me|right\s+now|please|now)$", "", lowered).strip()
 
     # Explicit multi-word names that are already specific must not be flagged ambiguous
-    if clean_app in ("file explorer", "windows explorer", "internet explorer", "google chrome", "visual studio code"):
-        return None
-    if clean_app == "explorer" and ("file" in normalized_text.lower() or "windows" in normalized_text.lower()):
+    if clean_app in ("file explorer", "windows explorer", "explorer", "google chrome", "visual studio code", "terminal window", "windows terminal", "terminal"):
         return None
 
     matched_ambig = None
@@ -110,10 +119,26 @@ def disambiguate_app(
     if resolver and hasattr(resolver, "cache") and isinstance(resolver.cache, dict):
         matching = []
         for k in resolver.cache.keys():
+            if not is_launchable_application_name(k):
+                continue
             if plausible_app_match(clean_app, k) and re.sub(r"\.exe$", "", k) not in [re.sub(r"\.exe$", "", m) for m in matching]:
                 matching.append(k)
+
+        # Deduplicate candidates that resolve to the same application
+        distinct_targets = {}
+        for m in matching:
+            try:
+                t = resolver.resolve(m) if hasattr(resolver, "resolve") else None
+                path = getattr(t, "path", m)
+                if path not in distinct_targets:
+                    distinct_targets[path] = m
+            except Exception:
+                if m not in distinct_targets:
+                    distinct_targets[m] = m
+        matching = list(distinct_targets.values())
+
         if len(matching) > 1 and lowered not in resolver.cache:
-            choices_str = ", ".join(matching[:3])
+            choices_str = ", ".join(m.title() for m in matching[:3])
             return RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.CLARIFY,
@@ -137,7 +162,26 @@ def disambiguate_generic_request(
 ) -> RouteDecision | None:
     """Checks if a request references an ambiguous generic target without referents."""
     cleaned = text.strip().rstrip(".!?")
-    
+
+    # 0. Check explicit ambiguity instruction: "if you're not sure, ask me" / "ask me if you're not sure"
+    if re.search(r"\b(?:if (?:you're|you are) not sure\b.*?\b(?:ask me|clarify)|ask me if (?:you're|you are) not sure)\b", cleaned, re.I):
+        m_type = re.search(r"\b(document|file|pdf|spreadsheet|notes?|folder|app|program)\b", cleaned, re.I)
+        type_name = m_type.group(1).lower() if m_type else "document"
+        type_label = "PDF" if type_name == "pdf" else type_name
+        return RouteDecision(
+            request_id=request_id,
+            lane=RouteLane.CLARIFY,
+            intent="clarify",
+            slots={},
+            confidence=0.5,
+            source=RouteSource.EXACT,
+            complexity=ComplexityLevel.SIMPLE,
+            clarification=f"Which {type_label} do you mean?",
+            normalized_text=cleaned,
+            reason_code=ReasonCode.LOW_CONFIDENCE,
+            candidate_count=0,
+        )
+
     # 1. Check contact messaging without message body
     m_msg_only = re.match(r"^(?:send\s+(?:a\s+)?message\s+to|message|tell|whatsapp|call)\s+([a-zA-Z0-9_\.\s]+?)(?:\s+on\s+whatsapp)?$", cleaned, re.I)
     if m_msg_only and not any(w in cleaned.lower() for w in ("saying", "that", "with text", ":")):
@@ -162,19 +206,38 @@ def disambiguate_generic_request(
 
     # 2. Check generic resource without specific name or referents
     for pat in GENERIC_RESOURCE_PATTERNS:
-        if pat.match(cleaned):
-            return RouteDecision(
-                request_id=request_id,
-                lane=RouteLane.CLARIFY,
-                intent="clarify",
-                slots={},
-                confidence=0.5,
-                source=RouteSource.EXACT,
-                complexity=ComplexityLevel.SIMPLE,
-                clarification=f"Could you please specify which target you mean for '{cleaned}'?",
-                normalized_text=cleaned,
-                reason_code=ReasonCode.LOW_CONFIDENCE,
-                candidate_count=0,
-            )
+        m = pat.match(cleaned)
+        if m:
+            # Check if working_memory has a valid context referent before asking
+            res_type = m.groupdict().get("res_type") or "target"
+            has_context = False
+            if working_memory:
+                if res_type.lower() == "pdf":
+                    curr = getattr(working_memory, "get_current_resource", lambda: None)()
+                    last_opened = getattr(working_memory, "get_last_opened_file", lambda: None)()
+                    search_res = getattr(working_memory, "get_recent_search_results", lambda: [])()
+                    has_context = bool((curr and getattr(curr, "canonical_path", "").lower().endswith(".pdf")) or
+                                       (last_opened and last_opened.lower().endswith(".pdf")) or
+                                       any(str(r).lower().endswith(".pdf") for r in search_res))
+                elif res_type.lower() in ("file", "document"):
+                    curr = getattr(working_memory, "get_current_resource", lambda: None)()
+                    last_opened = getattr(working_memory, "get_last_opened_file", lambda: None)()
+                    has_context = bool(curr or last_opened)
+
+            if not has_context:
+                type_label = "PDF" if res_type.lower() == "pdf" else res_type
+                return RouteDecision(
+                    request_id=request_id,
+                    lane=RouteLane.CLARIFY,
+                    intent="clarify",
+                    slots={},
+                    confidence=0.5,
+                    source=RouteSource.EXACT,
+                    complexity=ComplexityLevel.SIMPLE,
+                    clarification=f"Which {type_label} do you mean?",
+                    normalized_text=cleaned,
+                    reason_code=ReasonCode.LOW_CONFIDENCE,
+                    candidate_count=0,
+                )
 
     return None

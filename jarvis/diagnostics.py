@@ -70,7 +70,16 @@ def collect():
         add('Audio devices', 'WARN', str(exc))
     _voice_model_checks(config, add)
     _ollama_checks(config, add)
-    add('Google', 'WARN', 'DISCONNECTED; optional')
+    try:
+        from jarvis.integrations.google.auth.manager import GoogleAuthManager
+        accs = GoogleAuthManager().list_accounts()
+        ready = [a for a in accs if getattr(a.status, 'value', str(a.status)) == 'READY']
+        if ready:
+            add('Google', 'PASS', f'{len(ready)} account(s) ready ({", ".join(a.email for a in ready)})')
+        else:
+            add('Google', 'WARN', 'DISCONNECTED; optional')
+    except Exception as exc:
+        add('Google', 'WARN', f'DISCONNECTED; optional ({exc})')
     return checks
 
 

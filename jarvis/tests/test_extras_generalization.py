@@ -368,7 +368,7 @@ def test_qualifier_conditions_travel_with_the_route(router):
     ("close the popup", RouteLane.LANE_0, "dialog_interaction"),
     ("dismiss this dialog box", RouteLane.LANE_0, "dialog_interaction"),
     ("find the search box on this page", RouteLane.LANE_2, None),
-    ("find where my notes mention backpropagation", RouteLane.LANE_0, "knowledge_search"),
+    ("find where my reports mention backpropagation", RouteLane.LANE_0, "knowledge_search"),
     ("delete the screenshot", RouteLane.CLARIFY, "delete_file"),
     ("rename that file", RouteLane.CLARIFY, "rename_file"),
     ("open the program", RouteLane.CLARIFY, "open_app"),

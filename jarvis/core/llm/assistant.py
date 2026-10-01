@@ -50,12 +50,24 @@ _MARKDOWN = [
 ]
 
 
+_TRAILING_FILLER = re.compile(
+    r"\s*(?:shall\s+i\s+proceed(?:\s+with\s+anything\s+else)?\??|"
+    r"would\s+you\s+like\s+me\s+to\s+proceed(?:\s+with\s+anything\s+else)?\??|"
+    r"is\s+there\s+anything\s+else\s+(?:i\s+can|you(?:'d|\s+would)?\s+like\s+me\s+to)\s+(?:help|do|assist)(?:\s+with)?\??|"
+    r"let\s+me\s+know\s+if\s+you\s+(?:need|have)\s+anything\s+else[.!]?|"
+    r"how\s+else\s+can\s+i\s+help(?: you)?\??|"
+    r"can\s+i\s+help\s+(?:you\s+)?with\s+anything\s+else\??)\s*$",
+    re.I
+)
+
+
 def to_speakable(text: str, max_sentences: int = 0, max_chars: int = 0) -> str:
     """Strip markdown/URLs and optionally trim to a few sentences for speech."""
     out = text or ""
     for pattern, repl in _MARKDOWN:
         out = pattern.sub(repl, out)
     out = re.sub(r"\s+", " ", out).strip()
+    out = _TRAILING_FILLER.sub("", out).strip()
     if max_sentences:
         sentences = re.split(r"(?<=[.!?])\s+", out)
         out = " ".join(sentences[:max_sentences]).strip()

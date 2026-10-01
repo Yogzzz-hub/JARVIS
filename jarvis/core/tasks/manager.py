@@ -30,7 +30,7 @@ TRANSITIONS = {
     State.VERIFYING: {State.SUCCESS, State.FAILED, State.CANCELLED},
     State.WAITING_CONFIRMATION: {State.EXECUTING, State.RESPONDING, State.FAILED, State.CANCELLED},
     State.SUCCESS: {State.RESPONDING}, State.FAILED: {State.RESPONDING},
-    State.CANCELLED: {State.RESPONDING}, State.RESPONDING: set(),
+    State.CANCELLED: {State.RESPONDING}, State.RESPONDING: {State.FAILED},
 }
 
 @dataclass(slots=True)

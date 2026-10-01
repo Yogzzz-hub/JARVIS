@@ -170,3 +170,30 @@ never in groups" (refusal → grant for Yoga), "Stop all WhatsApp auto-replies i
 to her in my usual Tanglish style until 8 PM" (contact "her in my usual tanglish style" → "her"), "Deal with Arun's
 message" (generic → "read it, summarize it, or draft a reply?"), "Uninstall the test application only after
 confirmation" (name without the condition).
+
+## Merged with main (semantic frames, temporal reasoning)
+
+Main gained a typed semantic-frame parser that routes many "find / show … <time>" requests straight to a file
+search. The target check now also runs on those decisions, so:
+
+- a frame file search whose request is about what someone *said* is re-matched by the object-first matchers
+  ("Show me what Arun said today, but don't respond" → WhatsApp, not a file search);
+- a constraint-only query (`"*"`) is checked against the whole request (Drive / email / content questions);
+- one look-up tool never takes a multi-step request ("find my latest PDF, copy its summary and paste it …" → planner);
+- a whole command never becomes a name or a query ("use the current logged-in session …" was a workspace name).
+
+Two crashes in the new code were fixed: a `DatePoint` / `DateTimePoint` read `.date` / `.dt` instead of
+`.resolved_date` / `.resolved_dt` (router frame search and `memory/search/query_parser.py`), which raised on any
+"… today" request. "What is this document about?" no longer creates a topic named "this document about" that a later
+"install it" would install.
+
+## Verification
+
+| Check | Before this change | After |
+|---|---|---|
+| Extra 8-22 regression file (`jarvis/tests/test_extras_generalization.py`: the 150 commands + unseen paraphrases for every mechanism + end-to-end) | - | 277 passed |
+| Phase-1 introspection tests | 122 passed | 122 passed |
+| Route suites vs. main (crash-fixed): dev / blind 1-6 / old benchmark | 87 / 27, 19, 9, 3, 2, 0 / 47 failures | 84 / 27, 19, 9, 3, 2, 0 / 38 failures (no new failure) |
+| Full pytest vs. main | 19 failed | 18 failed (a subset; the temporal crash fix repairs one) |
+| WhatsApp personal-reply benchmark | 500/500 | 500/500, 0 critical |
+| JDE evaluation | unchanged | unchanged (JDE does not depend on these files) |

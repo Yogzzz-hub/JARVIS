@@ -80,7 +80,7 @@ TopicRef = EntityRef
 @dataclass
 class BaseResourceRef:
     """Base class for all stable, actionable resource references."""
-    resource_id: str
+    resource_id: str = ""
     resource_type: str = "UNKNOWN"
     display_name: str = ""
     canonical_identifier: str = ""

@@ -172,7 +172,10 @@ class EntityExtractor:
             # Split conjunctions if multiple: "Python, Java and C++" or "Ollama and LM Studio"
             parts = re.split(r",\s*|\s+and\s+|\s+vs\s+|\s+versus\s+", candidate_phrase)
             for p in parts:
-                clean_p = p.strip()
+                clean_p = re.sub(r"\s+about$", "", p.strip())
+                # "what is this document about" / "what is that": a reference to something already present, not a new topic
+                if re.match(r"^(?:this|that|these|those|it|its|here|there|the\s+(?:current|open|same|other)|my|your)\b", clean_p):
+                    continue
                 if clean_p and len(clean_p) >= 2:
                     ent = EntityExtractor._resolve_or_create(clean_p, turn_index=turn_index)
                     if ent.canonical_name not in seen_canon:

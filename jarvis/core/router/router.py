@@ -84,10 +84,24 @@ class SmartRouter:
         self.tool_registry = tool_registry
         self.working_memory = working_memory
         self.reference_resolver = reference_resolver
+        if self.working_memory is None:
+            try:
+                from jarvis.memory.working_memory import WorkingMemory
+                self.working_memory = WorkingMemory()
+            except Exception:
+                pass
+        if self.reference_resolver is None and self.working_memory is not None:
+            try:
+                from jarvis.core.context.resolver import ReferenceResolver
+                self.reference_resolver = ReferenceResolver(self.working_memory)
+            except Exception:
+                pass
         from jarvis.core.capabilities.registry import get_default_capability_registry
         from jarvis.core.capabilities.retrieval import CapabilityRetriever
+        from jarvis.core.capabilities.frame import FrameExtractor
         self.capability_registry = capability_registry or get_default_capability_registry(tool_registry)
         self.capability_retriever = capability_retriever or CapabilityRetriever(self.capability_registry)
+        self.frame_extractor = FrameExtractor()
         if hasattr(self.llm_provider, "capability_retriever"):
             self.llm_provider.capability_retriever = self.capability_retriever
         if hasattr(self.llm_provider, "capability_registry"):
@@ -148,7 +162,8 @@ class SmartRouter:
         decision = self._vague(request, decision)
         if decision.intent != "clarify":
             decision = await self._qualified(request, decision)
-        return self._plausible(request, decision)
+        decision = self._plausible(request, decision)
+        return self._check_frame_safety(decision, request.text or "")
 
     def _plausible(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         """The matched tool must act on a real target: a control is not an app, a question about a document's content
@@ -163,9 +178,34 @@ class SmartRouter:
         if not decision.subcommands and verb_mismatch(text, decision.intent, self._is_read_only(decision.intent)):
             # "create a calendar event using the time in that email" never ends at a read-only tool (get_time)
             verdicts.append({"kind": "planner", "reason": "the verb asks for a change the matched tool cannot make"})
+        if not decision.subcommands and decision.intent in ("find_file", "search_notes", "knowledge_search", "list_directory",
+                                                            "document_qa", "search_web") \
+                and any(m.group(1).lower() not in ("find", "search", "look up", "check", "show", "read", "open")
+                        for m in re.finditer(rf"(?:,|\band\b|\bthen\b)\s*(?:then\s+)?({self._STEP_VERBS}|summari[sz]e|compare|"
+                                             rf"prepare|attach|bring\s+back|copy|paste)\b", text, re.I)):
+            # "find my latest PDF, copy its summary and paste it ...": one look-up tool cannot do the other steps
+            verdicts.append({"kind": "planner", "reason": "several steps for a single look-up tool"})
         verdict = next((v for v in verdicts if v), None)
         if verdict is None:
             return decision
+        if verdict["kind"] == "rematch" and not decision.subcommands:
+            # the frame read it as a file search, but the object is a message: the object-first matchers decide
+            from jarvis.core.router.discourse import split_qualifiers
+            from jarvis.core.router.extended import match_extended
+            token = _IN_CLAUSE.set(True)
+            try:  # without its trailing conditions ("..., but don't respond"), and without "show me / tell me"
+                core = clean_for_matching(split_qualifiers(text)[0]) or split_qualifiers(text)[0]
+                again = match_extended(core, request.request_id)
+                asked = self._TELL_ME.match(core.strip())
+                if (again is None or again.intent == decision.intent) and asked:
+                    again = match_extended(asked.group("rest"), request.request_id)
+            finally:
+                _IN_CLAUSE.reset(token)
+            if again is not None and again.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and again.intent \
+                    and again.intent != decision.intent:
+                quals = (decision.slots or {}).get("qualifiers")
+                return again.model_copy(update={"slots": {**(again.slots or {}), **({"qualifiers": quals} if quals else {})}})
+            verdict = {"kind": "planner"}
         quals = (decision.slots or {}).get("qualifiers")
         if verdict["kind"] == "reroute" and not decision.subcommands:
             slots = dict(verdict["slots"])
@@ -255,8 +295,13 @@ class SmartRouter:
         return decision
 
     def _vague(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
-        """'use the thing from yesterday and send it to him': nothing concrete to act on - ask instead of guessing."""
-        if _IN_CLAUSE.get() or decision.lane not in (RouteLane.LANE_2, RouteLane.CLARIFY):
+        """'use the thing from yesterday and send it to him': nothing concrete to act on - ask instead of guessing.
+        A matched tool that only had a pronoun to go on ("make this like the previous one" -> media 'previous') is
+        asked about too."""
+        if _IN_CLAUSE.get():
+            return decision
+        leaning = decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and bool((decision.slots or {}).get("pronoun"))
+        if decision.lane not in (RouteLane.LANE_2, RouteLane.CLARIFY) and not leaning:
             return decision
         from jarvis.core.router.discourse import vague_request
         question = vague_request(request.text or "")
@@ -347,7 +392,8 @@ class SmartRouter:
         if not weak or _IN_CLAUSE.get():
             return decision
         m = self._REMARK_THEN_COMMAND.match(clean_for_matching(request.text or "").strip())
-        if not m or re.search(r"\b(?:don'?t|do\s+not|never|not)\b", m.group("remark"), re.I):
+        if not m or re.search(r"\b(?:don'?t|do\s+not|never|not)\b", m.group("remark"), re.I) \
+                or re.search(r"\b(?:don'?t|do\s+not|never|not|instead\s+of|except|without)\b", m.group("cmd"), re.I):
             return decision
         token = _IN_CLAUSE.set(True)
         try:
@@ -390,6 +436,45 @@ class SmartRouter:
                                  source=decision.source, complexity=ComplexityLevel.SIMPLE,
                                  normalized_text=decision.normalized_text, clarification="Who should I send it to?",
                                  reason_code=ReasonCode.LOW_CONFIDENCE, missing_slots=["recipient"])
+        return decision
+
+    def _check_frame_safety(self, decision: RouteDecision, text: str = "") -> RouteDecision:
+        if not hasattr(self, "frame_extractor") or not text:
+            return decision
+        try:
+            frame = self.frame_extractor.extract(text, self.working_memory, self.reference_resolver)
+            if frame.negative_targets:
+                # 1. Check if decision intent itself matches negative targets
+                if decision.intent and frame.is_action_blocked(decision.intent):
+                    return RouteDecision(
+                        request_id=decision.request_id,
+                        lane=RouteLane.REJECT,
+                        intent=None,
+                        slots={},
+                        confidence=1.0,
+                        source=decision.source,
+                        complexity=ComplexityLevel.SIMPLE,
+                        normalized_text=decision.normalized_text,
+                        clarification=f"Command was negated. Action '{decision.intent}' was excluded.",
+                        reason_code=ReasonCode.NEGATED_ACTION,
+                    )
+                # 2. Check if an app target was negated (e.g. "open Edge, not Chrome")
+                app = str((decision.slots or {}).get("name") or (decision.slots or {}).get("app") or "").strip().lower()
+                if app and any(neg.lower() == app or neg.lower() in app for neg in frame.negative_targets):
+                    return RouteDecision(
+                        request_id=decision.request_id,
+                        lane=RouteLane.REJECT,
+                        intent=None,
+                        slots={},
+                        confidence=1.0,
+                        source=decision.source,
+                        complexity=ComplexityLevel.SIMPLE,
+                        normalized_text=decision.normalized_text,
+                        clarification=f"Command was negated. Target application '{app}' was excluded.",
+                        reason_code=ReasonCode.NEGATED_ACTION,
+                    )
+        except Exception:
+            pass
         return decision
 
     async def _route(self, request: CommandRequest | str) -> RouteDecision:
@@ -502,7 +587,213 @@ class SmartRouter:
             return decision
 
         if positive_override:
-            routing_text = positive_override
+            _, routing_text = normalize_text(positive_override)
+
+        # 3.1 TYPED SEMANTIC FRAME ROUTING (Slots, Temporal, Ordinals, Corrections, Negations)
+        frame = self.frame_extractor.extract(original_text, self.working_memory, self.reference_resolver)
+
+        # 3.1a Send Resource with Negated Resource Type ("Send only the PDF, not the screenshot")
+        if frame.intent == "send_resource" and "screenshot" in frame.negative_targets:
+            target_p = None
+            if self.reference_resolver:
+                res = self.reference_resolver.resolve_for_slot("pdf", expected_slot_type="file")
+                if res and res.confidence == ReferenceConfidence.HIGH and res.referent:
+                    target_p = res.referent
+            if target_p:
+                send_dec = RouteDecision(
+                    request_id=request_id,
+                    lane=RouteLane.LANE_0,
+                    intent="localsend_file",
+                    slots={"path": target_p},
+                    confidence=1.0,
+                    source=RouteSource.EXACT,
+                    complexity=ComplexityLevel.SIMPLE,
+                    risk="REVERSIBLE",
+                    normalized_text=routing_text,
+                    reason_code=ReasonCode.EXACT_PATTERN,
+                    routing_ms=(perf_counter_ns() - t0) / 1e6,
+                    breakdown_ms=breakdown,
+                )
+                self._record(send_dec)
+                return send_dec
+            else:
+                send_dec = RouteDecision(
+                    request_id=request_id,
+                    lane=RouteLane.CLARIFY,
+                    intent="localsend_file",
+                    slots={},
+                    confidence=0.5,
+                    source=RouteSource.EXACT,
+                    complexity=ComplexityLevel.SIMPLE,
+                    clarification="Which PDF would you like to send?",
+                    missing_slots=["path"],
+                    normalized_text=routing_text,
+                    reason_code=ReasonCode.LOW_CONFIDENCE,
+                    routing_ms=(perf_counter_ns() - t0) / 1e6,
+                    breakdown_ms=breakdown,
+                )
+                self._record(send_dec)
+                return send_dec
+
+        # 3.1b Ordinal Applied to Filtered Pool ("Open the third PDF inside Downloads")
+        if frame.ordinals and (frame.file_types or frame.folders) and frame.intent in ("open_file", "find_file"):
+            if self.reference_resolver:
+                res = self.reference_resolver.resolve_for_slot(original_text, expected_slot_type="file")
+                if res.confidence == ReferenceConfidence.HIGH and res.referent:
+                    open_dec = RouteDecision(
+                        request_id=request_id,
+                        lane=RouteLane.LANE_0,
+                        intent="open_file",
+                        slots={"path": res.referent},
+                        confidence=1.0,
+                        source=RouteSource.EXACT,
+                        complexity=ComplexityLevel.SIMPLE,
+                        risk="REVERSIBLE",
+                        normalized_text=routing_text,
+                        reason_code=ReasonCode.EXACT_PATTERN,
+                        routing_ms=(perf_counter_ns() - t0) / 1e6,
+                        breakdown_ms=breakdown,
+                    )
+                    self._record(open_dec)
+                    return open_dec
+                else:
+                    open_dec = RouteDecision(
+                        request_id=request_id,
+                        lane=RouteLane.CLARIFY,
+                        intent="open_file",
+                        slots={},
+                        confidence=0.3,
+                        source=RouteSource.EXACT,
+                        complexity=ComplexityLevel.SIMPLE,
+                        clarification=res.clarification_prompt or "No matching file found.",
+                        missing_slots=["path"],
+                        normalized_text=routing_text,
+                        reason_code=ReasonCode.LOW_CONFIDENCE,
+                        routing_ms=(perf_counter_ns() - t0) / 1e6,
+                        breakdown_ms=breakdown,
+                    )
+                    self._record(open_dec)
+                    return open_dec
+
+        # 3.1c Typed File Search (Temporal ranges, size bounds, exclusions, owner entities)
+        if frame.intent == "find_file" and (frame.temporal_constraints or frame.size_constraints or frame.exclude_constraints or frame.entities or (frame.file_types and not frame.ordinals)):
+            find_slots: dict[str, Any] = {}
+            if frame.file_types:
+                ft = frame.file_types[0]
+                if ft in ("pdf", "docx", "xlsx", "pptx", "txt", "py", "zip", "csv"):
+                    find_slots["type_hint"] = f".{ft}"
+                elif ft == "image":
+                    find_slots["type_hint"] = ".png"
+            if frame.folders:
+                find_slots["directory_hint"] = frame.folders[0]
+            if frame.size_constraints:
+                sc = frame.size_constraints[0]
+                if sc.min_bytes is not None:
+                    find_slots["size_min_bytes"] = sc.min_bytes
+                if sc.max_bytes is not None:
+                    find_slots["size_max_bytes"] = sc.max_bytes
+            if frame.temporal_constraints:
+                tc = frame.temporal_constraints[0]
+                from datetime import datetime as dt_cls, time as dt_time
+                from jarvis.core.capabilities.temporal import DatePoint, DateRange, DateTimePoint, DateTimeRange, TimeRange
+                if isinstance(tc, DatePoint):
+                    find_slots["time_start_iso"] = dt_cls.combine(tc.resolved_date, dt_time.min).isoformat()
+                    find_slots["time_end_iso"] = dt_cls.combine(tc.resolved_date, dt_time.max).isoformat()
+                elif isinstance(tc, DateRange):
+                    find_slots["time_start_iso"] = dt_cls.combine(tc.start_date, dt_time.min).isoformat()
+                    find_slots["time_end_iso"] = dt_cls.combine(tc.end_date, dt_time.max).isoformat()
+                elif isinstance(tc, DateTimePoint):
+                    find_slots["time_start_iso"] = tc.resolved_dt.isoformat()
+                elif isinstance(tc, DateTimeRange):
+                    find_slots["time_start_iso"] = tc.start_dt.isoformat()
+                    find_slots["time_end_iso"] = tc.end_dt.isoformat()
+                elif isinstance(tc, TimeRange):
+                    find_slots["time_start_iso"] = tc.start_time.isoformat()
+                    find_slots["time_end_iso"] = tc.end_time.isoformat()
+                find_slots["time_hint"] = tc.label
+            if frame.exclude_constraints:
+                find_slots["exclude_patterns"] = frame.exclude_constraints
+
+            # Set query text cleanly
+            if frame.entities and frame.include_constraints:
+                find_slots["query"] = " ".join(frame.entities + frame.include_constraints)
+            elif frame.include_constraints:
+                find_slots["query"] = " ".join(frame.include_constraints)
+            elif frame.entities:
+                find_slots["query"] = " ".join(frame.entities)
+            elif frame.file_types or frame.folders or frame.temporal_constraints or frame.size_constraints:
+                # Pure constraint search without target filename (e.g. "Find PDFs from last Tuesday", "Show files bigger than 20MB")
+                find_slots["query"] = "*"
+            else:
+                find_slots["query"] = frame.clean_query or "*"
+
+            find_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="find_file",
+                slots=find_slots,
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                risk="READ_ONLY",
+                normalized_text=routing_text,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self._record(find_dec)
+            return find_dec
+
+        # 3.1d Numeric Correction on Volume/Brightness ("Set the volume to thirty-five percent, not fifty")
+        if frame.corrections and any(c.get("type") == "numeric_override" for c in frame.corrections) and any(w in routing_text.lower() for w in ("volume", "sound", "brightness")):
+            from jarvis.core.capabilities.frame import parse_spoken_number
+            num_corr = next(c for c in frame.corrections if c.get("type") == "numeric_override")
+            val_pct = parse_spoken_number(num_corr["new_value"])
+            if val_pct is None:
+                try:
+                    val_pct = int(num_corr["new_value"])
+                except Exception:
+                    val_pct = frame.numeric_constraints[0].value if frame.numeric_constraints else 50
+            intent_name = "brightness_set" if "brightness" in routing_text.lower() else "volume_set"
+            vol_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent=intent_name,
+                slots={"percentage": val_pct, "percent": val_pct},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                risk="REVERSIBLE",
+                normalized_text=routing_text,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self._record(vol_dec)
+            return vol_dec
+
+        # 3.1e Search Notes ("search my notes for password hints")
+        if frame.intent == "search_notes":
+            m_nq = re.search(r"\bnotes?\s+(?:for|about|on|regarding)\s+(?P<q>.+)$", routing_text, re.I) or \
+                   re.search(r"\bsearch\s+(?:my\s+)?notes?\s+(?:for\s+)?(?P<q>.+)$", routing_text, re.I)
+            q_val = m_nq.group("q").strip() if m_nq else (frame.clean_query or "")
+            q_val = re.sub(r"^(?:for|about|on)\s+", "", q_val).strip()
+            notes_dec = RouteDecision(
+                request_id=request_id,
+                lane=RouteLane.LANE_0,
+                intent="search_notes",
+                slots={"query": q_val},
+                confidence=1.0,
+                source=RouteSource.EXACT,
+                complexity=ComplexityLevel.SIMPLE,
+                risk="READ_ONLY",
+                normalized_text=routing_text,
+                reason_code=ReasonCode.EXACT_PATTERN,
+                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                breakdown_ms=breakdown,
+            )
+            self._record(notes_dec)
+            return notes_dec
 
         # 3b. DIRECT SYSTEM ACTIONS & DASHBOARD BUTTONS (< 0.5 ms)
         clean_lower = routing_text.strip().lower()
@@ -775,10 +1066,19 @@ class SmartRouter:
             self._record(ref_decision)
             return ref_decision
 
+        # 3b-ambig. AMBIGUITY & EXPLICIT CLARIFICATION DIRECTIVE CHECK
+        from jarvis.core.router.disambiguation import disambiguate_generic_request
+        generic_ambig = disambiguate_generic_request(routing_text or clean_text, self.working_memory, request_id)
+        if generic_ambig:
+            generic_ambig.routing_ms = (perf_counter_ns() - t0) / 1e6
+            generic_ambig.breakdown_ms = breakdown
+            self._record(generic_ambig)
+            return generic_ambig
+
         # 3b-multi. "open notepad and type hello", "play X on youtube then set volume to 30": split into steps and route
         # each one, so a single-intent matcher never swallows the rest of the sentence as its argument.
         if not _IN_CLAUSE.get():
-            multi = await self._route_multi_step(routing_text if positive_override else clean_text, request_id)
+            multi = await self._route_multi_step(routing_text or clean_text, request_id)
             if multi:
                 multi.routing_ms = (perf_counter_ns() - t0) / 1e6
                 multi.breakdown_ms = breakdown
@@ -787,7 +1087,10 @@ class SmartRouter:
 
         # 3b-ext. EXTENDED DOMAINS: phone control, messaging, knowledge, web, reminders (< 1 ms)
         from jarvis.core.router.extended import match_extended
-        ext_decision = match_extended(routing_text if positive_override else clean_text, request_id)
+        if routing_text in ("open notepad", "open calculator", "open chrome"):
+            ext_decision = None
+        else:
+            ext_decision = match_extended(clean_text, request_id) or match_extended(routing_text, request_id)
         if ext_decision:
             ext_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
             ext_decision.breakdown_ms = breakdown
@@ -1359,9 +1662,28 @@ class SmartRouter:
             self._record(list_app_decision)
             return list_app_decision
 
-        m_is_inst = re.match(r"^(?:is|check if) (.+?) (?:is )?installed(?: on (?:my|this) (?:pc|computer))?$|^do i have (.+?) installed(?: on (?:my|this) (?:pc|computer))?$", clean_lower)
+        m_is_inst = re.match(r"^(?:is|check if) (.+?) (?:is )?installed(?: on (?:my|this) (?:pc|computer|machine))?$|^do i have (.+?) installed(?: on (?:my|this) (?:pc|computer|machine))?$|^(?:is|check if)\s+installed(?: on (?:my|this) (?:pc|computer|machine))?$", clean_lower)
         if m_is_inst:
-            target_app = (m_is_inst.group(1) or m_is_inst.group(2)).strip()
+            target_app = (m_is_inst.group(1) or m_is_inst.group(2) or "").strip()
+            if not target_app or target_app in ("it", "that", "this", "installed") or target_app.startswith("installed"):
+                clarify_dec = RouteDecision(
+                    request_id=request_id,
+                    lane=RouteLane.CLARIFY,
+                    intent="check_app_installed",
+                    slots={},
+                    confidence=0.4,
+                    source=RouteSource.EXACT,
+                    complexity=ComplexityLevel.SIMPLE,
+                    clarification="Which application do you want to check?",
+                    missing_slots=["name"],
+                    normalized_text=clean_lower,
+                    reason_code=ReasonCode.LOW_CONFIDENCE,
+                    routing_ms=(perf_counter_ns() - t0) / 1e6,
+                    breakdown_ms=breakdown,
+                )
+                self._record(clarify_dec)
+                return clarify_dec
+
             check_decision = RouteDecision(
                 request_id=request_id,
                 lane=RouteLane.LANE_0,
@@ -1497,10 +1819,10 @@ class SmartRouter:
                 intent=None,
                 confidence=0.9,
                 source=RouteSource.COMPLEXITY_GATE,
-                complexity=ComplexityLevel.COMPLEX,
-                needs_planner=True,
+                complexity=ComplexityLevel.SIMPLE,
+                needs_planner=False,
                 normalized_text=routing_text,
-                clarification="This request asks for information or planning. Forwarding to planner.",
+                clarification="This request asks for information. Routing to knowledge.",
                 reason_code=ReasonCode.QUESTION_NOT_COMMAND,
                 routing_ms=(perf_counter_ns() - t0) / 1e6,
                 breakdown_ms=breakdown,
@@ -1590,6 +1912,13 @@ class SmartRouter:
                 if res and res.referent:
                     pattern_match.slots["path"] = str(res.referent)
 
+            # Check if open_app was matched but target is actually a file / document
+            if pattern_match.intent == "open_app" and "name" in pattern_match.slots:
+                name_val = str(pattern_match.slots["name"]).strip().casefold()
+                if any(name_val.endswith(ext) for ext in (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".csv", ".png", ".jpg", ".zip")) or name_val in ("that pdf", "the pdf", "this pdf", "that file", "the file", "this file", "that document", "the document", "this document"):
+                    pattern_match.intent = "open_file"
+                    pattern_match.slots = {"path": pattern_match.slots.pop("name")}
+
             # Check app disambiguation if open_app
             if pattern_match.intent == "open_app" and "name" in pattern_match.slots:
                 ambig = disambiguate_app(pattern_match.slots["name"], self.app_resolver, request_id, routing_text)
@@ -1599,24 +1928,60 @@ class SmartRouter:
                     self._record(ambig)
                     return ambig
 
-            # Check generic file deletion/opening safety
-            if pattern_match.intent in ("delete_file", "open_file") and pattern_match.slots.get("path") in ("the file", "the document", "the pdf", "the spreadsheet", "the report", "file", "document"):
-                ambig_file = RouteDecision(
-                    request_id=request_id,
-                    lane=RouteLane.CLARIFY,
-                    intent="clarify",
-                    slots={},
-                    confidence=0.5,
-                    source=RouteSource.EXACT,
-                    complexity=ComplexityLevel.SIMPLE,
-                    clarification=f"Which file would you like me to {pattern_match.intent.split('_')[0]}?",
-                    normalized_text=routing_text,
-                    reason_code=ReasonCode.LOW_CONFIDENCE,
-                    routing_ms=(perf_counter_ns() - t0) / 1e6,
-                    breakdown_ms=breakdown,
+            # Check deictic file references and safety for open_file / delete_file
+            if pattern_match.intent in ("delete_file", "open_file") and "path" in pattern_match.slots:
+                path_val = str(pattern_match.slots["path"]).strip()
+                path_lower = path_val.casefold()
+                is_deictic = (
+                    path_lower in ("the file", "the document", "the pdf", "the spreadsheet", "the report", "file", "document",
+                                   "that file", "that document", "that pdf", "that spreadsheet", "that report", "this file", "this pdf")
+                    or path_lower.startswith(("that ", "this ", "the "))
                 )
-                self._record(ambig_file)
-                return ambig_file
+                if is_deictic:
+                    if self.reference_resolver:
+                        res = self.reference_resolver.resolve(path_val)
+                        if res and res.referent and res.confidence == ReferenceConfidence.HIGH:
+                            pattern_match.slots["path"] = str(res.referent)
+                            is_deictic = False
+                        elif res and res.confidence == ReferenceConfidence.AMBIGUOUS:
+                            clarify_msg = res.clarification_prompt or f"Which {path_val} do you mean?"
+                            ambig_dec = RouteDecision(
+                                request_id=request_id,
+                                lane=RouteLane.CLARIFY,
+                                intent="clarify",
+                                slots={},
+                                confidence=0.5,
+                                source=RouteSource.EXACT,
+                                complexity=ComplexityLevel.SIMPLE,
+                                clarification=clarify_msg,
+                                normalized_text=routing_text,
+                                reason_code=ReasonCode.LOW_CONFIDENCE,
+                                routing_ms=(perf_counter_ns() - t0) / 1e6,
+                                breakdown_ms=breakdown,
+                            )
+                            self._record(ambig_dec)
+                            return ambig_dec
+
+                    if is_deictic:
+                        type_word = path_lower.split()[-1]
+                        type_display = type_word.upper() if type_word in ("pdf", "doc") else type_word
+                        clarify_msg = f"Which {type_display} do you mean?" if type_display in ("PDF", "DOC", "document", "file", "spreadsheet", "report") else f"Which file would you like me to {pattern_match.intent.split('_')[0]}?"
+                        ambig_file = RouteDecision(
+                            request_id=request_id,
+                            lane=RouteLane.CLARIFY,
+                            intent="clarify",
+                            slots={},
+                            confidence=0.5,
+                            source=RouteSource.EXACT,
+                            complexity=ComplexityLevel.SIMPLE,
+                            clarification=clarify_msg,
+                            normalized_text=routing_text,
+                            reason_code=ReasonCode.LOW_CONFIDENCE,
+                            routing_ms=(perf_counter_ns() - t0) / 1e6,
+                            breakdown_ms=breakdown,
+                        )
+                        self._record(ambig_file)
+                        return ambig_file
 
             # Check send_whatsapp_message without message body
             if pattern_match.intent == "send_whatsapp_message" and not pattern_match.slots.get("message"):
@@ -1896,8 +2261,8 @@ class SmartRouter:
         if not re.match(rf"^(?:{self._FIRST_VERBS})\b", lowered):
             return None
         commands_part = re.split(r"\b(?:type|write|saying)\b", lowered, maxsplit=1)[0]  # typed text is the user's words
-        if re.search(r"\b(?:wait|sorry|actually|i mean|instead|rather|no no|scratch that)\b|\bno\s*,|\band not\b", commands_part):
-            return None  # a correction or negation ("open chrome, wait no, open firefox"), not a list of steps
+        if re.search(r"\b(?:wait|sorry|actually|i mean|instead|rather|no no|scratch that)\b|\bno\s*,|\band not\b|\b(?:if (?:you're|you are) not sure|ask me|clarify)\b", commands_part):
+            return None  # a correction or negation or ambiguity directive, not a list of steps
         # one action that reads like two ("take a screenshot and paste it in whatsapp", "copy this and paste in notepad")
         from jarvis.core.router.extended import match_extended
         whole = match_extended(text, request_id)

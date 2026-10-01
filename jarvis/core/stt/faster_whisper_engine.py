@@ -93,6 +93,10 @@ class FasterWhisperEngine:
                 logger.info("Thanglish speech needs a multilingual model: using '%s' instead of '%s'", str(model)[:-3], model)
                 model = str(model)[:-3]
                 self.model_name_str = resolve_whisper_model(model)
+        # Keep initial_prompt bounded so Whisper text decoder context (448) has plenty of headroom
+        if initial_prompt and len(initial_prompt) > 200:
+            words = initial_prompt.split()
+            initial_prompt = " ".join(words[:35])
         self.initial_prompt = initial_prompt
         self.language = language
         self.vocabulary = None  # jarvis.core.stt.names.NameVocabulary: hotwords + name correction
@@ -325,7 +329,13 @@ class FasterWhisperEngine:
         more speech), its result *is* the final transcript and is ready at, or soon after, the endpoint instead
         of starting there. If the user speaks again the pipeline discards it. Nothing is executed from it.
         """
-        return await self._final_pass(self._audio_buffer.copy(), perf_counter_ns())
+        try:
+            return await self._final_pass(self._audio_buffer.copy(), perf_counter_ns())
+        except Exception as exc:
+            logger.debug("speculative_finalize failed (%s); falling back to partial", exc)
+            return TranscriptFinal(session_id=self._session_id, text=self._fix_names(clean_transcript(self._last_partial_text or "")),
+                                   language=self.language or "en", duration_ms=len(self._audio_buffer) / 16.0,
+                                   stt_model=self.model_name_str, backend="faster_whisper", device=self._device_actual)
 
     async def _final_pass(self, audio, t0: int) -> TranscriptFinal:
         if not self._loaded or self._model is None or len(audio) == 0:
@@ -334,14 +344,21 @@ class FasterWhisperEngine:
         session_id = self._session_id
 
         def _transcribe_final():
+            hw = self.vocabulary.hotwords() if self.vocabulary else None
             try:
-                return _run_final(hotwords=self.vocabulary.hotwords() if self.vocabulary else None)
+                return _run_final(hotwords=hw)
+            except RuntimeError as exc:
+                if "position" in str(exc).lower() or "length" in str(exc).lower():
+                    logger.warning("Whisper position overflow with hotwords (%s); retrying with clean prompt", exc)
+                    return _run_final(hotwords=None, _fallback=True)
+                raise
             except TypeError:  # faster-whisper older than 1.0: no hotwords argument
                 return _run_final(hotwords=None, _legacy=True)
 
-        def _run_final(hotwords=None, _legacy=False):
+        def _run_final(hotwords=None, _legacy=False, _fallback=False):
             # Accuracy pass: rumble removed and level normalised, Whisper's own Silero VAD cuts out the non-speech
             # parts (noise, music, TV), and segments Whisper is not confident about are dropped.
+            prompt = None if _fallback else (self.initial_prompt or None)
             segments, info = self._model.transcribe(
                 prepare_audio(audio),
                 language=self.language,
@@ -349,7 +366,7 @@ class FasterWhisperEngine:
                 best_of=1,
                 temperature=0.0,
                 condition_on_previous_text=False,
-                initial_prompt=self.initial_prompt or None,
+                initial_prompt=prompt,
                 vad_filter=True,
                 vad_parameters={"threshold": 0.5, "min_speech_duration_ms": 180, "min_silence_duration_ms": 400,
                                 "speech_pad_ms": 250},
@@ -357,13 +374,20 @@ class FasterWhisperEngine:
                 log_prob_threshold=-1.0,
                 compression_ratio_threshold=2.4,
                 without_timestamps=True,
-                **({} if _legacy else {"hotwords": hotwords}),
+                **({} if (_legacy or _fallback) else {"hotwords": hotwords}),
             )
             text, seg_list = join_segments(segments)
             voiced_ms = float(getattr(info, "duration_after_vad", 0.0) or 0.0) * 1000.0 or None
             return self._fix_names(clean_transcript(text, speech_ms=voiced_ms)), info.language, seg_list
 
-        text, language, segments = await asyncio.to_thread(_transcribe_final)
+        try:
+            text, language, segments = await asyncio.to_thread(_transcribe_final)
+        except Exception as exc:
+            logger.warning("STT _final_pass failed (%s); recovering with partial transcript %r", exc, self._last_partial_text)
+            text = self._fix_names(clean_transcript(self._last_partial_text or ""))
+            language = self.language or "en"
+            segments = []
+
         finalization_ms = (perf_counter_ns() - t0) / 1e6
         duration_ms = len(audio) / 16.0
 

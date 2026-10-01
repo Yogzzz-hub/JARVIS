@@ -293,9 +293,11 @@ def chance_answer(text: str, rng: Optional[random.Random] = None) -> Optional[st
 
 def quick_answer(text: str, now: Optional[datetime] = None) -> Optional[str]:
     """Instant deterministic answer for math, units, dates, world time and chance, or None."""
-    if not text or len(text) > 160:
+    if not text:
         return None
-    t = text.strip()
+    t = text.strip().strip("\"'“”`").strip()
+    if not t or len(t) > 160:
+        return None
     for fn in (convert_units, date_answer, chance_answer):
         try:
             out = fn(t) if fn is not date_answer else fn(t, now)
