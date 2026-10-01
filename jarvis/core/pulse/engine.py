@@ -11,6 +11,9 @@ from jarvis.core.pulse.scheduler import InteractionScheduler, InteractionState
 from jarvis.core.pulse.telemetry import DurationPredictor
 from jarvis.core.response.models import DeliveryStatus, ResponsePriority, ResponseType, SpokenResponse
 
+# Speak the whole answer; only runaway output (a pasted log, a huge listing) is trimmed at a sentence end.
+SPOKEN_MAX_CHARS = 6000
+
 logger = logging.getLogger("jarvis.pulse.engine")
 
 
@@ -87,7 +90,7 @@ class PulseEngine:
         if stream is not None:
             stream.close()
 
-    async def _speak_chunk(self, request_id: str, chunk: str, index: int) -> None:
+    async def _speak_chunk(self, request_id: str, chunk: str, index: int, last: bool = False) -> None:
         if getattr(self.tts, "blocking", False):
             pcm, _backend = await asyncio.to_thread(self.tts.synthesize, chunk)
         else:
@@ -102,9 +105,20 @@ class PulseEngine:
             interruptible=True,
             audio_bytes=pcm,
             sample_rate=getattr(self.tts, "sample_rate", 22050),
-            is_chunk=index > 0,
+            # Every sentence is one chunk of the same answer: only the explicit end of the answer completes it.
+            # (Marking the first sentence as a whole answer made the queue drop every sentence after it.)
+            is_chunk=True,
             chunk_index=index,
+            is_last_chunk=last,
         ))
+
+    def end_of_answer(self, request_id: str) -> None:
+        """The answer has no more sentences: lets the audio queue close this request once all of it has played."""
+        if self.audio_output is None:
+            return
+        self.audio_output.play(SpokenResponse(text="", type=ResponseType.FINAL, request_id=request_id,
+                                              priority=ResponsePriority.FINAL, audio_bytes=b"", is_chunk=True,
+                                              chunk_index=10_000, is_last_chunk=True))
 
     def _synth_blocks_loop(self) -> bool:
         if not getattr(self.tts, "blocking", False):
@@ -379,9 +393,10 @@ class PulseEngine:
                 try:
                     from time import perf_counter_ns
                     from jarvis.core.llm.assistant import to_speakable
-                    clean_msg = to_speakable(result_message, max_chars=900) or result_message
+                    clean_msg = to_speakable(result_message, max_chars=SPOKEN_MAX_CHARS) or result_message
                     started_ns = perf_counter_ns()
-                    for index, chunk in enumerate(self.split_for_speech(clean_msg)):
+                    chunks = self.split_for_speech(clean_msg)
+                    for index, chunk in enumerate(chunks):
                         # Stop if the user interrupted (barge-in / "stop talking") after we started.
                         if getattr(self.audio_output, "_cancel_ns", 0) > started_ns:
                             break
@@ -399,8 +414,9 @@ class PulseEngine:
                             interruptible=True,
                             audio_bytes=pcm,
                             sample_rate=getattr(self.tts, "sample_rate", 22050),
-                            is_chunk=index > 0,
+                            is_chunk=True,
                             chunk_index=index,
+                            is_last_chunk=index == len(chunks) - 1,
                         ))
                 except Exception as exc:
                     logger.warning("Final spoken response non-fatal error: %s", exc)
@@ -466,3 +482,7 @@ class SpeechStream:
                 index += 1
             except Exception as exc:
                 logger.warning("Streamed speech chunk failed (non-fatal): %s", exc)
+        try:
+            self.engine.end_of_answer(self.request_id)
+        except Exception:
+            pass

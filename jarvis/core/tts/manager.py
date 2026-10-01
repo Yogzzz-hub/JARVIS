@@ -189,6 +189,23 @@ class TTSManager:
         self.sapi.unload()
         self._generic_phrase_cache.clear()
 
+    speech_rate = 1.0
+
+    def set_rate(self, factor: float) -> float:
+        """Speaking speed relative to normal (0.6 slow ... 1.6 fast)."""
+        factor = max(0.6, min(1.6, float(factor)))
+        self.speech_rate = factor
+        try:
+            self.piper.length_scale = 1.0 / factor
+        except Exception:
+            pass
+        try:
+            self.sapi.rate = int(190 * factor)
+        except Exception:
+            pass
+        self._generic_phrase_cache.clear()  # cached clips were made at the old speed
+        return factor
+
     def set_voice(self, gender: str) -> str:
         """Switch between male and female Piper voices."""
         g = gender.lower().strip()
@@ -207,6 +224,7 @@ class TTSManager:
         except Exception:
             pass
         self.piper = PiperEngine(model_path=model_path)
+        self.piper.length_scale = 1.0 / self.speech_rate
         self.piper.load()
         if hasattr(self.piper, "_voice") and self.piper._voice is not None and hasattr(self.piper._voice, "config"):
             self.sample_rate = self.piper._voice.config.sample_rate

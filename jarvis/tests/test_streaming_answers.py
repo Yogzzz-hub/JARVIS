@@ -145,7 +145,8 @@ class RecordingOutput:
         self.played: list[str] = []
 
     def play(self, response):
-        self.played.append(response.text)
+        if response.audio_bytes:  # the empty end-of-answer marker carries no speech
+            self.played.append(response.text)
 
 
 @pytest.mark.asyncio

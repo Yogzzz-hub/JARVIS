@@ -83,7 +83,7 @@ class StreamSink:
         on_sentence: Optional[Callable[[str], None]] = None,
         on_text: Optional[Callable[[str], None]] = None,
         text_interval_s: float = 0.06,
-        max_spoken_chars: int = 600,
+        max_spoken_chars: int = 6000,
     ):
         self.on_sentence = on_sentence
         self.on_text = on_text

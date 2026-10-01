@@ -211,6 +211,36 @@ class ResponseEngine:
         self._speech_tasks.add(task)
         task.add_done_callback(self._speech_tasks.discard)
 
+    def apply_speech_action(self, action: str) -> str:
+        """Act on what the owner said about JARVIS's voice; returns a short note for the UI / log."""
+        out = getattr(self, "audio_output", None)
+        if action == "stop":
+            self.stop_speaking()
+            return "Stopped talking."
+        if out is None:
+            return ""
+        if action == "pause":
+            return "Paused - say continue when you're ready." if hasattr(out, "hold") and out.hold() else "I'm not saying anything."
+        if action == "resume":
+            if getattr(out, "is_paused", False):
+                out.resume()
+                return "Continuing."
+            return "There's nothing paused to continue."
+        if action == "skip":
+            done = hasattr(out, "skip_current") and out.skip_current()
+            return "Skipped." if done else "I'm not saying anything."
+        if action in ("slower", "faster") and hasattr(self.tts, "set_rate"):
+            rate = self.tts.set_rate(getattr(self.tts, "speech_rate", 1.0) * (0.85 if action == "slower" else 1.18))
+            if hasattr(out, "resume"):
+                out.resume()
+            return f"Speaking {'slower' if action == 'slower' else 'faster'} now ({rate:.0%} of normal speed)."
+        if action in ("louder", "softer"):
+            out.volume = max(0.3, min(2.0, getattr(out, "volume", 1.0) * (1.3 if action == "louder" else 0.75)))
+            if hasattr(out, "resume"):
+                out.resume()
+            return f"Voice {'louder' if action == 'louder' else 'softer'} now ({out.volume:.0%})."
+        return ""
+
     def stop_speaking(self) -> None:
         """Immediately stop all speech: playing audio, queued audio and responses still being synthesized."""
         # Bumping the generation makes in-flight synthesis tasks drop their audio instead of playing it.

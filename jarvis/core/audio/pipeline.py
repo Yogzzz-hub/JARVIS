@@ -74,6 +74,8 @@ class VoicePipeline:
         preroll_ms: int = 800,
         partial_interval_ms: int = 200,
         max_utterance_s: float = 45.0,
+        talk_over: bool = True,
+        talk_over_sensitivity: str = "normal",
     ):
         self.max_utterance_s = max_utterance_s
         self.hub = hub
@@ -119,6 +121,13 @@ class VoicePipeline:
         self._echo_cutoff_ns = 0
         # While JARVIS is speaking, the wake word must be this confident to interrupt it.
         self.barge_in_wake_threshold = min(0.95, getattr(self.wake_engine, "threshold", 0.5) + 0.2)
+        # Talk-over: the owner can interrupt JARVIS by just speaking (no wake word). JARVIS holds its voice, listens,
+        # and either stops for good (a real instruction) or carries on (it only heard its own echo).
+        from jarvis.core.audio.talk_over import TalkOverDetector
+        self.talk_over_enabled = talk_over
+        self.talk_over = TalkOverDetector(sensitivity=talk_over_sensitivity)
+        self._talk_over_held = False
+        self._was_speaking = False
 
     @property
     def is_running(self) -> bool:
@@ -294,6 +303,13 @@ class VoicePipeline:
 
             if speaking:
                 self._echo_reset_pending = True
+                if not self._was_speaking:
+                    self.talk_over.reset()
+                heard = self._check_talk_over()
+                if heard is not None:
+                    self._was_speaking = speaking
+                    return ("talk_over", heard)
+            self._was_speaking = speaking
 
             if self.wake_enabled and self._wake_consumer:
                 try:
@@ -319,6 +335,73 @@ class VoicePipeline:
                 await asyncio.sleep(0.05)
 
         return None
+
+    def _player(self):
+        return getattr(self.response_engine, "audio_output", None) if self.response_engine else None
+
+    def _check_talk_over(self) -> AudioFrame | None:
+        """While JARVIS talks: has the owner started speaking over it? Holds the voice and returns the frame if so."""
+        player = self._player()
+        if not (self.talk_over_enabled and self._vad_consumer and player is not None) or self._talk_over_held \
+                or getattr(player, "is_paused", False) or not hasattr(player, "pause"):
+            return None
+        from jarvis.core.audio.talk_over import rms
+        queue = self._vad_consumer.queue
+        while not queue.empty():
+            frame = queue.get_nowait()
+            level = rms(frame.pcm)
+            out_level = float(getattr(player, "output_level", 0.0) or 0.0)
+            frame_ms = 1000.0 * (frame.sample_count or len(frame.pcm) // 2) / max(1, frame.sample_rate or CANONICAL_SAMPLE_RATE)
+            try:
+                speech = self.vad.feed(frame).state == VADState.SPEECH
+            except Exception:
+                speech = level > 2 * self.talk_over.min_level
+            if out_level < 50 and not speech:
+                self.talk_over.observe_silence(level)
+            if self.talk_over.feed(level, out_level, speech, frame_ms):
+                if player.pause():
+                    self._talk_over_held = True
+                    self.vad.reset()
+                    logger.info("Talk-over: the owner is speaking - holding JARVIS's voice and listening")
+                    self._emit("voice.talk_over", level=round(level), echo_level=round(out_level))
+                    return frame
+        return None
+
+    def _settle_talk_over(self, text: str | None) -> str | None:
+        """After listening over JARVIS's held voice: carry on (echo / noise / a voice setting) or stop for good.
+        Returns the words to process as a command, or None."""
+        if not self._talk_over_held:
+            return text
+        self._talk_over_held = False
+        player, engine = self._player(), self.response_engine
+        from jarvis.core.audio import speech_control
+        words = (text or "").strip()
+        own = player.recently_spoken_text() if player is not None and hasattr(player, "recently_spoken_text") else ""
+        echo = bool(words) and self.barge_in is not None and self._is_echo(words, own)
+        if not words or echo:
+            if player is not None:
+                player.resume()  # only JARVIS's own voice or a noise: carry on where it was
+            logger.info("Talk-over was %s - continuing", "JARVIS's own echo" if echo else "not speech")
+            self._emit("voice.talk_over_ignored", reason="echo" if echo else "noise")
+            return None
+        action = speech_control.classify(words, speaking=True)
+        if action in ("stop", "pause", "resume", "skip", "slower", "faster", "louder", "softer"):
+            note = engine.apply_speech_action(action) if engine is not None and hasattr(engine, "apply_speech_action") else ""
+            logger.info("Talk-over voice control %r -> %s (%s)", words, action, note)
+            self._emit("voice.speech_control", action=action, text=words, note=note)
+            return None
+        if engine is not None and hasattr(engine, "stop_speaking"):
+            engine.stop_speaking()  # a real instruction: JARVIS stops talking and does what was said
+        rest = speech_control.leading_stop(words)
+        return rest or words
+
+    def _is_echo(self, words: str, own: str) -> bool:
+        if not own:
+            return False
+        import re as _re
+        heard = set(_re.findall(r"[a-z0-9']+", words.lower()))
+        said = set(_re.findall(r"[a-z0-9']+", own.lower()))
+        return bool(heard) and len(heard & said) / len(heard) >= 0.7
 
     async def _handle_speech_session(
         self,
@@ -351,7 +434,7 @@ class VoicePipeline:
         self._stabilizer = TranscriptStabilizer(session_id=session.session_id)
         self._release = False
         self._last_partial_ns = 0
-        if trigger_source != "followup":
+        if trigger_source not in ("followup", "talk_over"):
             self._drain(self._vad_consumer)
         self._emit("voice.listening", session_id=session.session_id)
 
@@ -500,7 +583,7 @@ class VoicePipeline:
                     logger.info("speech_started %s", session.session_id)
                     # Speaking after "Hey Jarvis" / push-to-talk may cut the wake acknowledgement short. In the
                     # follow-up window, "speech" during a reply is most often JARVIS's own voice (echo): never cancel.
-                    if self.barge_in and getattr(session, "trigger_source", "") != "followup":
+                    if self.barge_in and getattr(session, "trigger_source", "") not in ("followup", "talk_over"):
                         self.barge_in.on_user_speech_started(session.speech_start_ns)
 
             # A pause has begun: start the accurate final pass now, so the transcript is ready when the pause
@@ -584,6 +667,33 @@ class VoicePipeline:
             except Exception as exc:
                 logger.warning("Normal STT finalize failed (%s)", exc)
                 final = None
+
+        if trigger_source == "talk_over":
+            # JARVIS's voice is on hold: decide now - carry on, apply a voice setting, or stop and take the command
+            heard = self._strip_wake_phrase(final.text) if final and final.text else ""
+            if heard and heard.lower().strip().rstrip(".!,?") in SILENCE_HALLUCINATIONS:
+                heard = ""
+            if final and final.text and not heard and self._talk_over_held \
+                    and final.text.lower().strip(" .!?,") in WAKE_ACTIVATION_PHRASES | {"jarvis", "hey jarvis"}:
+                # "Jarvis!" over its own voice: stop talking and listen for the next words
+                self._talk_over_held = False
+                if self.response_engine and hasattr(self.response_engine, "stop_speaking"):
+                    self.response_engine.stop_speaking()
+                if self.response_engine and hasattr(self.response_engine, "open_followup_window"):
+                    self.response_engine.open_followup_window(session.session_id, duration_seconds=10.0)
+            routed = self._settle_talk_over(heard)
+            if final is not None:
+                if routed:
+                    final.text = routed
+                else:
+                    final = None
+            if final is None and routed is None:
+                session.transition(VoiceState.IDLE)
+                self._session = None
+                self.vad.reset()
+                if self._stabilizer:
+                    self._stabilizer.reset()
+                return
 
         if final and final.text:
             session.final_text = final.text

@@ -39,13 +39,22 @@ class AudioOutputManager:
         self.last_error = ""
         self.last_stream_flush_ms = None
         self._cancel_ns = 0
-        self.queue = AudioOutputQueue(max_size=10)
+        self.queue = AudioOutputQueue(max_size=512)  # a long answer is many sentence chunks
 
         self._running = False
         self._worker_thread: Optional[threading.Thread] = None
         self._current_response: Optional[SpokenResponse] = None
         self._is_playing = False
         self._stop_current_flag = threading.Event()
+        # Talk-over: while the owner may be speaking, playback holds its place instead of being thrown away, so
+        # JARVIS can carry on if it was only its own echo, or stop for good when it was a real instruction.
+        self._paused = threading.Event()
+        self._paused_at = 0.0
+        self.max_pause_s = 15.0
+        self.output_level = 0.0  # RMS of the audio being written right now (echo reference for talk-over)
+        self.volume = 1.0        # spoken-voice gain ("speak louder" / "softer"), independent of the system volume
+        self._last_spoken_text = ""
+        self._last_spoken_ns = 0
         self._stream = None
         self._device_available = True
 
@@ -66,13 +75,69 @@ class AudioOutputManager:
 
     @property
     def is_playing(self) -> bool:
-        """Whether audio is currently being output to the speakers."""
-        return self._is_playing
+        """Whether audio is currently being output to the speakers (not while held by talk-over)."""
+        return self._is_playing and not self._paused.is_set()
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
 
     @property
     def currently_spoken_text(self) -> str:
-        """The text currently being spoken (for self-echo comparison)."""
-        return self._currently_spoken_text if self._is_playing else ""
+        """The text currently being spoken or held (for self-echo comparison)."""
+        return self._currently_spoken_text if (self._is_playing or self._current_response is not None) else ""
+
+    def recently_spoken_text(self, within_s: float = 4.0) -> str:
+        """What JARVIS said just now: the current sentence, or the last one if it finished a moment ago."""
+        current = self.currently_spoken_text
+        if current:
+            return current
+        if self._last_spoken_ns and (perf_counter_ns() - self._last_spoken_ns) / 1e9 <= within_s:
+            return self._last_spoken_text
+        return ""
+
+    def pause(self) -> bool:
+        """Hold speech where it is (the owner may be talking). Returns False when nothing is being said."""
+        if self._current_response is None and not len(self.queue):
+            return False
+        self._paused_at = time.monotonic()
+        self._paused.set()
+        return True
+
+    def resume(self) -> None:
+        """Carry on speaking from where it was held."""
+        self._paused.clear()
+        self.max_pause_s = 15.0
+        self._pause_timeout_cancels = False
+
+    def hold(self, seconds: float = 90.0) -> bool:
+        """The owner said "wait": stay paused until "continue" (or give up after ``seconds``)."""
+        if not self._paused.is_set() and not self.pause():
+            return False
+        self._paused_at = time.monotonic()
+        self.max_pause_s = seconds
+        self._pause_timeout_cancels = True
+        return True
+
+    def skip_current(self) -> bool:
+        """Drop the sentence being spoken and go on with the next one ("skip that")."""
+        self._paused.clear()
+        if self._current_response is None:
+            return False
+        self._stop_current_flag.set()
+        return True
+
+    def _hold_while_paused(self) -> None:
+        while self._paused.is_set() and not self._stop_current_flag.is_set():
+            if time.monotonic() - self._paused_at > self.max_pause_s:
+                self._paused.clear()  # nobody decided (e.g. no microphone answer): never stay silent for ever
+                if getattr(self, "_pause_timeout_cancels", False):  # "wait" with no "continue": drop the rest
+                    self._pause_timeout_cancels = False
+                    self.max_pause_s = 15.0
+                    self._stop_current_flag.set()
+                    self.queue.clear()
+                break
+            time.sleep(0.01)
 
     @property
     def last_playback_stop_ns(self) -> int:
@@ -96,7 +161,8 @@ class AudioOutputManager:
 
     def cancel_current(self) -> None:
         """Immediately interrupt and stop currently playing audio (barge-in)."""
-        if self._is_playing:
+        self._paused.clear()
+        if self._is_playing or self._current_response is not None:
             self._cancel_ns = perf_counter_ns()
             self._stop_current_flag.set()
             if self._current_response and self._current_response.interruptible:
@@ -130,6 +196,9 @@ class AudioOutputManager:
     def _playback_loop(self) -> None:
         """Background playback loop consuming from AudioOutputQueue."""
         while self._running:
+            if self._paused.is_set():
+                self._hold_while_paused()
+                continue
             response = self.queue.get()
             if not response:
                 time.sleep(0.01)
@@ -160,6 +229,10 @@ class AudioOutputManager:
                 step = 0.05
                 elapsed = 0.0
                 while elapsed < duration_s and not self._stop_current_flag.is_set():
+                    self._hold_while_paused()
+                    i = int(elapsed * sr) * 2
+                    piece = np.frombuffer(pcm_bytes[i:i + int(step * sr) * 2] or b"\0\0", dtype=np.int16)
+                    self.output_level = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) * self.volume
                     time.sleep(min(step, duration_s - elapsed))
                     elapsed += step
             else:
@@ -180,6 +253,9 @@ class AudioOutputManager:
         finally:
             response.playback_finished_ns = perf_counter_ns()
             self._last_playback_stop_ns = response.playback_finished_ns
+            if response.text and response.type == ResponseType.FINAL and response.audio_bytes:
+                self._last_spoken_text, self._last_spoken_ns = response.text, response.playback_finished_ns
+            self.output_level = 0.0
             self._is_playing = False
             self._currently_spoken_text = ""
             self._current_response = None
@@ -197,6 +273,8 @@ class AudioOutputManager:
         from scipy.signal import resample_poly
 
         audio_data = np.frombuffer(pcm_bytes, dtype=np.int16)
+        if abs(self.volume - 1.0) > 0.01:
+            audio_data = np.clip(audio_data.astype(np.float32) * self.volume, -32768, 32767).astype(np.int16)
         active_rate = sample_rate
         active_device = self._cached_active_device
 
@@ -258,11 +336,16 @@ class AudioOutputManager:
             self._stream = stream
             try:
                 for i in range(0, len(audio_data), chunk_size):
+                    if self._paused.is_set():
+                        self.output_level = 0.0
+                        self._hold_while_paused()
                     if self._stop_current_flag.is_set():
                         stream.abort()
                         self.last_stream_flush_ms = (perf_counter_ns() - self._cancel_ns) / 1e6
                         break
-                    stream.write(audio_data[i : i + chunk_size])
+                    piece = audio_data[i : i + chunk_size]
+                    self.output_level = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
+                    stream.write(piece)
                     if not self._is_playing:
                         self._is_playing = True
                         response = self._current_response

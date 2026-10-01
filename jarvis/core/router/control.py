@@ -82,6 +82,18 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
             routing_ms=0.0,
         )
 
+    # 2b. About JARVIS's own voice: "say that again", "speak slower", "talk louder", "continue reading", "stop talking"
+    from jarvis.core.audio.speech_control import classify as speech_action
+    voice = speech_action(cleaned, speaking=False)
+    if voice == "stop":
+        return RouteDecision(request_id=request_id, lane=RouteLane.CONTROL, intent="stop_speaking", confidence=1.0,
+                             source=RouteSource.CONTROL, complexity=ComplexityLevel.SIMPLE, normalized_text=cleaned,
+                             reason_code=ReasonCode.CONTROL_COMMAND, candidate_count=1, routing_ms=0.0)
+    if voice is not None:
+        return RouteDecision(request_id=request_id, lane=RouteLane.CONTROL, intent="speech_control", slots={"action": voice},
+                             confidence=1.0, source=RouteSource.CONTROL, complexity=ComplexityLevel.SIMPLE,
+                             normalized_text=cleaned, reason_code=ReasonCode.CONTROL_COMMAND, candidate_count=1, routing_ms=0.0)
+
     # 3. Stop speaking / stop audio / cancel / pause / resume active tasks
     _stop = re.compile(r"(?:ok(?:ay)?\s+|alright\s+)?(?:that'?s\s+)?enough(?:\s+(?:talking|speaking|reading|now))?"
                        r"|(?:you\s+can\s+|please\s+|just\s+)?stop\s+(?:reading|talking|speaking)(?:\s+(?:now|please|it|that|out\s+loud))*"

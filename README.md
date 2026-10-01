@@ -123,6 +123,21 @@ before anything that:
 
 Tickets expire after 30 seconds.
 
+**Talkback.** Answers are spoken in full, sentence by sentence as they are written (an earlier bug dropped every
+sentence after the first). While JARVIS talks you can simply talk over it - no wake word needed:
+- it holds its voice the moment it hears you, listens, and then
+  - **stops for good and does what you said** when it was a new instruction ("open Chrome", "stop, what time is it");
+  - **carries on where it was** when it only heard its own voice through the speakers, or a noise;
+- voice commands work by meaning, in English or Thanglish:
+  - stop: "stop talking", "ok that's enough", "shh", "I got it, thanks", "no need to read all that", "pesadha", "podhum";
+  - pause / continue: "wait", "hold on", "one second" ... "continue", "go on", "where were we" (a pause with no
+    "continue" ends quietly after 90 s);
+  - "skip that" / "next" skips the current sentence; "say that again" repeats the answer;
+  - "speak slower / faster", "speak up", "lower your voice" change the voice for the rest of the answer and after.
+- `talk_over = false` in `config/jarvis.toml` turns talk-over off; `talk_over_sensitivity = "low"` suits loud speakers
+  right next to the microphone, `"high"` headphones. JARVIS learns how loud its own voice comes back into the
+  microphone, so its echo is not taken for you.
+
 **Control words.** These work at any time:
 - "stop" / "cancel" stop the current task;
 - "stop talking" / "be quiet" stop speech;

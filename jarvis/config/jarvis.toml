@@ -76,4 +76,6 @@ stt_beam_size = 5          # final-pass accuracy (lower = faster on slow CPUs)
 preroll_ms = 500
 endpoint_silence_ms = 800  # pause that ends your turn; unfinished sentences get about twice as long
 max_utterance_s = 45       # longest single request
+talk_over = true           # speak over JARVIS to interrupt it (no wake word); it carries on if it only heard itself
+talk_over_sensitivity = "normal"  # "high" = quieter speech interrupts, "low" = for loud speakers close to the mic
 wake_ack = "chime"         # "chime" | "voice" | "none" - response to "Hey Jarvis"

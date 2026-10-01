@@ -101,6 +101,10 @@ class VoiceConfig(Frozen):
     max_utterance_s: float = Field(default=45.0, ge=5, le=180)
     # What JARVIS does when it hears "Hey Jarvis": a short chime, a spoken acknowledgement, or nothing.
     wake_ack: Literal["chime", "voice", "none"] = "chime"
+    # Talk over JARVIS without the wake word: it holds its voice, listens, and stops (a new instruction) or carries
+    # on (it only heard itself). "high" interrupts on quieter speech; "low" suits loud speakers next to the mic.
+    talk_over: bool = True
+    talk_over_sensitivity: Literal["low", "normal", "high"] = "normal"
 
 class DecisionConfig(Frozen):
     # JARVIS Decision Engine rollout stage: "off", "shadow" (log only) or "read_only" (stage B).

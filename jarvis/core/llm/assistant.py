@@ -211,7 +211,8 @@ class Assistant:
                 self._caps_cache = (key, available_capabilities_summary(self.registry))
             caps = self._caps_cache[1]
         style = (
-            "You are speaking out loud: answer in one to three short, natural sentences. "
+            "You are speaking out loud: answer naturally, briefly and completely - usually two to five sentences, more "
+            "only when the user asks for detail. Never stop mid-thought. "
             "No markdown, no lists, no URLs, no emojis."
             if speakable else
             "Answer clearly and concisely (under 150 words unless the user asks for detail). Plain text; short lists are fine."
@@ -411,13 +412,13 @@ class Assistant:
         sink = current_stream.get()
         try:
             if sink is not None:
-                result = await self._stream(messages, sink, max_tokens or (180 if speakable else 600), temperature=grounded_temp)
+                result = await self._stream(messages, sink, max_tokens or (420 if speakable else 600), temperature=grounded_temp)
             else:
                 result = await self.client.chat(
                     messages,
                     role="chat",
                     temperature=grounded_temp,
-                    max_tokens=max_tokens or (180 if speakable else 600),
+                    max_tokens=max_tokens or (420 if speakable else 600),
                 )
         except LLMUnavailable as exc:
             return AssistantReply(
@@ -436,7 +437,7 @@ class Assistant:
             logger.info("Chat answer claimed an action it cannot perform; replaced: %r", text[:120])
             text = HONEST_NO_ACTION
         if speakable:
-            text = to_speakable(text, max_chars=600)
+            text = to_speakable(text, max_chars=6000)
         if record:
             self.memory.add(channel, "user", query)
             self.memory.add(channel, "assistant", text)
@@ -450,12 +451,12 @@ class Assistant:
         messages.extend(self.memory.history(channel))
         messages.append({"role": "user", "content": query})
         try:
-            result = self.client.chat_sync(messages, role="chat", temperature=0.4, max_tokens=max_tokens or (180 if speakable else 600))
+            result = self.client.chat_sync(messages, role="chat", temperature=0.4, max_tokens=max_tokens or (420 if speakable else 600))
         except LLMUnavailable as exc:
             return AssistantReply(text="I can't reach my local AI (Ollama) right now; ask me again in a few seconds.", ok=False, error=str(exc))
         except LLMError as exc:
             return AssistantReply(text="I couldn't come up with an answer just now.", ok=False, error=str(exc))
-        text = to_speakable(result.text, max_chars=600) if speakable else result.text.strip()
+        text = to_speakable(result.text, max_chars=6000) if speakable else result.text.strip()
         return AssistantReply(text=text or "I don't have an answer for that yet.", model=result.model)
 
 

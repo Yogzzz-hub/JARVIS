@@ -156,6 +156,17 @@ class PiperEngine:
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(None, self.load)
 
+    length_scale = 1.0  # > 1 speaks slower, < 1 faster ("speak slower" / "talk faster")
+
+    def _synth_iter(self, text: str):
+        if abs(self.length_scale - 1.0) > 0.01:
+            try:
+                from piper import SynthesisConfig
+                return self._voice.synthesize(text, syn_config=SynthesisConfig(length_scale=self.length_scale))
+            except Exception:  # an older piper without SynthesisConfig: normal speed
+                pass
+        return self._voice.synthesize(text)
+
     def synthesize(self, text: str) -> bytes:
         """Synthesize entire text to PCM16 bytes synchronously."""
         self.load()
@@ -166,7 +177,7 @@ class PiperEngine:
         self._cancelled = False
         t0 = perf_counter_ns()
         pcm_chunks = []
-        for chunk in self._voice.synthesize(norm_text):
+        for chunk in self._synth_iter(norm_text):
             if self._cancelled:
                 break
             pcm_chunks.append(chunk.audio_int16_bytes)
@@ -193,7 +204,7 @@ class PiperEngine:
         def _synthesize_worker():
             try:
                 chunk_index = 0
-                for chunk in self._voice.synthesize(norm_text):
+                for chunk in self._synth_iter(norm_text):
                     if self._cancelled:
                         break
                     now_ns = perf_counter_ns()

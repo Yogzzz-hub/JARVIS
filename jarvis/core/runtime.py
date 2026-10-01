@@ -372,7 +372,8 @@ class Runtime:
             max_utterance_s=cfg.max_utterance_s,
             command_service=self.service, event_bus=self.bus, response_engine=response,
             barge_in_controller=BargeInController(response.audio_output, cancel_task, enabled=output["barge_in"]),
-            wake_enabled=cfg.wake_enabled, ptt_enabled=cfg.ptt_enabled, preroll_ms=cfg.preroll_ms)
+            wake_enabled=cfg.wake_enabled, ptt_enabled=cfg.ptt_enabled, preroll_ms=cfg.preroll_ms,
+            talk_over=getattr(cfg, "talk_over", True), talk_over_sensitivity=getattr(cfg, "talk_over_sensitivity", "normal"))
         try:
             await self.voice.start()
         except Exception as exc:

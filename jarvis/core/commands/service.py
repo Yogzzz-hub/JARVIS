@@ -286,6 +286,23 @@ class CommandService:
             clock.resolved_ns = now_ns()
 
             # Handle CONTROL bypass
+            if decision.lane == RouteLane.CONTROL and decision.intent == "speech_control":
+                # About JARVIS's own voice: repeat, slower / faster, louder / softer, pause / continue / skip
+                action = str((decision.slots or {}).get("action") or "")
+                self.tasks.transition(task, State.EXECUTING)
+                if action == "repeat":
+                    message = getattr(self, "_last_answer", "") or "I haven't said anything yet."
+                    speak = is_voice
+                else:
+                    engine = self.response if hasattr(self.response, "apply_speech_action") else None
+                    message = engine.apply_speech_action(action) if engine is not None else "My voice isn't on right now."
+                    message = message or "I'm not saying anything right now."
+                    speak = is_voice and action in ("slower", "faster", "louder", "softer")  # hear the new voice
+                self.tasks.transition(task, State.VERIFYING)
+                tool_result = ToolResult(success=True, data={"speech_control": action}, tool_name="speech_control")
+                verification = VerificationResult(verified=True, confidence=1.0, evidence={"voice": action})
+                return self._finalize(task, State.SUCCESS, message, tool_result, verification, clock, current, is_voice=speak)
+
             if decision.lane == RouteLane.CONTROL:
                 if decision.intent == "confirm_ticket":
                     ticket_id = decision.slots.get("ticket_id") if decision.slots else None
@@ -905,6 +922,10 @@ class CommandService:
                 message = in_thanglish(message)
         except Exception:
             pass
+        decided = getattr(self, "_last_decisions", {}).get(task.request_id)
+        if message and state in (State.SUCCESS, State.FAILED, State.WAITING_CONFIRMATION) \
+                and getattr(decided, "intent", None) not in ("speech_control", "stop_speaking"):
+            self._last_answer = message  # "say that again" repeats exactly this
         try:
             if task.state != state:
                 self.tasks.transition(task, state)
@@ -1171,7 +1192,7 @@ class CommandService:
         message = outcome.message
         if is_voice:
             from jarvis.core.llm.assistant import to_speakable
-            message = to_speakable(message, max_chars=500) or message
+            message = to_speakable(message, max_chars=6000) or message
         data = {"status": outcome.status, "steps": steps, "model": outcome.model}
         if ok:
             tool_result = ToolResult(success=True, data=data, tool_name="agent")
