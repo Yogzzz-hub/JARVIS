@@ -491,6 +491,12 @@ much many eating using
 text ask let know messaged chats chat group reply
 like that this repeat hear male female change actually mirror connect dial press
 notification shortcuts
+rewind seek jump fast speed slow faster slower captions subtitles loop replay fullscreen editor antigravity cursor windsurf
+result results link links video videos option item button field tab prompt agent accept reject discard keep apply
+highlight erase scratch words line lines sentence sentences paragraph paragraphs character characters uppercase lowercase
+capitalize bold italic underline replace attach drop insert upload share split tile arrange monitor notify watch
+scroll tap uncheck untick toggle player media installer updates never
+first second third fourth fifth minute minutes seconds hour hours
 """.split())
 _TYPO_CACHE: dict[str, str] = {}
 
@@ -586,7 +592,19 @@ def correct_command_typos(routing: str) -> str:
         if fixed != w:
             words[i] = fixed
             changed = True
+    for i in range(head, len(words)):
+        # the device a command is aimed at, anywhere in it ("open chrome on my phnoe"): swapped letters only
+        w = words[i]
+        if 4 <= len(w) <= 8 and w.isalpha() and w not in _DEVICE_NOUNS:
+            hit = next((d for d in _DEVICE_NOUNS if (sorted(d) == sorted(w) or len(d) == len(w) + 1)
+                        and _edit_distance(w, d) == 1 and not _english_word(w)), None)
+            if hit:
+                words[i] = hit
+                changed = True
     return " ".join(words) if changed else routing
+
+
+_DEVICE_NOUNS = ("phone", "mobile", "android", "laptop", "computer", "tablet")
 
 
 _APP_WORD = r"[a-z0-9][a-z0-9.+\-]*(?:\s+(?!is\b|installed\b|web\b|browser\b|app\b|application\b|program\b)[a-z0-9][a-z0-9.+\-]*)?"

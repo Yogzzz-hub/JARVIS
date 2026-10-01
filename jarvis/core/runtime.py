@@ -113,6 +113,7 @@ class Runtime:
                                           planner_enabled=cfg.features.planner, working_memory=self.memory,
                                           assistant=self.assistant, agent=self.agent, whatsapp_ai=self.whatsapp_ai)
             await self._start_audio()
+            self._start_operator()
             self.ready = True
             self.startup = {"event": "JARVIS_READY", "startup_ms": (now_ns() - start) / 1e6,
                             "RAM_MB": psutil.Process().memory_info().rss / 2**20,
@@ -276,6 +277,24 @@ class Runtime:
             raise
         except Exception as exc:
             log.warning("Local AI preparation failed: %s", exc)
+
+    def _start_operator(self) -> None:
+        """Foreground-window history ("go back to my editor") and the watch manager's announcements."""
+        try:
+            import os as _os
+            from jarvis.core.operator.watch import get_watch_manager
+            from jarvis.core.operator.windows import get_window_tracker
+            if _os.name == "nt" and self.root == ROOT:
+                get_window_tracker().start()
+            loop = asyncio.get_running_loop()
+
+            def notify(text: str) -> None:
+                self.bus.emit("operator.watch", "", text=text)
+                asyncio.run_coroutine_threadsafe(self._announce(text), loop)
+
+            get_watch_manager()._notify = notify
+        except Exception as exc:
+            logging.getLogger("jarvis.runtime").debug("Operator start failed: %s", exc)
 
     async def _announce(self, text: str, request_id: str = "") -> None:
         """Speak a short notice through the normal response path (no-op when TTS is off)."""

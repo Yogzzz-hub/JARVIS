@@ -58,6 +58,11 @@ _NO_MODEL: ContextVar[bool] = ContextVar("router_no_model", default=False)    # 
 _QUALIFIED: ContextVar[bool] = ContextVar("router_qualified", default=False)  # routing the core of a qualified command
 
 
+_RUN_UP = re.compile(r"^\W*(?:(?:hey|ok|okay|hi)\s+)?(?:jarvis\W+)?(?:um+|uh+|so)?\W*(?:when(?:ever)?\s+you\s+(?:get|have)\s+a\s+"
+                     r"(?:sec(?:ond)?|minute|moment|chance)|if\s+you\s+(?:can|could|don'?t\s+mind)|real\s+quick|quick\s+one)"
+                     r"\s*,\s*", re.I)
+
+
 class SmartRouter:
     def __init__(
         self,
@@ -128,6 +133,16 @@ class SmartRouter:
     _TELL_ME = re.compile(r"^(?:(?:hey\s+)?jarvis\s*,?\s+)?(?:(?:can|could|would)\s+(?:you|u)\s+)?(?:please\s+)?"
                           r"(?:tell\s+me|show\s+me|let\s+me\s+know|give\s+me|find\s+out)\s+(?P<rest>.+)$", re.I)
 
+    @staticmethod
+    def _operator_mode() -> str:
+        """App family the owner is working in (browser / media / editor / ide / ...), '' when unknown."""
+        try:
+            from jarvis.core.operator.windows import get_window_tracker
+            cur = get_window_tracker().current()
+            return cur.family if cur else ""
+        except Exception:
+            return ""
+
     async def route(self, request: CommandRequest | str) -> RouteDecision:
         """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
         if isinstance(request, str):
@@ -150,6 +165,10 @@ class SmartRouter:
                 request = request.model_copy(update={"text": english})
         except Exception:
             pass
+        run_up = _RUN_UP.sub("", request.text or "", count=1)
+        if run_up != request.text and run_up.strip():
+            # "hey jarvis, when you get a sec, switch to the gmail tab": politeness before the command, not a condition
+            request = request.model_copy(update={"text": run_up})
         said = self._discourse(request)
         if said is not None:
             self._record(said)
@@ -381,7 +400,9 @@ class SmartRouter:
         looks_up = re.match(r"^(?:read|list|find|search|get|check|show|recall|summari[sz]e|diagnose|describe)_", decision.intent) or \
             decision.intent.endswith(("_status", "_info", "_history", "_events", "_recent", "_actions", "_answer", "_processes")) or \
             decision.intent in ("get_time", "quick_answer", "wifi_status", "contact_info", "knowledge_search", "document_qa",
-                                "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get")
+                                "morning_briefing", "personal_briefing", "android_notifications", "volume_get", "brightness_get") or \
+            (decision.intent.endswith("_op") and (decision.slots or {}).get("action") in (
+                "status", "read", "state", "tab_list", "results", "list", "find"))  # operator reads: "is antigravity done"
         if self._STATE_QUESTION.match(clean) and not looks_up and not self._is_read_only(decision.intent):
             return chat()
         return decision
@@ -707,6 +728,16 @@ class SmartRouter:
 
         if positive_override:
             _, routing_text = normalize_text(positive_override)
+
+        # 3.0 OPERATOR PRIMITIVES (windows, controls, text edits, delivery, tabs, video, IDE, watches): the object
+        # acted on picks the capability; the app in front only settles an implicit object ("go back", "next page")
+        from jarvis.core.router.operator_intents import match_operator
+        op_decision = match_operator(clean_text or routing_text, original_text, request_id, mode=self._operator_mode())
+        if op_decision:
+            op_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
+            op_decision.breakdown_ms = breakdown
+            self._record(op_decision)
+            return op_decision
 
         # 3.1 TYPED SEMANTIC FRAME ROUTING (Slots, Temporal, Ordinals, Corrections, Negations)
         frame = self.frame_extractor.extract(original_text, self.working_memory, self.reference_resolver)

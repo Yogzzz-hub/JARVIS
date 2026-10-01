@@ -153,6 +153,13 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
                 return _verdict("reroute", intent="open_file", slots={"path": path, "resolved_from": "action_log"})
             return _verdict("clarify", question="Which file do you mean? I don't have a single file from earlier to go on - "
                                                 "tell me its name or search for it first.")
+        if intent == "open_app" and re.search(r"\b(?:resume|cv|readme|pdf|screenshot|download|report|invoice|receipt|"
+                                              r"assignment|spreadsheet|presentation|document|file)s?\b", name) \
+                and (re.search(r"\b(?:my|latest|newest|recent|last|first|second|third|previous|downloaded)\b|\b(?:resume|cv|"
+                               r"readme|pdf)\b", name) or re.search(r"\bin\s+(?:my\s+|the\s+)?(?:downloads|documents|desktop|"
+                                                                     r"pictures)\b", low)):
+            # "open my resume", "open the latest pdf in downloads": a file to find first, not an app
+            return _verdict("planner", reason="names a file, not an app")
         if re.search(rf"\b{_REF_WORDS}\b", name) or re.search(rf"\b{_REF_WORDS}\b", low) and _GENERIC_APP.match(name):
             found = _name_from_actions(name)
             if found is None:  # "open the one I used earlier": the verb is in the sentence, after the command verb
@@ -184,6 +191,13 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
             return _verdict("planner", reason="looks for something online or in another app, not a local file")
         if _CONTENT_Q.search(probe):
             return _verdict("reroute", intent="knowledge_search", slots={"question": (text or "").strip()})
+        local = _FILE_WORDS.replace("|music", "").replace("|song", "").replace("|video", "")
+        if re.match(r"^(?:(?:please|kindly|um+|uh+|so|can you|could you|would you|jarvis|hey jarvis|ok jarvis),?\s+)*(?:search|look\s+up|google)"
+                    r"(?:\s+(?:for|about))\s+", low) and re.search(r"[a-z0-9]", query) \
+                and not re.search(rf"\b(?:{local})s?\b|\.\w{{2,4}}\b|\b(?:my|mine|files?|folders?|downloads|documents|"
+                                  rf"desktop|pictures|this\s+pc|computer|laptop|drive|saved|yesterday|today|last\s+week)\b", low):
+            # "search for lofi music": nothing about it is a file on this PC - the web
+            return _verdict("reroute", intent="search_web", slots={"query": query})
         return None
     if intent == "list_directory" and not re.search(r"\b(?:list|show|open|browse|display|explore|see|view|check|contents?|"
                                                     r"files?\s+(?:are\s+|there\s+)?in|look\s+in|what(?:'s|\s+is|\s+are)\s+in|"
@@ -206,6 +220,11 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
                                                 "tell me its label.")
         return None
     if intent in FILE_CHANGE_INTENTS:
+        if re.search(r"\b(?:the\s+)?(?:last|previous|next|first)\s+(?:\d+\s+|one\s+|two\s+|three\s+|four\s+|five\s+|few\s+|"
+                     r"couple\s+of\s+)?[a-z]{2,10}$", low) and not re.search(rf"\b(?:{_FILE_WORDS})s?\b|\.\w{{2,4}}\b|[\\/]", low):
+            # "delete the last 3 wrds": a count of something in the text, not a file - never guess a file to remove
+            return _verdict("clarify", question="Do you mean text in the field you're typing in? Say e.g. 'delete the "
+                                                "last 3 words', or name the file.")
         path = str(slots.get("path") or slots.get("source") or slots.get("name") or "").strip().lower()
         said = re.search(r"[\\/]", path) and not re.search(r"[\\/]", low)  # a folder the resolver added, not the owner
         base = re.split(r"[\\/]", path)[-1] if said else path

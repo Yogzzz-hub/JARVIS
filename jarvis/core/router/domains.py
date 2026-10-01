@@ -61,6 +61,8 @@ def _last_minimized_title() -> str:
 
 def match_domains(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     """t: lower-cased request without wake words / politeness; raw: the original text."""
+    if re.match(r"^(?:check|look|scan)\s+for\s+(?:new\s+)?(?:windows\s+|system\s+|pc\s+)?updates?$", t):
+        return _d(request_id, t, "open_system_settings", {"page": "windows_update"})
     # ------------------------------------------------------------------ windows
     if re.match(r"^(?:restore|bring\s+back|un-?minimi[sz]e|get\s+back|show\s+(?:me\s+)?again|re-?open)\s+(?:the\s+|that\s+|my\s+)?"
                 r"(?:window|app|program)\s+(?:that\s+|which\s+)?(?:i|you|we)\s+(?:just\s+)?minimi[sz]ed\b"

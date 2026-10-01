@@ -1164,6 +1164,10 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     t = re.sub(r"^(?:please|kindly)\s+", "", t)
     if not t:
         return None
+    from jarvis.core.router.operator_intents import _NESTED, match_operator
+    operated = None if _NESTED.get() else match_operator(t, raw, request_id)  # windows/controls/text/delivery/tabs/video/IDE
+    if operated:
+        return operated
     from jarvis.core.router.domains import match_domains
     domain = match_domains(t, raw, request_id)  # the object of the request picks the tool, not the verb alone
     if domain:

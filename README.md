@@ -912,11 +912,43 @@ which one is active, style learning, a try-it box that never sends, and drafts w
 
 ### Desktop apps and the screen
 
-- `screen_click` clicks an element by description. It tries Windows UI Automation first (exact, instant), then the
-  vision model locates the element in a DPI-aware screenshot.
+- `screen_click` clicks an element by description. It resolves the control structurally first (Windows UI
+  Automation, or the page's DOM when Chrome has page access) and invokes it by pattern. Only when there is no
+  structure does the vision model propose a point - and that point is clicked only if the element under it matches
+  the request and is not a password, CAPTCHA or payment control.
 - `computer_task` runs a see → act loop for goals like "in Settings turn on dark mode". It stops hard before send,
   pay, delete or uninstall clicks the goal didn't ask for. Slam the mouse into a screen corner to abort.
 - `describe_screen` explains what is on the PC or phone screen using the local vision model.
+
+### Universal Operator (windows, controls, text, live dictation, tabs, video, IDE, phone)
+
+A small set of typed primitives (`jarvis/core/operator/`) that every PC / browser / IDE / phone request is built
+from, reached through 11 tools (`window_op`, `ui_op`, `text_op`, `clipboard_op`, `screen_op`, `deliver_op`,
+`browser_op`, `video_op`, `watch_op`, `ide_op`, `phone_op`). Each one checks the effect it caused and says so
+honestly ("Pasted - I can't see inside that app to confirm it").
+
+| Say | What happens |
+|---|---|
+| go back to my editor / switch to the previous window | foreground history (JARVIS's own windows excluded); verified focus |
+| open chrome full screen · put chrome and notepad side by side · snap spotify to the right | window state / layout, read back |
+| click the second button · tick the remember me checkbox · type lofi in the search box | one UI resolver (role, name, ordinal, "next to"); ties are asked; password/OTP fields refused |
+| delete the last three words · select this line · replace tuesday with Wednesday · undo the last 2 changes | named chords only; focus re-checked before keys |
+| take a screenshot and paste it in antigravity · paste that screenshot in notepad · send the last screenshot to my phone | screenshot becomes a resource; paste verified by field/attachment |
+| open the third result · switch to the gmail tab · find pricing on this page | tabs and results (page access needs Chrome started with a DevTools port and its own profile) |
+| jump to 1:30 · skip forward 30 seconds · play at 1.5x · turn on captions | page video state read back; media keys as fallback |
+| skip the ad when it lets you · tell me when the download finishes · tell me when antigravity is done | scoped, time-limited, cancelable watches ("stop skipping ads") |
+| write a prompt in antigravity to add login tests and send it · accept the changes in antigravity | prompt read back; send = box empties or Stop shows |
+| type hello in the search box on my phone · scroll down on my phone | phone UI tree, typed ADB only; a locked phone is never unlocked |
+
+**Live dictation.** While dictating, words are typed as the recogniser stabilises them (no model per word);
+anything that may be a command ("delete…", "new paragraph", "stop typing") is held until the sentence ends, and the
+final transcript corrects any revised words, so text is typed exactly once. If focus moves away, typing pauses and
+"continue" resumes in the original window.
+
+Design: [docs/UNIVERSAL_OPERATOR_ARCHITECTURE.md](docs/UNIVERSAL_OPERATOR_ARCHITECTURE.md) · 702-behavior catalog:
+[docs/UNIVERSAL_OPERATOR_CAPABILITY_CATALOG.md](docs/UNIVERSAL_OPERATOR_CAPABILITY_CATALOG.md) · scenario results:
+[docs/UNIVERSAL_OPERATOR_500PLUS_ACCEPTANCE.md](docs/UNIVERSAL_OPERATOR_500PLUS_ACCEPTANCE.md) · real-machine
+checklist (not yet run): [reports/UNIVERSAL_OPERATOR_REAL_ACCEPTANCE.md](reports/UNIVERSAL_OPERATOR_REAL_ACCEPTANCE.md).
 
 ### Morning briefing, focus, workspaces, routines, RSS, Node-RED
 
@@ -1077,6 +1109,9 @@ python -m jarvis.decision.evaluation.evaluate         # decision-engine benchmar
 python -m tests.whatsapp_personal.benchmark           # 500-case WhatsApp personal-reply benchmark (fake provider)
 python -m tests.rag.benchmark                         # RAG precision / recall / abstention
 python -m tests.phase_suite.runner --all --fails      # phase command suite: dev and blind 1-6 splits
+python -m tests.operator.runner [--holdout] --fails   # Universal Operator: 598 scenarios x surface forms
+python scripts/bench_operator.py                      # operator routing + primitive latency report
+python scripts/gen_operator_catalog.py                # regenerate the operator capability catalog
 ```
 
 ### Phase command suite (all 12 phases + WhatsApp, phone, automation, Thanglish, chat)

@@ -241,6 +241,48 @@ def focus_or_open(app: str, wait_s: float = 4.0) -> bool:
     return True
 
 
+def _clipboard_action(action: str, app: str) -> dict[str, Any]:
+    """Screenshot / copy / paste into an app on the operator primitives: the target window is resolved (opened when
+    needed) and verified to be in front before Ctrl+V, the clipboard change is observed instead of slept on, and the
+    reply only claims what was seen."""
+    from jarvis.core.operator.clip import ClipOperator
+    from jarvis.core.operator.deliver import DeliverOperator
+    from jarvis.core.operator.screen import ScreenOperator
+    from jarvis.tools.system.operator_tools import _get_hub
+    hub = _get_hub()
+    if action in ("screenshot_to_clipboard", "screenshot_paste"):
+        shot = ScreenOperator(resources=hub.resources).capture(to_clipboard=action == "screenshot_to_clipboard")
+        if not shot.ok:
+            return {"status": "FAILED", "action": action, "message": shot.message}
+        if action == "screenshot_to_clipboard":
+            ok = hub.tracker.desktop.clipboard_has_image()
+            return {"status": "SUCCESS" if ok else "FAILED", "action": action,
+                    "message": "Screenshot copied - paste it anywhere with Ctrl+V." if ok else
+                    "I took the screenshot but couldn't put it on the clipboard."}
+        resource = shot.resource
+    elif action == "copy_paste_to_app":
+        copied = ClipOperator(resources=hub.resources).copy_selection()
+        if not copied.ok:
+            return {"status": "FAILED", "action": action, "message": copied.message}
+        resource = copied.resource
+    else:                                                   # paste_to_app: what is on the clipboard now
+        held = ClipOperator(resources=hub.resources).get()
+        if not held.ok:
+            return {"status": "FAILED", "action": action, "message": held.message}
+        resource = held.resource
+    if app:
+        found = hub.window(app, launch=True)
+        if not found.ok:
+            return {"status": "FAILED", "action": action, "message": found.message}
+        target = found.resource
+    else:                                                   # "paste it here": the window the owner is working in
+        target = hub.tracker.current()
+        if target is None:
+            return {"status": "FAILED", "action": action, "message": "There's no window to paste into."}
+    out = DeliverOperator(tracker=hub.tracker).to_window(resource, target)
+    return {"status": "SUCCESS" if out.ok else "FAILED", "action": action, "message": out.message}
+
+
 class PCQuickInput(Contract):
     action: PCAction = Field(description="Windows action: task_manager, settings, file_explorer, run_dialog, clipboard_history, "
                                          "emoji_panel, snip, task_view, new_desktop, next_desktop, previous_desktop, "
@@ -271,30 +313,8 @@ class PCQuickActionTool(Tool):
         if os.name != "nt":
             return {"status": "FAILED", "action": arguments.action, "message": "This shortcut needs Windows."}
         action = arguments.action
-        if action in ("screenshot_to_clipboard", "screenshot_paste"):
-            screenshot_to_clipboard()
-            if action == "screenshot_to_clipboard":
-                return {"status": "SUCCESS", "action": action, "message": "Screenshot copied - paste it anywhere with Ctrl+V."}
-            time.sleep(0.15)
-            if arguments.app and not focus_or_open(arguments.app):
-                return {"status": "FAILED", "action": action,
-                        "message": f"Screenshot copied, but I couldn't open {arguments.app}. Paste it with Ctrl+V."}
-            _press(("CONTROL",), "V")
-            where = f" into {arguments.app}" if arguments.app else ""
-            return {"status": "SUCCESS", "action": action, "message": f"Took a screenshot and pasted it{where}."}
-        if action == "paste_to_app":
-            if not focus_or_open(arguments.app or "notepad"):
-                return {"status": "FAILED", "action": action, "message": f"I couldn't open {arguments.app}."}
-            _press(("CONTROL",), "V")
-            return {"status": "SUCCESS", "action": action, "message": f"Pasted into {arguments.app}."}
-        if action == "copy_paste_to_app":
-            _press(("CONTROL",), "C")
-            time.sleep(0.15)
-            target = arguments.app or "notepad"
-            if not focus_or_open(target):
-                return {"status": "FAILED", "action": action, "message": f"Copied, but I couldn't open {target}."}
-            _press(("CONTROL",), "V")
-            return {"status": "SUCCESS", "action": action, "message": f"Copied and pasted into {target}."}
+        if action in _PC_SPECIAL:
+            return _clipboard_action(action, arguments.app)
         mods, key, said = _PC_KEYS[action]
         _press(mods, key)
         return {"status": "SUCCESS", "action": action, "message": said}

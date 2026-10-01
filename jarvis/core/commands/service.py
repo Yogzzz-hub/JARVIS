@@ -891,6 +891,19 @@ class CommandService:
                     entity = str(decision.slots.get("name") or decision.slots.get("path") or "") if decision.slots else ""
                     self.pulse.on_execution_finished(task.request_id, dur_ms, name, entity)
 
+            approval = self._operator_approval(tool, arguments, tool_result)
+            if approval is not None:
+                question, approved_args = approval
+                self._pending_execution = {"type": "single", "task": task, "ticket_id": None, "tool": tool,
+                                           "arguments": approved_args, "clock": clock, "current": current,
+                                           "is_voice": is_voice, "predicted_ms": predicted_ms}
+                self._remember_pending_confirmation("", tool.definition.name, question, approved_args.model_dump())
+                self.bus.emit("confirmation.required", task.request_id, ticket_id=None, summary=question)
+                self.tasks.transition(task, State.WAITING_CONFIRMATION)
+                tool_result = ToolResult(success=False, data={"confirmation_required": True, "preview": question},
+                                         error=question, tool_name=tool.definition.name)
+                return self._finalize(task, State.WAITING_CONFIRMATION, question, tool_result, None, clock, current,
+                                      is_voice=is_voice, predicted_ms=predicted_ms)
             if not tool_result.success:
                 if tool_result.data and tool_result.data.get("confirmation_required"):
                     ticket_id = tool_result.data.get("ticket_id")
@@ -1374,6 +1387,21 @@ class CommandService:
     _CHANGES = re.compile(r"create|send|post|reply|share|upload|install|update|uninstall|delete|move_file|rename|copy_file|save|"
                           r"dictate|capture_note|todo|reminder|memos|push|localsend|organize|batch|empty|submit|"
                           r"publish|browser_type|forget|remember|ide_control|powershell|calendar_create")
+
+    @staticmethod
+    def _operator_approval(tool, arguments, tool_result):
+        """An operator primitive stopped before a consequential step (a Pay/Delete button, a send): ask, and keep
+        the same call ready with approved=True so the owner's yes runs exactly it."""
+        try:
+            from jarvis.tools.system.operator_tools import APPROVAL_PREFIX
+        except Exception:
+            return None
+        err = tool_result.error or ""
+        if tool_result.success or not err.startswith(APPROVAL_PREFIX):
+            return None
+        if "approved" not in tool.definition.input_model.model_fields:
+            return None
+        return err[len(APPROVAL_PREFIX):], arguments.model_copy(update={"approved": True})
 
     def _needs_owner_ok(self, tool, qualifiers: dict | None) -> bool:
         """A step that the owner asked to approve first (this request's conditions or a standing rule). Steps that

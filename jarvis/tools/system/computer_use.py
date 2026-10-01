@@ -164,15 +164,10 @@ class ScreenClickTool(_VisionTool):
         if isinstance(arguments, dict):
             arguments = ScreenClickInput(**arguments)
         if self.use_accessibility and arguments.button == "left" and not arguments.double:
-            name = accessible_name(arguments.target)
-            if name:
-                try:
-                    from jarvis.tools.system.computer_tools import DesktopClickInput, DesktopUIClickTool
-                    res = await asyncio.to_thread(DesktopUIClickTool().run, DesktopClickInput(name=name))
-                    if res.get("success"):
-                        return {"success": True, "message": f"Clicked {name}.", "data": {"method": "accessibility"}}
-                except Exception as exc:  # not Windows / UIA unavailable: use vision
-                    logger.debug("Accessibility click unavailable: %s", exc)
+            # 1. Structured UI first (UI Automation / the page's DOM): found by role + name, invoked by pattern
+            structured = await asyncio.to_thread(_structured_click, arguments.target)
+            if structured is not None:
+                return structured
         try:
             image, scale, (w, h) = await self._shot()
         except Exception as exc:
@@ -186,12 +181,84 @@ class ScreenClickTool(_VisionTool):
         if not spot.get("found"):
             return {"success": False, "message": f"I can't see {arguments.target} on the screen.", "data": {}}
         x, y = to_screen(float(spot.get("x", 0)), float(spot.get("y", 0)), scale)
+        label = spot.get("label") or arguments.target
+        # 2. Vision is only a candidate: the point must hold a control that matches what was asked, and nothing
+        # sensitive or consequential is clicked from a guess.
+        ok, why = await asyncio.to_thread(validate_point, x, y, arguments.target, label)
+        if not ok:
+            return {"success": False, "message": f"I found something that looks like {arguments.target}, but {why} - "
+                                                 "so I didn't click.", "data": {"x": x, "y": y, "label": label}}
         try:
             await asyncio.to_thread(input_control.click, x, y, arguments.button, arguments.double)
         except Exception as exc:
             return {"success": False, "message": f"I found it but couldn't click: {exc}", "data": {"x": x, "y": y}}
-        label = spot.get("label") or arguments.target
-        return {"success": True, "message": f"Clicked {label}.", "data": {"x": x, "y": y, "label": label}}
+        return {"success": True, "message": f"Clicked {label}.", "data": {"x": x, "y": y, "label": label, "method": "vision"}}
+
+
+def _structured_click(target: str) -> Optional[dict[str, Any]]:
+    """The operator's UI resolver over the window in front (its web page when it is a browser with page access).
+    None means "no structured answer" (no tree, nothing matched) and vision may look; a refusal or a question is final."""
+    try:
+        from jarvis.core.operator.ui import UIAWindowAdapter, UIOperator, UITarget
+        from jarvis.tools.system.operator_tools import _get_hub
+        hub = _get_hub()
+        win = hub.tracker.current()
+        if win is None:
+            return None
+        adapter = None
+        if win.family in ("browser", "media"):
+            adapter = hub.browser.page_adapter()
+        if adapter is None:
+            adapter = UIAWindowAdapter(win.hwnd)
+        out = UIOperator().invoke(adapter, UITarget.parse(target))
+    except Exception as exc:
+        logger.debug("Structured click unavailable: %s", exc)
+        return None
+    if out.ok:
+        return {"success": True, "message": out.message, "data": {"method": "structured", **{
+            k: v for k, v in out.evidence.items() if isinstance(v, (str, int, float, bool))}}}
+    if out.needs in ("approve", "user", "clarify") and (out.needs != "clarify" or out.candidates):
+        return {"success": False, "message": out.message, "data": {"needs": out.needs}}
+    return None
+
+
+def validate_point(x: int, y: int, target: str, label: str) -> tuple[bool, str]:
+    """A vision-proposed point is clicked only when (a) it is inside the window in front or the screen, (b) the label
+    is not a password/CAPTCHA/payment control, and (c) the UI element actually under the point (UI Automation) - or,
+    without UIA, the model's own label - matches the words of the request."""
+    import difflib
+
+    from jarvis.core.operator.ui import CONSEQUENTIAL, SENSITIVE
+    if SENSITIVE.search(label or "") or CONSEQUENTIAL.search(label or ""):
+        return False, f"'{label}' is a sensitive or consequential control"
+    try:
+        from jarvis.core.operator.platform import get_desktop
+        d = get_desktop()
+        fg = d.foreground()
+        if fg is not None:
+            l, t, r, b = d.window_rect(fg.hwnd)
+            if r > l and b > t and not (l <= x < r and t <= y < b):
+                return False, "it is outside the window in front"
+    except Exception:
+        pass
+    want = {w for w in re.findall(r"[a-z0-9]+", (target or "").lower())
+            if w not in ("the", "a", "an", "on", "button", "icon", "link", "tab", "click", "field", "box")}
+    under = ""
+    try:
+        import uiautomation as auto
+        ctrl = auto.ControlFromPoint(x, y)
+        under = " ".join(filter(None, [getattr(ctrl, "Name", ""), getattr(ctrl, "AutomationId", "")])) if ctrl else ""
+        if SENSITIVE.search(under) or CONSEQUENTIAL.search(under):
+            return False, f"the control there is '{under}'"
+    except Exception:
+        under = ""
+    seen = (under or label or "").lower()
+    if not want:
+        return True, ""
+    hits = [w for w in want if w in seen or difflib.get_close_matches(w, seen.split(), n=1, cutoff=0.8)]
+    if hits:
+        return True, ""
+    return False, f"what is there reads '{under or label}'"
 
 
 class ComputerTaskInput(Contract):

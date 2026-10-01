@@ -471,6 +471,10 @@ class VoicePipeline:
         spec_task: asyncio.Task | None = None  # final STT pass started during the pause (see speculative_finalize)
         can_speculate = bool(self.stt and hasattr(self.stt, "speculative_finalize"))
 
+        live = self._live_dictation() if trigger_source != "talk_over" else None
+        if live is not None:
+            live.begin()
+
         async def _run_partial() -> None:
             nonlocal router_complete
             try:
@@ -499,6 +503,11 @@ class VoicePipeline:
                                 trace.mark("first_stable_partial", now_p)
                         session.revision_count = stable.revision_count
                         self._emit("voice.stable_prefix", text=stable.text, session_id=session.session_id)
+                        if live is not None:
+                            # Live dictation: the stable words go into the target window now, not after the pause
+                            typed = await asyncio.to_thread(live.feed, stable.text)
+                            if typed:
+                                self._emit("dictation.live", text=typed, session_id=session.session_id)
 
                         # Check early route preview for deterministic intent
                         if self.early_router:
@@ -712,10 +721,14 @@ class VoicePipeline:
             ):
                 self._emit("voice.final", text=clean_text, session_id=session.session_id)
 
-                # Route through existing Phase 1-5 pipeline
-                task = asyncio.create_task(self._route_final(clean_text, session))
-                self._command_tasks.add(task)
-                task.add_done_callback(self._command_tasks.discard)
+                if live is not None and await asyncio.to_thread(live.finish, clean_text):
+                    # Dictated text was typed (live, then reconciled with the final words): typed exactly once
+                    self._emit("dictation.final", text=clean_text, session_id=session.session_id)
+                else:
+                    # Route through existing Phase 1-5 pipeline
+                    task = asyncio.create_task(self._route_final(clean_text, session))
+                    self._command_tasks.add(task)
+                    task.add_done_callback(self._command_tasks.discard)
             else:
                 logger.info("Wake-only or conversation activation detected: %r (clean_norm=%r)", final.text, clean_norm)
                 self._emit("voice.idle", reason="wake word only", session_id=session.session_id)
@@ -729,12 +742,24 @@ class VoicePipeline:
             self._emit("voice.idle", reason="No speech recognized")
 
         # Cleanup session
+        if live is not None:
+            live.abort()
         session.transition(VoiceState.IDLE)
         self._session = None
         self.wake_engine.reset()
         self.vad.reset()
         if self._stabilizer:
             self._stabilizer.reset()
+
+    @staticmethod
+    def _live_dictation():
+        """The live typer when dictation is on (DICTATING/CODE_MODE), else None - checked once per utterance."""
+        try:
+            from jarvis.core.operator.dictate import get_live_dictation
+            live = get_live_dictation()
+            return live if live.active() else None
+        except Exception:
+            return None
 
     async def _route_final(self, text: str, session: VoiceSession) -> None:
         """Route final transcript through existing CommandService.
