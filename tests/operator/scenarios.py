@@ -404,7 +404,7 @@ for seed, intent in [("send this pdf to my phone", "localsend_file"), ("send rep
 for seed in ["take a screenshot and send it to my phone", "capture the screen and put it on my phone",
              "screenshot this window and send it to my phone"]:
     S("cross", seed, seed, "deliver_op", {"to": "phone", "capture_first": True}, {"phone": "connected"},
-      "fresh screenshot on phone", "adb ls", alt=("*PLANNER",))
+      "fresh screenshot on phone", "adb ls", alt=("*PLANNER", "compound_screenshot_phone"))
 for app in ["antigravity", "chrome", "notepad"]:
     S("cross", f"phone screenshot into {app}", f"paste the phone screenshot in {app}", "deliver_op", {},
       {"resources": ["screenshot"]}, "phone screenshot pasted", "attachment observed")

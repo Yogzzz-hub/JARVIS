@@ -313,6 +313,8 @@ def _deliver(t, raw, rid, mode):
     if re.match(r"^(?:my\s+|the\s+)?(?:phone|mobile|android|cell(?:\s?phone)?)$", dest):
         if not (capture_first or re.search(r"screen ?shot|screen grab|snip|capture|image|picture|photo", res_word)):
             return None                                  # files and text go to the phone through LocalSend
+        if capture_first and scope == "screen" and re.match(r"^take (?:a )?screenshot and send (?:it )?to (?:my )?phone$", t):
+            return None                                  # the router's screenshot -> phone step list covers this wording
         return _d(rid, t, "deliver_op", {"resource": res_word, "to": "phone", "capture_first": capture_first,
                                          "scope": scope})
     if verb in ("send", "share", "give", "transfer", "push") and not re.search(rf"\b(?:{_IDES}|{_APPS})\b", dest):

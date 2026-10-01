@@ -350,6 +350,15 @@ class PhonePushTool(Tool):
 def _resolve_pc_file(raw: str):
     """Full path, or a name found in the usual folders (Desktop, Documents, Downloads, Pictures)."""
     from pathlib import Path
+    raw_clean = raw.strip().strip('"').lower()
+
+    if raw_clean in ("latest_screenshot", "screenshot", "the screenshot", "that screenshot", "screenshot.png"):
+        from jarvis.config import ROOT
+        shot_dir = ROOT / "screenshots"
+        if shot_dir.is_dir():
+            shots = sorted(shot_dir.glob("*.png"), key=lambda x: x.stat().st_mtime, reverse=True)
+            if shots:
+                return shots[0]
 
     p = Path(raw.strip().strip('"')).expanduser()
     if p.is_file():

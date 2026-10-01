@@ -878,7 +878,7 @@ _KNOWLEDGE_Q = re.compile(
     r"|^(?:should|shall|must)\s+i\b"
     r"|^(?:is|are)\s+.+\s+(?:better|worse|faster|safer)\s+than\b"
     r"|^(?:how\s+(?:do|can|should|would)\s+i|how\s+to)\s+(?!.*\b(?:phone|whatsapp)\b)"
-    r"|^why\s+(?:is|are|does|do|did|can't|won't|isn't)\b"
+    r"|^why\s+(?:is|are|does|do|did|can't|won't|isn't)\b(?!\s+(?:the\s+|my\s+)?(?:backend|frontend|server|project|app|service|db|database)\b)"
     r"|^(?:explain|define)\s+(?!(?:this|the|my|a|an|visible|current|on[- ]screen)?\s*(?:error|screen|popup|pop-up|message|warning|dialog|alert)\b)"
     r"|^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?difference\s+between\b"
     r"|^i\s+(?:was|am|'m)\s+(?:just\s+|really\s+)?(?:wondering|curious)\b|^i\s+wonder\s+(?:how|why|what|if|whether)\b"

@@ -335,6 +335,12 @@ class CommandService:
         clock.parsed_ns = clock.parsed_ns or now_ns()
         task = self.tasks.create(request, clock)
         self._request_channels[task.request_id] = self._channel(request)
+        try:
+            from jarvis.security.policy.scope import get_task_scope_manager
+            _scope_mgr = get_task_scope_manager()
+            _scope_mgr.create_scope(task.request_id, _scope_mgr.derive_capabilities(request.text))
+        except Exception:
+            pass
         current = asyncio.current_task()
         self.active.add(current)
         tool_result, verification = None, None
@@ -1208,6 +1214,11 @@ class CommandService:
 
             return result
         finally:
+            try:
+                from jarvis.security.policy.scope import get_task_scope_manager
+                get_task_scope_manager().revoke_scope(task.request_id)
+            except Exception:
+                pass
             try:
                 self.active.discard(current)
             except Exception:
