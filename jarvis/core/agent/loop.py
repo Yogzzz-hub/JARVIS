@@ -198,6 +198,8 @@ class AgentRunner:
         steps: list[AgentStep] = state["steps"]
         messages: list[dict[str, str]] = state["messages"]
         tool_names: list[str] = state["tools"]
+        from jarvis.core.tasks.scope import get_scope_manager
+        get_scope_manager().extend(tool_names, "agent working set")  # retrieved for this goal; nothing else runs
         model_used = state.get("model", "")
 
         if not tool_names:

@@ -97,6 +97,26 @@ class ExecutionEngine:
         if global_supervisor.is_stopped() or (task and task.cancellation and task.cancellation.is_set()):
             raise asyncio.CancelledError("Execution halted by supervisor kill switch")
 
+        # 0a. Task scope: only capabilities granted to this command may run (planner/agent can't widen it)
+        from jarvis.core.tasks.scope import ScopeDenied, get_scope_manager
+        try:
+            get_scope_manager().check(definition.name)
+        except ScopeDenied as denied:
+            return ToolResult(success=False, error=str(denied), tool_name=definition.name,
+                              evidence={"scope_denied": True}, duration_ms=(time.perf_counter_ns() - t0) / 1e6,
+                              method_used=definition.execution_method)
+
+        # 0b. Paused task: the next step waits until the owner resumes (or cancels)
+        gate = getattr(task, "run_gate", None) if task is not None else None
+        if gate is not None and not gate.is_set():
+            while not gate.is_set():
+                if task.cancellation.is_set() or global_supervisor.is_stopped():
+                    raise asyncio.CancelledError("Cancelled while paused")
+                try:
+                    await asyncio.wait_for(gate.wait(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    pass
+
         # 1. Policy Evaluation
         policy_decision = self.policy_evaluator.evaluate_node(
             definition,

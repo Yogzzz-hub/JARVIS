@@ -441,6 +441,337 @@ class DeviceOperator:
         return OperatorOutcome(False, "Not supported.")
 
 
+SETTINGS_ACTIONS = {"wifi": "android.settings.WIFI_SETTINGS", "bluetooth": "android.settings.BLUETOOTH_SETTINGS",
+                    "display": "android.settings.DISPLAY_SETTINGS", "sound": "android.settings.SOUND_SETTINGS",
+                    "battery": "android.intent.action.POWER_USAGE_SUMMARY", "storage": "android.settings.INTERNAL_STORAGE_SETTINGS",
+                    "location": "android.settings.LOCATION_SOURCE_SETTINGS", "settings": "android.settings.SETTINGS",
+                    "apps": "android.settings.APPLICATION_SETTINGS", "notifications": "android.settings.NOTIFICATION_SETTINGS",
+                    "developer": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"}
+
+
+def _device_extras():
+    """Phone primitives added for the 520-capability set; still argv-only ADB, still lock- and approval-aware."""
+
+    def recents(self) -> OperatorOutcome:
+        return self.key("recents")
+
+    def previous_app(self) -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        self.adb.run(["shell", "input", "keyevent", "187"])
+        self.adb.run(["shell", "input", "keyevent", "187"])           # double recents = switch to the previous app
+        return OperatorOutcome(True, "Switched to the previous phone app.", evidence={"verified": None})
+
+    def settings(self, page: str = "settings", app: str = "") -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        page = page.lower().replace("-", "").replace(" ", "")
+        page = {"wifi": "wifi", "wlan": "wifi", "bt": "bluetooth", "notification": "notifications", "appinfo": "appinfo",
+                "info": "appinfo"}.get(page, page)
+        if page in ("appinfo", "notifications") and app:
+            pkg = APPS.get(app.lower(), app)
+            if not _PKG.match(pkg):
+                pkg = self._find_package(app)
+            if not pkg:
+                return OperatorOutcome(False, f"Which app is {app}?", needs="clarify")
+            if page == "appinfo":
+                argv = ["shell", "am", "start", "-a", "android.settings.APPLICATION_DETAILS_SETTINGS", "-d", f"package:{pkg}"]
+            else:
+                argv = ["shell", "am", "start", "-a", "android.settings.APP_NOTIFICATION_SETTINGS", "--es",
+                        "android.provider.extra.APP_PACKAGE", pkg]
+        else:
+            action = SETTINGS_ACTIONS.get(page)
+            if not action:
+                return OperatorOutcome(False, f"I don't know the phone's '{page}' settings page.", needs="clarify")
+            argv = ["shell", "am", "start", "-a", action]
+        code, _, err = self.adb.run(argv)
+        return OperatorOutcome(code == 0, f"Opened {page} settings on the phone." if code == 0 else f"That didn't open: {err}")
+
+    def volume(self, percent: float, stream: int = 3) -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        _, out, _ = self.adb.run(["shell", "cmd", "media_session", "volume", "--stream", str(stream), "--get"])
+        m = re.search(r"in \[(\d+), (\d+)\]", out or "")
+        lo, hi = (int(m.group(1)), int(m.group(2))) if m else (0, 15)
+        level = round(lo + (hi - lo) * max(0.0, min(percent, 100.0)) / 100.0)
+        self.adb.run(["shell", "cmd", "media_session", "volume", "--stream", str(stream), "--set", str(level)])
+        _, after, _ = self.adb.run(["shell", "cmd", "media_session", "volume", "--stream", str(stream), "--get"])
+        got = re.search(r"volume is (\d+)", after or "")
+        ok = got is None or int(got.group(1)) == level
+        return OperatorOutcome(ok, f"Phone media volume set to {round(percent)}%." if ok else "The phone volume didn't change.",
+                               evidence={"level": level, "max": hi, "verified": got is not None})
+
+    def media(self, op: str, seconds: float = 0) -> OperatorOutcome:
+        code = {"seek_forward": "90", "fast_forward": "90", "seek_back": "89", "rewind": "89"}.get(op)
+        if code:
+            bad = self._gate(needs_unlocked=False)
+            if bad:
+                return bad
+            presses = max(1, round(abs(seconds) / 10)) if seconds else 1   # most players skip ~10 s per press
+            for _ in range(min(presses, 30)):
+                self.adb.run(["shell", "input", "keyevent", code])
+            return OperatorOutcome(True, f"{'Forward' if code == '90' else 'Back'} about {presses * 10} s on the phone.",
+                                   evidence={"verified": None})
+        return self.key({"toggle": "play_pause"}.get(op, op))
+
+    def media_state(self) -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        _, out, _ = self.adb.run(["shell", "dumpsys", "media_session"])
+        title = re.search(r"description=([^,\n]+)", out or "")
+        state = re.search(r"state=PlaybackState \{state=(\d+)", out or "")
+        playing = state and state.group(1) == "3"
+        if not title:
+            return OperatorOutcome(True, "Nothing is playing on the phone.", evidence={"playing": False})
+        return OperatorOutcome(True, f"{'Playing' if playing else 'Paused'} on the phone: {title.group(1).strip()}.",
+                               evidence={"playing": bool(playing), "untrusted": True})
+
+    def current_app(self) -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        _, out, _ = self.adb.run(["shell", "dumpsys", "window"])
+        m = re.search(r"mCurrentFocus=Window\{[^ ]+ [^ ]+ ([\w.]+)/", out or "")
+        if not m:
+            return OperatorOutcome(False, "I can't tell which app is in front on the phone.")
+        pkg = m.group(1)
+        name = next((k for k, v in APPS.items() if v == pkg), pkg)
+        return OperatorOutcome(True, f"{name} is open on the phone.", evidence={"package": pkg})
+
+    def relaunch(self, app: str) -> OperatorOutcome:
+        out = self.close_app(app)
+        if not out.ok:
+            return out
+        return self.open_app(app)
+
+    def installed(self, app: str) -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        pkg = APPS.get(app.lower().strip(), "")
+        _, out, _ = self.adb.run(["shell", "pm", "list", "packages"])
+        have = {l.split(":", 1)[1] for l in (out or "").splitlines() if ":" in l}
+        hit = pkg if pkg in have else self._find_package(app)
+        return OperatorOutcome(True, f"Yes, {app} is installed on the phone." if hit else f"No, {app} isn't installed on the phone.",
+                               evidence={"package": hit or ""})
+
+    def ui_tree(self) -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        controls = self.adapter().snapshot()
+        names = [f"{canonical(c.role)}: {c.name}" for c in controls if c.name][:40]
+        return OperatorOutcome(bool(names), "\n".join(names) or "No labelled controls on the phone screen.",
+                               evidence={"count": len(controls), "untrusted": True})
+
+    def read_screen(self) -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        lines = []
+        for n in _parse_nodes(self.ui_xml()):
+            t = (n.get("text") or n.get("content-desc") or "").strip()
+            if t and t not in lines and n.get("password") != "true":
+                lines.append(t)
+        return OperatorOutcome(bool(lines), "\n".join(lines[:80]) or "Nothing readable on the phone screen.",
+                               evidence={"untrusted": True, "lines": len(lines)})
+
+    def find(self, target: str) -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        return self.ui.find(self.adapter(), target)
+
+    def focus(self, target: str) -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        ad = self.adapter()
+        found = self.ui.find(ad, UITarget.parse(target or "text field"))
+        if not found.ok:
+            return found
+        ok = ad.focus(found.resource)
+        return OperatorOutcome(ok, f"Focused {found.resource.name or 'the field'}." if ok else "It didn't take focus.",
+                               resource=found.resource)
+
+    def clear(self, target: str = "") -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        ad = self.adapter()
+        found = self.ui.find(ad, UITarget.parse(target or "text field"))
+        if not found.ok:
+            return found
+        if (found.resource.metadata or {}).get("password"):
+            return OperatorOutcome(False, "That's a password field - clear it yourself.", needs="user")
+        ad.focus(found.resource)
+        self.adb.run(["shell", "input", "keyevent", "123"])           # MOVE_END
+        n = len(found.resource.name or "") + 50
+        for _ in range(min(n, 300) // 50 + 1):
+            self.adb.run(["shell", "input", "keyevent"] + ["67"] * 50)  # DEL x50 per call
+        return OperatorOutcome(True, f"Cleared {found.resource.name or 'the field'}.", evidence={"verified": None})
+
+    def swipe(self, direction: str = "up") -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        coords = {"up": (540, 1500, 540, 500), "down": (540, 500, 540, 1500), "left": (900, 1000, 150, 1000),
+                  "right": (150, 1000, 900, 1000)}.get(direction)
+        if not coords:
+            return OperatorOutcome(False, f"Swipe which way? ({direction})", needs="clarify")
+        self.adb.run(["shell", "input", "swipe", *map(str, coords), "300"])
+        return OperatorOutcome(True, f"Swiped {direction} on the phone.", evidence={"verified": None})
+
+    def notifications_filtered(self, app: str = "", sender: str = "") -> OperatorOutcome:
+        out = self.notifications()
+        if not out.ok or not (app or sender):
+            return out
+        lines = [l for l in out.message.splitlines() if (not app or app.lower() in l.lower())
+                 and (not sender or sender.lower() in l.lower())]
+        return OperatorOutcome(True, "\n".join(lines) or f"No {app or sender} notifications.", evidence={"untrusted": True})
+
+    def open_notification(self, app: str = "") -> OperatorOutcome:
+        """Opens the app that posted it (ADB can't press another app's notification without UI automation of the shade)."""
+        if not app:
+            return OperatorOutcome(False, "Which notification - which app is it from?", needs="clarify")
+        return self.open_app(app)
+
+    def dismiss_notification(self, app: str = "") -> OperatorOutcome:
+        bad = self._gate()
+        if bad:
+            return bad
+        self.adb.run(["shell", "cmd", "statusbar", "expand-notifications"])
+        ad = self.adapter()
+        target = UITarget(name="clear all" if not app else "dismiss")
+        found = self.ui.find(ad, target)
+        if not found.ok:
+            return OperatorOutcome(False, "I can't find a dismiss control in the notification shade - swipe it away "
+                                          "yourself.", needs="user")
+        if not app and not re.search(r"clear all", found.resource.name, re.I):
+            return OperatorOutcome(False, "Which notification?", needs="clarify")
+        ok = ad.invoke(found.resource)
+        return OperatorOutcome(ok, "Dismissed." if ok else "It didn't dismiss.", evidence={"verified": None})
+
+    def status(self, what: str = "battery") -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        if what in ("memory", "ram"):
+            _, out, _ = self.adb.run(["shell", "cat", "/proc/meminfo"])
+            tot = re.search(r"MemTotal:\s+(\d+)", out or "")
+            av = re.search(r"MemAvailable:\s+(\d+)", out or "")
+            if not (tot and av):
+                return OperatorOutcome(False, "I couldn't read the phone's memory.")
+            t, a = int(tot.group(1)) / 1024 ** 2, int(av.group(1)) / 1024 ** 2
+            return OperatorOutcome(True, f"The phone is using {t - a:.1f} of {t:.1f} GB RAM ({a:.1f} GB free).")
+        if what in ("network", "online", "internet"):
+            code, _, _ = self.adb.run(["shell", "ping", "-c", "1", "-W", "2", "8.8.8.8"], timeout=6)
+            return OperatorOutcome(True, "The phone is online." if code == 0 else "The phone looks offline.",
+                                   evidence={"online": code == 0})
+        return self.dev({"storage": "storage", "battery": "battery"}.get(what, "battery"))
+
+    def pull(self, kind: str = "screenshot", when: str = "latest", dest: str = "") -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        from jarvis.connectors.android.scrcpy import PHONE_MEDIA
+        folders, exts = PHONE_MEDIA.get(kind, PHONE_MEDIA["screenshot"])
+        files: list[tuple[str, str]] = []
+        for f in folders:
+            _, out, _ = self.adb.run(["shell", "ls", "-t", "-l", f])
+            for line in (out or "").splitlines():
+                parts = line.split()
+                if len(parts) >= 8 and (not exts or parts[-1].lower().endswith(exts)):
+                    files.append((f"{f}/{parts[-1]}", parts[-3]))
+        if not files:
+            return OperatorOutcome(False, f"No {kind}s on the phone.")
+        today = time.strftime("%Y-%m-%d")
+        pick = [p for p, d in files if d == today] if when == "today" else [files[0][0]]
+        if not pick:
+            return OperatorOutcome(False, f"No {kind}s from today on the phone.")
+        from pathlib import Path
+        out_dir = Path(dest) if dest else Path.home() / "Downloads" / "Phone"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        got = []
+        for remote in pick[:50]:
+            local = out_dir / remote.rsplit("/", 1)[-1]
+            code, _, _ = self.adb.run(["pull", remote, str(local)], timeout=120)
+            if code == 0 and local.exists():
+                got.append(str(local))
+        if not got:
+            return OperatorOutcome(False, "The transfer from the phone failed.")
+        ref = ScreenshotResourceRef(resource_id=f"shot:{got[0]}", path=got[0], source_window="phone", source_app="android",
+                                    capture_time=time.time()) if kind == "screenshot" else None
+        if ref is not None:
+            self.resources.record(ref)
+        return OperatorOutcome(True, f"Copied {len(got)} file{'s' if len(got) != 1 else ''} from the phone to {out_dir}.",
+                               resource=ref, evidence={"files": got, "verified": True})
+
+    def open_url(self, url: str) -> OperatorOutcome:
+        return self.dev("open_url", url)
+
+    def record(self, action: str = "start", seconds: int = 180) -> OperatorOutcome:
+        """screenrecord on the phone (owner's own device); stopping pulls the video to the PC."""
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        remote = "/sdcard/Movies/jarvis_record.mp4"
+        if action == "start":
+            if getattr(self, "_rec", None) is not None and self._rec.poll() is None:
+                return OperatorOutcome(True, "Already recording the phone screen.")
+            argv = [self.adb.bin] + (["-s", self.adb.serial] if self.adb.serial else []) + \
+                ["shell", "screenrecord", "--time-limit", str(min(int(seconds), 180)), remote]
+            try:
+                self._rec = subprocess.Popen(argv, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            except Exception as e:
+                return OperatorOutcome(False, f"Recording didn't start ({e}).")
+            return OperatorOutcome(True, f"Recording the phone screen (up to {min(int(seconds), 180)} s). Say 'stop recording'.")
+        rec = getattr(self, "_rec", None)
+        if rec is None:
+            return OperatorOutcome(False, "The phone screen isn't being recorded.")
+        rec.terminate()
+        self._rec = None
+        from pathlib import Path
+        local = Path.home() / "Videos" / f"phone-{time.strftime('%Y%m%d-%H%M%S')}.mp4"
+        local.parent.mkdir(parents=True, exist_ok=True)
+        time.sleep(0)                                      # screenrecord finalises on SIGINT; pull reads the file
+        code, _, _ = self.adb.run(["pull", remote, str(local)], timeout=120)
+        ok = code == 0 and local.exists()
+        return OperatorOutcome(ok, f"Saved the phone recording to {local}." if ok else "The recording didn't come through.",
+                               evidence={"path": str(local)})
+
+    def app_logs(self, app: str, lines: int = 200) -> OperatorOutcome:
+        bad = self._gate(needs_unlocked=False)
+        if bad:
+            return bad
+        pkg = APPS.get(app.lower(), app) if app else ""
+        if pkg and not _PKG.match(pkg):
+            pkg = self._find_package(app)
+        if not pkg:
+            return self.dev("logcat", str(lines))
+        _, pid, _ = self.adb.run(["shell", "pidof", pkg])
+        if not (pid or "").strip():
+            return OperatorOutcome(False, f"{app} isn't running on the phone, so it has no live logs.")
+        _, out, _ = self.adb.run(["logcat", "-d", "-t", str(min(lines, 2000)), f"--pid={pid.split()[0]}"], timeout=10)
+        return OperatorOutcome(True, (out or "")[-8000:] or "No log lines yet.", evidence={"untrusted": True, "package": pkg})
+
+    for fn in (recents, previous_app, settings, volume, media, media_state, current_app, relaunch, installed, ui_tree,
+               read_screen, find, focus, clear, swipe, notifications_filtered, open_notification, dismiss_notification,
+               status, pull, open_url, record, app_logs):
+        setattr(DeviceOperator, fn.__name__, fn)
+
+
+def canonical(role: str) -> str:
+    from jarvis.core.operator.ui import canonical_role
+    return canonical_role(role)
+
+
+_device_extras()
+
 _dev: Optional[DeviceOperator] = None
 
 

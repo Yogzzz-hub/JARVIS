@@ -132,6 +132,26 @@ SCRIPTS: dict[str, str] = {
       }
       return {paused: v.paused, t: v.currentTime, d: v.duration || 0, rate: v.playbackRate, muted: v.muted,
               volume: v.volume}; })""",
+    "stop": r"""(() => { window.stop(); return document.readyState; })()""",
+    "headings": r"""(() => [...document.querySelectorAll('h1,h2,h3,h4,[role=heading]')].slice(0, 200).map((h, i) => {
+        if (!h.dataset.jarvisId) h.dataset.jarvisId = 'h' + i + '_' + Math.random().toString(36).slice(2, 6);
+        return {id: h.dataset.jarvisId, text: (h.innerText || '').trim().slice(0, 140), level: h.tagName}; }))()""",
+    "scroll_to": r"""((id) => { const el = document.querySelector(`[data-jarvis-id="${id}"]`);
+      if (!el) return false; el.scrollIntoView({block: 'start'}); return true; })""",
+    "section_text": r"""((id) => { const h = document.querySelector(`[data-jarvis-id="${id}"]`); if (!h) return '';
+      let out = '', n = h.nextElementSibling; const lvl = /^H(\d)$/.exec(h.tagName);
+      while (n && out.length < 12000) { const m = /^H(\d)$/.exec(n.tagName);
+        if (m && lvl && Number(m[1]) <= Number(lvl[1])) break; out += (n.innerText || '') + '\n'; n = n.nextElementSibling; }
+      return out; })""",
+    "login_state": r"""(() => { const pw = document.querySelectorAll('input[type=password]').length;
+      const txt = (document.body.innerText || '').slice(0, 20000);
+      const signIn = /\b(sign in|log in|login|sign up to continue)\b/i.test(txt);
+      const captcha = !!document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, #captcha, [class*="captcha" i]');
+      return {password_fields: pw, sign_in_text: signIn, captcha, url: location.href, title: document.title}; })()""",
+    "links": r"""(() => [...document.querySelectorAll('a[href]')].slice(0, 400).map((a, i) => {
+        if (!a.dataset.jarvisId) a.dataset.jarvisId = 'l' + i + '_' + Math.random().toString(36).slice(2, 6);
+        return {id: a.dataset.jarvisId, text: (a.innerText || a.title || a.getAttribute('aria-label') || '').trim().slice(0, 140),
+                href: a.href, download: a.hasAttribute('download')}; }))()""",
     # Only a *visible* Skip control the player itself shows - nothing is blocked or hidden.
     "skip_ad": r"""(() => { const b = [...document.querySelectorAll(
         '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, button[class*="skip" i]')]
@@ -254,6 +274,11 @@ class FakeBrowser(BrowserBackend):
     def reload(self, tab):
         return True
 
+    def set_files(self, tab, element_id: str, paths: list[str]) -> bool:
+        t = self.tab_obj(tab)
+        t.values[element_id] = ";".join(paths)
+        return True
+
     def run(self, tab, script, *args):
         t = self.tab_obj(tab)
         if script == "controls":
@@ -306,6 +331,24 @@ class FakeBrowser(BrowserBackend):
             elif op == "volume": m["volume"], m["muted"] = max(0, min(val, 1)), False
             elif op == "restart": m["t"], m["paused"] = 0, False
             return dict(m)
+        if script == "stop":
+            return "complete"
+        if script == "headings":
+            return [dict(h, id=h.get("id") or f"h{i}") for i, h in enumerate(getattr(t, "headings", []) or self.pages.get(t.url, {}).get("headings", []))]
+        if script == "scroll_to":
+            t.clicked.append(f"scroll:{args[0]}")
+            return True
+        if script == "section_text":
+            hs = self.pages.get(t.url, {}).get("headings", [])
+            h = next((h for i, h in enumerate(hs) if (h.get("id") or f"h{i}") == args[0]), None)
+            return (h or {}).get("body", "")
+        if script == "login_state":
+            pg = self.pages.get(t.url, {})
+            return {"password_fields": pg.get("password_fields", 0), "sign_in_text": pg.get("sign_in", False),
+                    "captcha": pg.get("captcha", False), "url": t.url, "title": t.title}
+        if script == "links":
+            return [dict(c, id=c.get("id") or f"c{i}", text=c.get("name", ""), href=c.get("href", ""))
+                    for i, c in enumerate(t.controls) if c.get("href")]
         if script == "skip_ad":
             if t.media and t.media.get("ad") and t.skip_visible:
                 t.media["ad"], t.skip_visible = False, False
@@ -405,6 +448,17 @@ class CDPBackend(BrowserBackend):
             return True
         except Exception:
             return False
+
+    def set_files(self, tab, element_id: str, paths: list[str]) -> bool:
+        """File inputs can't be filled from page script: DevTools sets the files on the element we resolved."""
+        doc = self._call(tab, "DOM.getDocument", {"depth": 0})
+        root = (doc.get("root") or {}).get("nodeId")
+        node = self._call(tab, "DOM.querySelector", {"nodeId": root, "selector": f'[data-jarvis-id="{element_id}"]'})
+        nid = node.get("nodeId")
+        if not nid:
+            return False
+        self._call(tab, "DOM.setFileInputFiles", {"nodeId": nid, "files": paths})
+        return True
 
     def run(self, tab, script, *args):
         body = SCRIPTS[script]
@@ -754,3 +808,169 @@ class BrowserOperator:
         key = {"down": "pagedown", "up": "pageup", "top": "home", "bottom": "end"}.get(direction, "pagedown")
         ok = isinstance(b, KeyboardBackend) and b._keys(*([key] * max(1, amount)))
         return OperatorOutcome(ok, f"Scrolled {direction}." if ok else "No page is open.")
+
+    # -- more page / tab primitives ----------------------------------------------------------------------------
+    def info(self, what: str = "url") -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if not tab:
+            return OperatorOutcome(False, "No browser tab is open.")
+        if what == "title":
+            return OperatorOutcome(bool(tab.title), f"This page is “{tab.title}”." if tab.title else "The page has no title.",
+                                   resource=tab, evidence={"untrusted": True})
+        if not tab.url:
+            return OperatorOutcome(False, f"I can see the tab “{tab.title}”, but not its address without page access.",
+                                   resource=tab, needs="vision")
+        return OperatorOutcome(True, f"You're on {tab.url}", resource=tab, evidence={"url": tab.url})
+
+    def copy_url(self, desktop=None) -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if not tab:
+            return OperatorOutcome(False, "No browser tab is open.")
+        if not tab.url and isinstance(b, KeyboardBackend) and b._keys("ctrl+l", "ctrl+c", "escape"):
+            return OperatorOutcome(True, "Copied the page link.", resource=tab, evidence={"verified": None})
+        from jarvis.core.operator.platform import get_desktop
+        d = desktop or get_desktop()
+        ok = d.set_clipboard_text(tab.url) and d.clipboard_text() == tab.url
+        return OperatorOutcome(ok, f"Copied {tab.url}" if ok else "I couldn't copy the link.", resource=tab)
+
+    def duplicate(self) -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if not tab:
+            return OperatorOutcome(False, "No browser tab is open.")
+        if isinstance(b, KeyboardBackend):
+            ok = b._keys("alt+d", "alt+enter")
+            return OperatorOutcome(ok, "Duplicated the tab." if ok else "No browser window is open.", evidence={"verified": None})
+        before = len(b.tabs())
+        new = b.new_tab(tab.url)
+        ok = new is not None and len(b.tabs()) == before + 1
+        return OperatorOutcome(ok, f"Duplicated {tab.title}." if ok else "The tab didn't duplicate.", resource=new)
+
+    def stop(self) -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if tab and b.dom:
+            b.run(tab, "stop")
+            return OperatorOutcome(True, "Stopped loading the page.")
+        ok = isinstance(b, KeyboardBackend) and b._keys("escape")
+        return OperatorOutcome(ok, "Stopped loading the page." if ok else "No page is loading.", evidence={"verified": None})
+
+    def heading(self, name: str, read: bool = False) -> OperatorOutcome:
+        """'take me to installation' / 'summarise only the installation section' (text returned for the model)."""
+        b = self.backend
+        tab = b.active()
+        if not tab or not b.dom:
+            if isinstance(b, KeyboardBackend):
+                return self.find_on_page(name)
+            return OperatorOutcome(False, "No page is open.")
+        heads = b.run(tab, "headings") or []
+        want = name.lower().strip()
+        hits = [h for h in heads if want in (h.get("text") or "").lower()]
+        if not hits:
+            return OperatorOutcome(False, f"This page has no '{name}' section.", needs="clarify",
+                                   candidates=[h.get("text") for h in heads[:8]])
+        h = hits[0]
+        if read:
+            text = b.run(tab, "section_text", h["id"]) or ""
+            return OperatorOutcome(bool(text.strip()), text or "That section is empty.", resource=tab,
+                                   evidence={"section": h.get("text"), "untrusted": True})
+        b.run(tab, "scroll_to", h["id"])
+        return OperatorOutcome(True, f"Jumped to “{h.get('text')}”.", resource=tab)
+
+    def site_search(self, query: str) -> OperatorOutcome:
+        tab = self.backend.active()
+        host = urllib.parse.urlparse(tab.url).hostname if tab and tab.url else ""
+        if not host:
+            return OperatorOutcome(False, "Which site? I can't read this tab's address.", needs="clarify")
+        return self.open(f"site:{host} {query}", new_tab=True, engine="google")
+
+    def official(self, topic: str) -> OperatorOutcome:
+        """Search restricted to the project's own documentation: 'official documentation <topic>' with docs/vendor
+        domains first. The pages found are data to read, not instructions."""
+        q = f"{topic} official documentation"
+        return self.open(q, new_tab=True, engine="google")
+
+    def login_state(self) -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if not tab or not b.dom:
+            return OperatorOutcome(False, "I need page access to check that.", needs="vision")
+        st = b.run(tab, "login_state") or {}
+        if st.get("captcha"):
+            return OperatorOutcome(True, "There's a CAPTCHA on this page - that one is yours to solve.",
+                                   evidence={**st, "needs_user": True})
+        needs = bool(st.get("password_fields")) or bool(st.get("sign_in_text"))
+        return OperatorOutcome(True, "Yes - this page wants you to sign in (I won't type passwords)." if needs
+                               else "No sign-in is needed on this page.", evidence=st)
+
+    def open_link(self, name: str, new_tab: bool = False) -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if not tab or not b.dom:
+            return OperatorOutcome(False, "I need page access to find links.", needs="vision")
+        links = b.run(tab, "links") or []
+        want = name.lower().replace(" link", "").strip()
+        hits = [l for l in links if want in (l.get("text") or "").lower()]
+        if not hits:
+            return OperatorOutcome(False, f"I can't see a '{name}' link here.")
+        if len({h["href"] for h in hits}) > 1:
+            return OperatorOutcome(False, "Which link? " + "; ".join(h["text"] for h in hits[:5]), needs="clarify",
+                                   candidates=hits)
+        before = tab.url
+        if new_tab:
+            ok = b.new_tab(hits[0]["href"]) is not None
+        else:
+            ok = bool(b.run(tab, "click", hits[0]["id"])) or b.navigate(tab, hits[0]["href"])
+        after = b.active()
+        ok = ok and (new_tab or (after and after.url != before))
+        return OperatorOutcome(ok, f"Opened {hits[0]['text']}." if ok else "The link didn't open.", resource=after)
+
+    def upload(self, paths: list[str], field: str = "") -> OperatorOutcome:
+        """Upload via the page's own file input. Never submits the form."""
+        b = self.backend
+        tab = b.active()
+        if not tab or not b.dom or not hasattr(b, "set_files"):
+            return OperatorOutcome(False, "I need page access to upload; open the page in the JARVIS Chrome profile.",
+                                   needs="user")
+        import os as _os
+        missing = [p for p in paths if not _os.path.exists(p)]
+        if missing:
+            return OperatorOutcome(False, f"{_os.path.basename(missing[0])} doesn't exist.")
+        controls = b.run(tab, "controls") or []
+        inputs = [c for c in controls if c.get("type") == "file" or "upload" in (c.get("name") or "").lower()
+                  or "attach" in (c.get("name") or "").lower()]
+        if field:
+            inputs = [c for c in inputs if field.lower() in (c.get("name") or "").lower()] or inputs
+        if not inputs:
+            return OperatorOutcome(False, "This page has no file upload field I can see.")
+        if len(inputs) > 1 and not field:
+            return OperatorOutcome(False, "Which upload field? " + "; ".join(c.get("name") or "file" for c in inputs[:5]),
+                                   needs="clarify")
+        ok = b.set_files(tab, inputs[0]["id"], paths)
+        names = ", ".join(_os.path.basename(p) for p in paths)
+        return OperatorOutcome(ok, f"Attached {names} to the page (not submitted)." if ok else "The upload field refused it.",
+                               evidence={"verified": ok})
+
+    def download(self, name: str = "") -> OperatorOutcome:
+        b = self.backend
+        tab = b.active()
+        if not tab or not b.dom:
+            return OperatorOutcome(False, "I need page access to start a download.", needs="vision")
+        links = b.run(tab, "links") or []
+        want = (name or "").lower()
+        cands = [l for l in links if l.get("download") or re.search(r"\.(pdf|zip|docx?|xlsx?|pptx?|csv|exe|msi|png|jpe?g)(\?|$)",
+                                                                    l.get("href", ""), re.I)]
+        if want:
+            cands = [l for l in cands if any(w in (l.get("text", "") + l.get("href", "")).lower()
+                                             for w in re.findall(r"[a-z0-9]+", want) if w not in ("that", "the", "this"))] or cands
+        if not cands:
+            return OperatorOutcome(False, "I don't see a downloadable file link here.")
+        if len(cands) > 1:
+            return OperatorOutcome(False, "Which one? " + "; ".join((c.get("text") or c["href"])[:60] for c in cands[:5]),
+                                   needs="clarify", candidates=cands)
+        b.run(tab, "click", cands[0]["id"])
+        return OperatorOutcome(True, f"Started downloading {cands[0].get('text') or cands[0]['href']}. Say 'tell me when "
+                                     "the download finishes' to be told.", evidence={"href": cands[0]["href"]})
+

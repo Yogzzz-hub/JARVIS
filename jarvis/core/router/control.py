@@ -66,6 +66,30 @@ CONTROL_PHRASES = frozenset({
     "its ok",
 })
 
+_STOP_ALL = re.compile(
+    r"^(?:please\s+|jarvis\s+)*(?:emergency\s+stop|(?:stop|cancel|abort|halt|kill|end|terminate)\s+(?:everything|all(?:\s+of\s+(?:it|that))?"
+    r"|all\s+(?:the\s+)?(?:active\s+|running\s+|current\s+)?(?:jarvis\s+)?(?:tasks?|jobs?|work|actions?)"
+    r"|every\s+(?:single\s+)?(?:active\s+|running\s+)?(?:jarvis\s+)?(?:tasks?|jobs?|actions?)"
+    r"|(?:everything|whatever)\s+(?:that\s+)?you(?:'re|\s+are)\s+(?:doing|running)))(?:\s+(?:right\s+)?now|\s+immediately)?$")
+_PAUSE_TASK = re.compile(
+    r"^(?:please\s+)?pause\s+(?:just\s+|only\s+)?(?:the\s+|this\s+|my\s+)?(?:current\s+|running\s+)?(?:task|job|workflow|work|plan)"
+    r"(?:\s+only)?$|^(?:pause|stop|halt)\s+(?:right\s+)?after\s+(?:the\s+)?(?:current|this|next)\s+(?:verified\s+)?step$")
+_RESUME_TASK = re.compile(
+    r"^(?:please\s+)?(?:resume|unpause|continue|carry\s+on\s+with)\s+(?:the\s+|my\s+|that\s+)?(?:paused\s+)?(?:task|job|workflow|work|plan)"
+    r"(?:\s+(?:I|i)\s+paused.*)?$|^resume\s+(?:it|that)$|^(?:continue|resume|carry\s+on|pick\s+up)\s+(?:from\s+)?(?:where\s+(?:it|you|we)"
+    r"\s+(?:safely\s+)?(?:stopped|left\s+off|paused)|(?:the\s+)?last\s+(?:verified|safe|good)\s+(?:step|point))$")
+
+
+def _task_control(cleaned: str):
+    if _STOP_ALL.match(cleaned):
+        return "cancel_task", {"scope": "all", "keep_listening": True}
+    if _PAUSE_TASK.match(cleaned):
+        return "pause_task", {"scope": "foreground", "after_step": True}
+    if _RESUME_TASK.match(cleaned):
+        return "resume_task", {"scope": "paused"}
+    return None
+
+
 def match_control(text: str, request_id: str) -> RouteDecision | None:
     from jarvis.core.router.normalize import normalize_text
     _, cleaned = normalize_text(text)
@@ -144,6 +168,15 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
         return RouteDecision(request_id=request_id, lane=RouteLane.CONTROL, intent="speech_control", slots={"action": voice},
                              confidence=1.0, source=RouteSource.CONTROL, complexity=ComplexityLevel.SIMPLE,
                              normalized_text=cleaned, reason_code=ReasonCode.CONTROL_COMMAND, candidate_count=1, routing_ms=0.0)
+
+    # 2c. Task control by scope: "stop everything you're doing", "pause just the current task", "resume the paused
+    # task", "continue from the last verified step". The listener itself is never stopped.
+    task_ctl = _task_control(cleaned)
+    if task_ctl is not None:
+        intent, slots = task_ctl
+        return RouteDecision(request_id=request_id, lane=RouteLane.CONTROL, intent=intent, slots=slots, confidence=1.0,
+                             source=RouteSource.CONTROL, complexity=ComplexityLevel.SIMPLE, normalized_text=cleaned,
+                             reason_code=ReasonCode.CONTROL_COMMAND, candidate_count=1, routing_ms=0.0)
 
     # 3. Stop speaking / stop audio / cancel / pause / resume active tasks
     _stop = re.compile(r"(?:ok(?:ay)?\s+|alright\s+)?(?:that'?s\s+)?enough(?:\s+(?:talking|speaking|reading|now))?"

@@ -51,3 +51,6 @@ docs/*
 !docs/WHATSAPP_PERSONAL_REPLY_AGENT.md
 !docs/FULL_COMPUTER_AGENT_AUDIT.md
 config/profile.toml
+jarvis/db/window_layouts.json
+jarvis/db/workflows.json
+jarvis/db/text_templates.json

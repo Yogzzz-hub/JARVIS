@@ -317,6 +317,121 @@ class WindowTracker:
     def list(self) -> list[WindowRef]:
         return [w for w in self.desktop.list_windows() if not self.is_own(w)]
 
+    # -- more primitives ----------------------------------------------------------------------------------------
+    def resize(self, target: WindowRef, direction: str = "smaller", factor: float = 0.8) -> OperatorOutcome:
+        """'smaller' / 'bigger' around the window's centre, kept on its monitor."""
+        d = self.desktop
+        if d.window_state(target.hwnd) in ("maximized", "fullscreen", "minimized"):
+            d.set_window_state(target.hwnd, "normal")
+        l, t, r, b = d.window_rect(target.hwnd)
+        f = factor if direction.startswith(("small", "shrink", "less", "narrow")) else 1 / factor
+        mon = self._monitor_of(target, d.monitors())
+        w, h = max(320, int((r - l) * f)), max(240, int((b - t) * f))
+        w, h = min(w, mon.width), min(h, mon.height)
+        cx, cy = (l + r) // 2, (t + b) // 2
+        nl = min(max(mon.left, cx - w // 2), mon.right - w)
+        nt = min(max(mon.top, cy - h // 2), mon.bottom - h)
+        rect = (nl, nt, nl + w, nt + h)
+        d.move_window(target.hwnd, rect)
+        return self._verify_rects([(target, rect)], f"Made {target.display_name} {'smaller' if f < 1 else 'bigger'}.")
+
+    def move_side(self, target: WindowRef, side: str = "other") -> OperatorOutcome:
+        """'other side' mirrors the window horizontally on its monitor; 'left'/'right' snaps there."""
+        d = self.desktop
+        mon = self._monitor_of(target, d.monitors())
+        if side in ("left", "right"):
+            return self.arrange([target], side)
+        l, t, r, b = d.window_rect(target.hwnd)
+        w = r - l
+        nl = mon.left + (mon.right - r) if l - mon.left >= 0 else mon.left
+        nl = min(max(mon.left, nl), mon.right - w)
+        rect = (nl, t, nl + w, b)
+        d.move_window(target.hwnd, rect)
+        return self._verify_rects([(target, rect)], f"Moved {target.display_name} to the other side.")
+
+    def active(self) -> OperatorOutcome:
+        cur = self.current()
+        if cur is None:
+            return OperatorOutcome(False, "No app window is in front.")
+        return OperatorOutcome(True, f"You're in {cur.display_name} ({cur.process}).", resource=cur,
+                               evidence={"process": cur.process, "family": cur.family})
+
+    def find_and_show(self, query: str) -> OperatorOutcome:
+        """'where did my calculator go?': a minimised or buried window is restored, brought forward and verified."""
+        found = self.resolve(query=query)
+        if not found.ok:
+            return found
+        w = found.resource
+        was = self.desktop.window_state(w.hwnd)
+        if was == "minimized":
+            self.desktop.set_window_state(w.hwnd, "normal")
+        out = self.focus(w)
+        out.message = (f"{w.display_name} was minimised - it's back in front." if was == "minimized"
+                       else f"{w.display_name} was behind other windows - it's in front now.") if out.ok else out.message
+        return out
+
+    # -- layouts ----------------------------------------------------------------------------------------------
+    def save_layout(self, name: str, path=None) -> OperatorOutcome:
+        """Only safe metadata: process, a title hint, state and rectangle - never window contents."""
+        import json
+        from pathlib import Path
+        p = Path(path) if path else _layout_path()
+        d = self.desktop
+        entries = [{"process": w.process, "title": w.title[:80], "state": d.window_state(w.hwnd),
+                    "rect": list(d.window_rect(w.hwnd))} for w in self.list()[:12]]
+        if not entries:
+            return OperatorOutcome(False, "There are no windows to remember.")
+        data = {}
+        try:
+            data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        except Exception:
+            data = {}
+        data[_norm(name) or "default"] = entries
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        return OperatorOutcome(True, f"Saved the '{name or 'default'}' layout ({len(entries)} windows).",
+                               evidence={"windows": len(entries)})
+
+    def restore_layout(self, name: str, path=None, launch=None) -> OperatorOutcome:
+        import json
+        from pathlib import Path
+        p = Path(path) if path else _layout_path()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        except Exception:
+            data = {}
+        key = _norm(name) or "default"
+        entries = data.get(key) or next((v for k, v in data.items() if key in k or k in key), None)
+        if not entries:
+            names = ", ".join(sorted(data)) or "none saved yet"
+            return OperatorOutcome(False, f"I don't have a '{name}' layout (saved: {names}).", needs="clarify")
+        d = self.desktop
+        placed, missing = 0, []
+        live = self.list()
+        for e in entries:
+            same = [w for w in live if w.process == e["process"]]
+            pick = next((w for w in same if e["title"][:20].lower() in w.title.lower()), same[0] if same else None)
+            if pick is None and launch is not None and launch(e["process"].replace(".exe", "")):
+                d.wait_until(lambda: any(w.process == e["process"] for w in self.list()), timeout=8.0, interval=0.2)
+                pick = next((w for w in self.list() if w.process == e["process"]), None)
+            if pick is None:
+                missing.append(e["process"])
+                continue
+            if e.get("state") == "maximized":
+                d.set_window_state(pick.hwnd, "maximized")
+            else:
+                d.move_window(pick.hwnd, tuple(e["rect"]))
+            placed += 1
+        msg = f"Restored the '{name}' layout: {placed} window{'s' if placed != 1 else ''} placed."
+        if missing:
+            msg += f" Not open: {', '.join(missing)}."
+        return OperatorOutcome(placed > 0, msg, evidence={"placed": placed, "missing": missing})
+
+
+def _layout_path():
+    from jarvis.config import ROOT
+    return ROOT / "db" / "window_layouts.json"
+
 
 _tracker: Optional[WindowTracker] = None
 

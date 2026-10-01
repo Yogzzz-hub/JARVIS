@@ -29,6 +29,7 @@ ROLE_WORDS: dict[str, tuple[str, ...]] = {
     "combobox": ("dropdown", "drop down", "combo", "select", "picker"),
     "heading": ("heading", "title", "header"),
     "image": ("image", "picture", "photo", "thumbnail"),
+    "slider": ("slider", "scrubber", "seek bar"),
 }
 PLATFORM_ROLES: dict[str, str] = {
     "buttoncontrol": "button", "splitbuttoncontrol": "button", "button": "button", "imagebutton": "button",
@@ -45,6 +46,9 @@ PLATFORM_ROLES: dict[str, str] = {
     "comboboxcontrol": "combobox", "combobox": "combobox", "android.widget.spinner": "combobox",
     "headercontrol": "heading", "heading": "heading", "imagecontrol": "image", "img": "image", "image": "image",
     "android.widget.imageview": "image",
+    "slidercontrol": "slider", "slider": "slider", "range": "slider", "android.widget.seekbar": "slider",
+    "windowcontrol": "dialog", "dialog": "dialog", "alertdialog": "dialog", "listcontrol": "listbox", "listbox": "listbox",
+    "treecontrol": "listbox", "menubarcontrol": "menu", "menucontrol": "menu",
 }
 _ORDINAL = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
             "ninth": 9, "tenth": 10, "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5, "last": -1, "top": 1,
@@ -231,6 +235,21 @@ class UIAdapter:
     def scroll(self, direction: str, amount: int = 1) -> bool: return False
     def generation(self) -> int: return 0
 
+    def select_option(self, c: ControlRef, option: str) -> bool:
+        """Open the list/combo and pick the option by name (generic: invoke, re-read, invoke the option)."""
+        if not self.invoke(c):
+            return False
+        opt = UIResolver().resolve(self.snapshot(), UITarget(name=option, role="listitem"))
+        if not opt.ok:
+            opt = UIResolver().resolve(self.snapshot(), UITarget(name=option))
+        return bool(opt.ok and self.invoke(opt.resource))
+
+    def set_range(self, c: ControlRef, percent: float) -> Optional[float]:
+        return None                                     # no slider support on this surface
+
+    def expand(self, c: ControlRef, open_: bool = True) -> Optional[bool]:
+        return self.invoke(c) or None
+
 
 class FakeUIAdapter(UIAdapter):
     platform = "fake"
@@ -276,6 +295,27 @@ class FakeUIAdapter(UIAdapter):
 
     def generation(self) -> int:
         return self._gen
+
+    def select_option(self, c: ControlRef, option: str) -> bool:
+        opts = (c.metadata or {}).get("options") or []
+        hit = next((o for o in opts if option.lower() in o.lower()), None)
+        if hit is None:
+            return False
+        self.values[c.name] = hit
+        self._gen += 1
+        return True
+
+    def set_range(self, c: ControlRef, percent: float) -> Optional[float]:
+        if canonical_role(c.role) not in ("slider", "range"):
+            return None
+        self.values[c.name] = str(round(percent))
+        self._gen += 1
+        return float(percent)
+
+    def expand(self, c: ControlRef, open_: bool = True) -> Optional[bool]:
+        self.toggles["expanded:" + c.name] = open_
+        self._gen += 1
+        return open_
 
 
 class UIAWindowAdapter(UIAdapter):
@@ -384,6 +424,61 @@ class UIAWindowAdapter(UIAdapter):
 # Operator
 # ---------------------------------------------------------------------------------------------------------------
 
+    def select_option(self, c: ControlRef, option: str) -> bool:
+        ctrl = self._find(c)
+        if not ctrl:
+            return False
+        try:
+            ec = ctrl.GetExpandCollapsePattern()
+            if ec:
+                ec.Expand()
+            item = ctrl.ListItemControl(Name=option) if hasattr(ctrl, "ListItemControl") else None
+            if item is None or not item.Exists(0.5):
+                item = next((x for x in ctrl.GetChildren() if option.lower() in (x.Name or "").lower()), None)
+            if item is None:
+                return False
+            sp = item.GetSelectionItemPattern()
+            if sp:
+                sp.Select()
+                return True
+            ip = item.GetInvokePattern()
+            if ip:
+                ip.Invoke()
+                return True
+        except Exception:
+            return False
+        return False
+
+
+    def set_range(self, c: ControlRef, percent: float) -> Optional[float]:
+        ctrl = self._find(c)
+        try:
+            rv = ctrl.GetRangeValuePattern() if ctrl else None
+            if not rv:
+                return None
+            lo, hi = rv.Minimum, rv.Maximum
+            rv.SetValue(lo + (hi - lo) * max(0.0, min(percent, 100.0)) / 100.0)
+            return (rv.Value - lo) * 100.0 / (hi - lo) if hi > lo else None
+        except Exception:
+            return None
+
+
+    def expand(self, c: ControlRef, open_: bool = True) -> Optional[bool]:
+        ctrl = self._find(c)
+        try:
+            ec = ctrl.GetExpandCollapsePattern() if ctrl else None
+            if not ec:
+                return None
+            ec.Expand() if open_ else ec.Collapse()
+            return ec.ExpandCollapseState in ((1, 2) if open_ else (0,))   # 1 expanded, 2 partial, 0 collapsed
+        except Exception:
+            return None
+
+
+_REQUIRED = re.compile(r"\*|\brequired\b|\bmandatory\b")
+_AGREE = re.compile(r"\b(agree|accept|terms|consent|confirm|i have read)\b", re.I)
+
+
 class UIOperator:
     """find / invoke / set_value / read / scroll with the safety rules and verification."""
 
@@ -453,3 +548,151 @@ class UIOperator:
     def scroll(self, adapter: UIAdapter, direction: str = "down", amount: int = 1) -> OperatorOutcome:
         ok = adapter.scroll(direction, amount)
         return OperatorOutcome(ok, f"Scrolled {direction}." if ok else "I can't scroll this.")
+
+    def select(self, adapter: UIAdapter, option: str, within: str = "") -> OperatorOutcome:
+        """'choose Python from this list' / 'pick India': the option inside a combo/list (or a radio by name)."""
+        controls = adapter.snapshot()
+        lists = [c for c in controls if canonical_role(c.role) in ("combobox", "listbox", "list")]
+        if within:
+            hit = self.resolver.resolve(controls, UITarget.parse(within))
+            lists = [hit.resource] if hit.ok else lists
+        for c in lists:
+            if adapter.select_option(c, option):
+                got = adapter.read(c)
+                return OperatorOutcome(True, f"Selected {option}.", resource=c, evidence={"value": got})
+        direct = self.resolver.resolve(controls, UITarget(name=option))
+        if direct.ok and canonical_role(direct.resource.role) in ("radio", "listitem", "menuitem", "tab", "button", "checkbox"):
+            return self.invoke(adapter, UITarget(name=option))
+        if len(lists) > 1 and not within:
+            return OperatorOutcome(False, "Which list? " + "; ".join(c.name or c.role for c in lists[:5]), needs="clarify",
+                                   candidates=lists)
+        return OperatorOutcome(False, f"I can't find the option '{option}' here.", needs="clarify" if lists else "")
+
+    def slider(self, adapter: UIAdapter, target: str, percent: float) -> OperatorOutcome:
+        controls = adapter.snapshot()
+        t = UITarget.parse(target) if target else UITarget(role="slider")
+        if not t.role:
+            t.role = "slider"
+        found = self.resolver.resolve(controls, t)
+        if not found.ok:
+            sliders = [c for c in controls if canonical_role(c.role) in ("slider", "range")]
+            if len(sliders) == 1:
+                found = OperatorOutcome(True, sliders[0].name, resource=sliders[0])
+            else:
+                return found if not sliders else OperatorOutcome(False, "Which slider?", needs="clarify", candidates=sliders)
+        got = adapter.set_range(found.resource, percent)
+        if got is None:
+            return OperatorOutcome(False, f"'{found.resource.name or 'That control'}' isn't a slider I can set.",
+                                   resource=found.resource)
+        ok = abs(got - percent) <= 2.0
+        return OperatorOutcome(ok, f"Set {found.resource.name or 'the slider'} to {round(got)}%." if ok else
+                               f"The slider stopped at {round(got)}%.", resource=found.resource, evidence={"value": got})
+
+    def expand(self, adapter: UIAdapter, target: str, open_: bool = True) -> OperatorOutcome:
+        found = self.find(adapter, target or "tree item")
+        if not found.ok:
+            return found
+        got = adapter.expand(found.resource, open_)
+        verb = "Expanded" if open_ else "Collapsed"
+        if got is None:
+            return OperatorOutcome(False, f"'{found.resource.name}' can't be {verb.lower()}.", resource=found.resource)
+        return OperatorOutcome(bool(got) == open_ or got is True, f"{verb} {found.resource.name or 'it'}.",
+                               resource=found.resource)
+
+    def menu(self, adapter: UIAdapter, path: list[str]) -> OperatorOutcome:
+        """'open the File menu and choose Save As': each level is found again after the previous one opened."""
+        last = None
+        for i, name in enumerate(path):
+            role = "menuitem"
+            found = self.resolver.resolve(adapter.snapshot(), UITarget(name=name, role=role))
+            if not found.ok:
+                return OperatorOutcome(False, f"I opened {' > '.join(path[:i]) or 'the menu bar'} but can't see '{name}'.",
+                                       needs=found.needs, candidates=found.candidates)
+            if CONSEQUENTIAL.search(found.resource.name):
+                return OperatorOutcome(False, f"'{found.resource.name}' has real consequences. Say yes to confirm.",
+                                       resource=found.resource, needs="approve")
+            if not adapter.invoke(found.resource):
+                return OperatorOutcome(False, f"'{name}' didn't open.", resource=found.resource)
+            last = found.resource
+        return OperatorOutcome(True, f"Chose {' > '.join(path)}.", resource=last)
+
+    def clear(self, adapter: UIAdapter, target: str = "") -> OperatorOutcome:
+        t = UITarget.parse(target) if target else UITarget(role="textbox", editable=True)
+        t.editable = True
+        controls = adapter.snapshot()
+        found = self.resolver.resolve(controls, t)
+        if not found.ok:
+            focused = [c for c in controls if c.editable and (c.metadata or {}).get("focused")]
+            if len(focused) != 1:
+                return found
+            found = OperatorOutcome(True, focused[0].name, resource=focused[0])
+        c = found.resource
+        if SENSITIVE.search(f"{c.name} {c.automation_id}"):
+            return OperatorOutcome(False, "That's a password/code field - clear it yourself.", resource=c, needs="user")
+        if not adapter.set_value(c, ""):
+            return OperatorOutcome(False, f"I couldn't clear {c.name or 'the field'}.", resource=c)
+        ok = not (adapter.read(c) or "").strip() or adapter.read(c) == c.name
+        return OperatorOutcome(ok, f"Cleared {c.name or 'the field'}." if ok else "The field still has text.", resource=c)
+
+    def explain(self, adapter: UIAdapter, target: str) -> OperatorOutcome:
+        """'why can't I press Continue?': the control's state plus what on the form usually blocks it."""
+        controls = adapter.snapshot()
+        found = self.resolver.resolve(controls, UITarget.parse(target)) if target else OperatorOutcome(False, "")
+        reasons: list[str] = []
+        for c in controls:
+            if c.editable and _REQUIRED.search(c.name or "") and not (adapter.read(c) or "").strip("* ") \
+                    and adapter.read(c) != c.name:
+                reasons.append(f"the required field '{c.name.strip(' *')}' is empty")
+            elif canonical_role(c.role) == "checkbox" and _AGREE.search(c.name or "") and adapter.toggle_state(c) is False:
+                reasons.append(f"'{c.name}' isn't ticked")
+            elif re.search(r"\b(error|invalid|incorrect|must|required)\b", c.name or "", re.I) and \
+                    canonical_role(c.role) not in ("button", "textbox"):
+                reasons.append(f"the page says: {c.name[:80]}")
+        if found.ok:
+            c = found.resource
+            state = "disabled" if not c.enabled else "enabled"
+            head = f"'{c.name}' is {state}."
+            if c.enabled:
+                return OperatorOutcome(True, head + " It should respond - want me to click it?", resource=c,
+                                       evidence={"enabled": True})
+        else:
+            head = "I can't find that control." if target else "Here's what I see."
+        if reasons:
+            return OperatorOutcome(True, head + " Likely blocking it: " + "; ".join(reasons[:4]) + ".",
+                                   resource=found.resource, evidence={"reasons": reasons, "untrusted": True})
+        return OperatorOutcome(True, head + " I don't see an empty required field or an unticked box - it may be "
+                               "waiting on something off-screen.", resource=found.resource, evidence={"reasons": []})
+
+    def remove_attachment(self, adapter: UIAdapter, which: str = "") -> OperatorOutcome:
+        """Removes an attachment chip by invoking its own Remove/Close control - never deletes a file."""
+        controls = adapter.snapshot()
+        removers = [c for c in controls if re.search(r"\b(remove|delete|close|clear|discard)\b", c.name or "", re.I)
+                    and canonical_role(c.role) in ("button", "image", "link")]
+        if which:
+            words = [w for w in re.findall(r"[a-z0-9]+", which.lower()) if w not in ("the", "attachment", "attached")]
+            ords = {"first": 0, "second": 1, "third": 2, "last": -1}
+            idx = next((v for k, v in ords.items() if k in words), None)
+            named = [c for c in removers if any(w in (c.name or "").lower() for w in words if w not in ords)]
+            removers = named or removers
+            if idx is not None and removers:
+                removers = [removers[idx]]
+        if not removers:
+            return OperatorOutcome(False, "I don't see an attachment with a remove button.")
+        if len(removers) > 1:
+            return OperatorOutcome(False, "Which attachment? " + "; ".join(c.name for c in removers[:5]), needs="clarify",
+                                   candidates=removers)
+        before = len(controls)
+        if not adapter.invoke(removers[0]):
+            return OperatorOutcome(False, "The remove button didn't respond.", resource=removers[0])
+        gone = len(adapter.snapshot()) < before
+        return OperatorOutcome(True, "Removed the attachment." if gone else "Pressed remove on the attachment.",
+                               resource=removers[0], evidence={"verified": gone})
+
+    def modal(self, adapter: UIAdapter) -> OperatorOutcome:
+        controls = adapter.snapshot()
+        dialogs = [c for c in controls if canonical_role(c.role) in ("dialog", "window") or (c.metadata or {}).get("modal")]
+        if not dialogs:
+            return OperatorOutcome(True, "No popup is blocking the window.", evidence={"modal": False})
+        d = dialogs[0]
+        return OperatorOutcome(True, f"Yes - a dialog '{d.name or 'untitled'}' is open.", resource=d,
+                               evidence={"modal": True, "untrusted": True})

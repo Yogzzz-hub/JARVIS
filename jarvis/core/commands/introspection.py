@@ -229,3 +229,55 @@ def cancel(tasks, current, scope: str = "foreground") -> tuple[str, dict]:
         if untouched:
             msg += f" {len(untouched)} background job{'s' if len(untouched) != 1 else ''} left running."
     return msg + " I'm still listening.", data
+
+
+def pause(tasks, current) -> tuple[str, dict]:
+    """Pause the running foreground task(s): the step in progress finishes and is verified, the next one waits."""
+    running = [t for t in tasks.active_tasks(exclude=current, background=False) if not t.paused]
+    paused = [t.raw_text for t in running if tasks.pause(t.request_id)]
+    if not paused:
+        return "Nothing is running right now, so there's nothing to pause.", {"paused": []}
+    return (f"Paused “{paused[0][:60]}”" + (f" and {len(paused) - 1} more" if len(paused) > 1 else "") +
+            " after its current step. Say “resume” to continue or “cancel” to drop it."), {"paused": paused}
+
+
+def resume(tasks, current) -> tuple[str, dict]:
+    waiting = [t for t in tasks.active_tasks(exclude=current) if t.paused]
+    resumed = [t.raw_text for t in waiting if tasks.resume(t.request_id)]
+    if not resumed:
+        return "Nothing is paused.", {"resumed": []}
+    return f"Resumed “{resumed[0][:60]}”" + (f" and {len(resumed) - 1} more" if len(resumed) > 1 else "") + \
+        " from its last verified step.", {"resumed": resumed}
+
+
+def stop_everything(tasks, current) -> tuple[str, dict]:
+    """Global stop: every foreground and background task, every watch, live dictation and JARVIS's speech.
+    The microphone listener stays on so the owner can keep talking."""
+    targets = [t for t in tasks.active_tasks(exclude=current) if not t.cancellation.is_set()]
+    cancelled = [t.raw_text for t in targets if tasks.cancel(t.request_id)]
+    watches = 0
+    try:
+        from jarvis.core.operator.watch import get_watch_manager
+        watches = get_watch_manager().cancel()
+    except Exception:
+        pass
+    dictation = False
+    try:
+        from jarvis.core.desktop.dictation_controller import get_dictation_controller
+        ctl = get_dictation_controller()
+        if ctl.is_active:
+            ctl.stop()
+            dictation = True
+    except Exception:
+        pass
+    parts = []
+    if cancelled:
+        parts.append(f"{len(cancelled)} task{'s' if len(cancelled) != 1 else ''}")
+    if watches:
+        parts.append(f"{watches} watch{'es' if watches != 1 else ''}")
+    if dictation:
+        parts.append("dictation")
+    msg = ("Stopped " + ", ".join(parts) + ". Steps already in progress may finish.") if parts else \
+        "Nothing was running - everything is already stopped."
+    return msg + " I'm still listening.", {"cancelled": cancelled, "watches": watches, "dictation": dictation,
+                                           "scope": "all", "listening": True}

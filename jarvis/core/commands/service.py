@@ -316,6 +316,20 @@ class CommandService:
                                        r"again|one more time|once more|same again)(?:\s+please)?[.!]?$", re.I)
 
     async def handle(self, request, clock=None):
+        """One command = one task-scoped grant: only the capabilities its route or validated plan needs, revoked
+        when the command finishes (jarvis/core/tasks/scope.py)."""
+        from jarvis.core.tasks.scope import get_scope_manager
+        with get_scope_manager().grant(getattr(request, "request_id", "") or "", (), reason="command"):
+            return await self._handle(request, clock)
+
+    @staticmethod
+    def _grant(tool) -> None:
+        """The deterministic route or the approved step decided this tool: it joins the command's grant."""
+        from jarvis.core.tasks.scope import get_scope_manager
+        name = getattr(getattr(tool, "definition", None), "name", None) or str(tool)
+        get_scope_manager().extend([name], "route")
+
+    async def _handle(self, request, clock=None):
         if not self.accepting:
             raise RuntimeError("service shutting down")
         dictated = self._dictation(request)
@@ -424,9 +438,11 @@ class CommandService:
                                 if task.cancellation.is_set():
                                     raise asyncio.CancelledError
                                 if first_item:
+                                    self._grant(sub_tool)
                                     sub_res = await self.executor.execute(sub_tool, sub_args, task, ticket_id=t_id)
                                     first_item = False
                                 else:
+                                    self._grant(sub_tool)
                                     sub_res = await self.executor.execute(sub_tool, sub_args, task)
                                 if not sub_res.success:
                                     if sub_res.data and sub_res.data.get("confirmation_required"):
@@ -503,6 +519,7 @@ class CommandService:
                                 self.pulse.on_execution_started(task.request_id)
                                 self.pulse._dispatch_micro_ack(task.request_id, ack_msg)
 
+                            self._grant(tool)
                             res = await self.executor.execute(tool, args, task, ticket_id=t_id)
                             if not res.success:
                                 return self._finalize(task, State.FAILED, res.error or "Execution failed after confirmation", res, None, clock, current, is_voice=is_voice)
@@ -534,6 +551,23 @@ class CommandService:
                     state, message = State.SUCCESS, "Action cancelled. No changes were made."
                     tool_result = ToolResult(success=True, data={"cancelled": True}, tool_name="confirmation")
                     return self._finalize(task, state, message, tool_result, None, clock, current, is_voice=is_voice)
+
+                if decision.intent in ("pause_task", "resume_task") or (
+                        decision.intent == "cancel_task" and (decision.slots or {}).get("scope") == "all"):
+                    from jarvis.core.commands import introspection as own
+                    self.tasks.transition(task, State.EXECUTING)
+                    if decision.intent == "pause_task":
+                        message, data = own.pause(self.tasks, task)
+                    elif decision.intent == "resume_task":
+                        message, data = own.resume(self.tasks, task)
+                    else:
+                        if hasattr(self.response, "stop_speaking"):
+                            self.response.stop_speaking()
+                        message, data = own.stop_everything(self.tasks, task)
+                    self.tasks.transition(task, State.VERIFYING)
+                    tool_result = ToolResult(success=True, data={"control": decision.intent, **data}, tool_name="control")
+                    verification = VerificationResult(verified=True, confidence=1.0, evidence={"control": True})
+                    return self._finalize(task, State.SUCCESS, message, tool_result, verification, clock, current, is_voice=is_voice)
 
                 if hasattr(self.response, "stop_speaking"):
                     self.response.stop_speaking()
@@ -702,6 +736,7 @@ class CommandService:
                 for idx, (sub_tool, sub_args) in enumerate(prepared):
                     if task.cancellation.is_set():
                         raise asyncio.CancelledError
+                    self._grant(sub_tool)
                     sub_res = await self.executor.execute(sub_tool, sub_args, task)
                     if not sub_res.success:
                         if sub_res.data and sub_res.data.get("confirmation_required"):
@@ -886,6 +921,7 @@ class CommandService:
                 self.pulse.on_execution_started(task.request_id)
             clock.dispatch_started_ns = now_ns()
             try:
+                self._grant(tool)
                 tool_result = await self.executor.execute(tool, arguments, task)
             finally:
                 # Timestamp is taken at actual invocation; diagnostic delivery can follow.
@@ -1252,6 +1288,7 @@ class CommandService:
         clock.tool_started_ns = now_ns()
         sink, token = self._open_answer_stream(task, is_voice)
         try:
+            self._grant(tool)
             res = await self.executor.execute(tool, args, task)
         finally:
             if token is not None:
@@ -1276,6 +1313,7 @@ class CommandService:
             from jarvis.core.llm.assistant import needs_live_data
             if needs_live_data(question) and self.registry.contains("search_web"):
                 web = self.registry.get("search_web")
+                self._grant(web)
                 web_res = await self.executor.execute(web, web.definition.input_model.model_validate({"query": question}), task)
                 if web_res.success and web_res.data.get("summary"):
                     message = web_res.data["summary"]
@@ -1467,6 +1505,8 @@ class CommandService:
             task.steps[node.id] = {"label": node.description or node.tool, "tool": node.tool,
                                    "state": str(getattr(result.state, "value", result.state)).upper(), "error": result.error}
         import inspect
+        from jarvis.core.tasks.scope import get_scope_manager
+        get_scope_manager().extend([n.tool for n in graph.nodes], "validated plan")  # exactly the plan's own tools
         accepts = "on_step" in inspect.signature(self.scheduler.execute).parameters
         graph_result = await (self.scheduler.execute(graph, approved=approved, on_step=on_step) if accepts
                               else self.scheduler.execute(graph, approved=approved))
@@ -1567,6 +1607,7 @@ class CommandService:
         if missing:
             raise ValueError(f"Follow-up step is missing {', '.join(missing)}")
         arguments = tool.definition.input_model.model_validate(args_dict)
+        self._grant(tool)
         res = await self.executor.execute(tool, arguments, task)
         preview = first_result.data.get("draft") or args_dict.get("message", "")
         who = next_action.get("display_recipient") or args_dict.get("recipient", "")

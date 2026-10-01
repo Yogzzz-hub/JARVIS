@@ -43,6 +43,12 @@ TRANSITIONS = {
     State.RESPONDING: {State.FAILED},
 }
 
+def _set_event() -> asyncio.Event:
+    e = asyncio.Event()
+    e.set()
+    return e
+
+
 @dataclass(slots=True)
 class Task:
     request_id: str
@@ -63,6 +69,9 @@ class Task:
     started_monotonic: float = field(default_factory=time.monotonic)
     finalized: bool = False
     outcome_version: int = 1
+    # Set = may run. Cleared by "pause this task": the step in progress finishes, the next one waits.
+    run_gate: asyncio.Event = field(default_factory=lambda: _set_event())
+    paused: bool = False
 
     @property
     def active(self) -> bool:
@@ -114,9 +123,28 @@ class TaskManager:
         return [t for t in self.tasks.values() if t is not exclude and t.active
                 and (background is None or t.background == background)]
 
+    def pause(self, request_id) -> bool:
+        task = self.tasks.get(request_id)
+        if task is None or not task.active:
+            return False
+        task.run_gate.clear()
+        task.paused = True
+        self.bus.emit("task.paused", request_id)
+        return True
+
+    def resume(self, request_id) -> bool:
+        task = self.tasks.get(request_id)
+        if task is None or not task.paused:
+            return False
+        task.run_gate.set()
+        task.paused = False
+        self.bus.emit("task.resumed", request_id)
+        return True
+
     def cancel(self, request_id):
         task = self.tasks[request_id]
         if State.CANCELLED in TRANSITIONS[task.state]:
             task.cancellation.set()
+            task.run_gate.set()          # a paused task wakes up to see the cancellation
             return True
         return False

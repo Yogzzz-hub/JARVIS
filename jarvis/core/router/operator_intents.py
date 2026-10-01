@@ -523,10 +523,10 @@ def _browser(t, raw, rid, mode):
                  rf"(?P<k>one|(?:search\s+)?result|link|video|hit|option|entry|item|article|thumbnail)s?"
                  rf"(?P<nt>\s+in (?:a )?new tab)?(?:\s+(?:on|in|from) (?:the|this) (?:page|list|results))?$", t) or \
         re.match(rf"^(?:open|play|click)\s+(?:result|link|video)\s+(?:number\s+)?(?P<o>\d+)(?P<nt>\s+in (?:a )?new tab)?$", t)
-    if m and m.group("k") == "one" and mode not in ("browser", "media"):
+    if m and m.groupdict().get("k") == "one" and mode not in ("browser", "media"):
         m = None                                          # "open the second one" with no list in front: ask
     if m and m.groupdict().get("v") in ("click", "pick", "choose", "select") \
-            and m.group("k") not in ("result", "search result", "video", "hit", "article"):
+            and m.groupdict().get("k") not in ("result", "search result", "video", "hit", "article"):
         m = None                                          # "click the first link / item": a control on any surface
     if m and not re.search(r"\b(?:file|pdf|folder|document|photo|image|download)s?\b", t):
         o = m.group("o")

@@ -251,3 +251,156 @@ class TextOperator:
         if unit == "all":
             return "everything"
         return f"the last {n} {unit}s" if n > 1 else f"the last {unit}"
+
+    # -- caret, counting, finding, append/prepend, clear, save / save as, plain paste, templates -------------
+
+    def caret(self, unit: str = "word", direction: str = "left", n: int = 1,
+               expect: Optional[WindowRef] = None) -> OperatorOutcome:
+        bad = self._guard(expect)
+        if bad:
+            return bad
+        unit = normalize_unit(unit) or unit
+        d = self.desktop
+        if unit in ("document", "doc", "all", "text") or direction in ("start", "end", "top", "bottom", "beginning"):
+            start = direction in ("start", "top", "beginning", "left", "up")
+            d.press(parse_chord("ctrl+home" if start else "ctrl+end"))
+            return OperatorOutcome(True, f"Cursor at the {'start' if start else 'end'} of the document.")
+        if unit == "line" and direction in ("left", "right"):
+            d.press(parse_chord("home" if direction == "left" else "end"))
+            return OperatorOutcome(True, f"Cursor at the {'start' if direction == 'left' else 'end'} of the line.")
+        key = {"left": "left", "right": "right", "up": "up", "down": "down", "back": "left", "forward": "right"}.get(direction, "left")
+        chord = ("ctrl+" + key) if unit == "word" and key in ("left", "right") else key
+        for _ in range(max(1, min(n, 200))):
+            d.press(parse_chord(chord))
+        return OperatorOutcome(True, f"Moved the cursor {n} {unit}{'s' if n > 1 else ''} {key}.")
+
+
+    def count(self) -> OperatorOutcome:
+        text = self.desktop.focused_text()
+        if text is None:
+            return OperatorOutcome(False, "I can't read this field to count it.", needs="vision")
+        words = len(re.findall(r"\b[\w'-]+\b", text))
+        return OperatorOutcome(True, f"{words} word{'s' if words != 1 else ''}, {len(text)} characters.",
+                               evidence={"words": words, "chars": len(text), "untrusted": True})
+
+
+    def find_text(self, query: str, expect: Optional[WindowRef] = None) -> OperatorOutcome:
+        bad = self._guard(expect)
+        if bad:
+            return bad
+        d = self.desktop
+        text = d.focused_text()
+        if text is None:
+            d.press(parse_chord("ctrl+f"))
+            d.type_text(query)
+            return OperatorOutcome(True, f"Searching for '{query}' with the app's Find.", evidence={"verified": None})
+        hits = [m.start() for m in re.finditer(re.escape(query), text, re.I)]
+        if not hits:
+            return OperatorOutcome(False, f"'{query}' isn't in this text.")
+        caret = self._caret_guess(text)
+        start = hits[0]
+        end = start + len(query)
+        step = "right" if end > caret else "left"
+        for _ in range(abs(end - caret)):
+            d.press(parse_chord(step))
+        for _ in range(len(query)):
+            d.press(parse_chord("shift+left"))
+        return OperatorOutcome(True, f"Found '{query}'" + (f" ({len(hits)} times; selected the first)." if len(hits) > 1 else
+                                                         " and selected it."), evidence={"count": len(hits)})
+
+
+    def append(self, text: str, where: str = "end", expect: Optional[WindowRef] = None) -> OperatorOutcome:
+        bad = self._guard(expect)
+        if bad:
+            return bad
+        d = self.desktop
+        before = d.focused_text()
+        d.press(parse_chord("ctrl+end" if where == "end" else "ctrl+home"))
+        payload = text
+        if where == "end" and before and not before.endswith(("\n", " ")):
+            payload = " " + text
+        if where != "end":
+            payload = text + "\n"
+        d.type_text(payload)
+        return self._result(before, f"Added it at the {'end' if where == 'end' else 'top'}.")
+
+
+    def clear(self, expect: Optional[WindowRef] = None) -> OperatorOutcome:
+        bad = self._guard(expect)
+        if bad:
+            return bad
+        d = self.desktop
+        before = d.focused_text()
+        d.press(parse_chord("ctrl+a"))
+        d.press(parse_chord("delete"))
+        after = d.focused_text()
+        if after is None:
+            return OperatorOutcome(True, "Cleared the field.", evidence={"verified": None})
+        return OperatorOutcome(after == "", "Cleared the field." if after == "" else "The field still has text.",
+                               evidence={"verified": after == "", "had": len(before or "")})
+
+
+    def save(self, name: str = "", expect: Optional[WindowRef] = None) -> OperatorOutcome:
+        """Ctrl+S (or Save As with a name). Verified by the window title: the name appears / the unsaved marker goes."""
+        bad = self._guard(expect)
+        if bad:
+            return bad
+        d = self.desktop
+        win = d.foreground()
+        if not name:
+            d.press(parse_chord("ctrl+s"))
+            ok = d.wait_until(lambda: not (d.foreground() or win).title.startswith("*") and "●" not in (d.foreground() or win).title,
+                              timeout=2.0)
+            return OperatorOutcome(True, "Saved." if ok else "Pressed save (I can't see a saved marker to confirm).",
+                                   evidence={"verified": ok if win and ("*" in win.title or "●" in win.title) else None})
+        if re.search(r"[<>:\"|?*]|\.\.", name) or re.match(r"^[a-z]:\\\\windows", name, re.I):
+            return OperatorOutcome(False, f"'{name}' isn't a safe file name.", needs="clarify")
+        d.press(parse_chord("ctrl+shift+s"))
+        dialog = d.wait_until(lambda: (d.foreground() and d.foreground().hwnd != (win.hwnd if win else 0)), timeout=3.0)
+        if not dialog:
+            return OperatorOutcome(False, "The Save As dialog didn't open.")
+        d.press(parse_chord("ctrl+a"))
+        d.type_text(name)
+        d.press(parse_chord("enter"))
+        base = re.split(r"[\\\\/]", name)[-1].lower()
+        ok = d.wait_until(lambda: base.split(".")[0] in ((d.foreground() or win).title or "").lower(), timeout=3.0)
+        fg = d.foreground()
+        if fg and fg.hwnd != (win.hwnd if win else 0) and re.search(r"replace|already exists|confirm", fg.title, re.I):
+            return OperatorOutcome(False, f"A file named {name} already exists - Windows is asking whether to replace it. "
+                                          "Answer that yourself.", needs="user")
+        return OperatorOutcome(ok, f"Saved as {name}." if ok else f"I typed {name} in Save As but the title doesn't show it yet.",
+                               evidence={"verified": ok})
+
+
+    def paste_plain(self, expect: Optional[WindowRef] = None) -> OperatorOutcome:
+        bad = self._guard(expect)
+        if bad:
+            return bad
+        d = self.desktop
+        text = d.clipboard_text()
+        if not text:
+            return OperatorOutcome(False, "There's no text on the clipboard to paste.")
+        d.set_clipboard_text(text)                       # re-setting as plain text drops rich formats
+        before = d.focused_text()
+        d.press(parse_chord("ctrl+v"))
+        return self._result(before, "Pasted as plain text.")
+
+
+    def template(self, name: str, expect: Optional[WindowRef] = None, path=None) -> OperatorOutcome:
+        import json
+        from pathlib import Path
+        if path is None:
+            from jarvis.config import ROOT
+            path = ROOT / "db" / "text_templates.json"
+        p = Path(path)
+        try:
+            templates = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        except Exception:
+            templates = {}
+        key = re.sub(r"[^a-z0-9 ]", " ", name.lower()).replace("template", "").strip()
+        hit = templates.get(key) or next((v for k, v in templates.items() if key and (key in k or k in key)), None)
+        if hit is None:
+            names = ", ".join(sorted(templates)) or "none saved yet"
+            return OperatorOutcome(False, f"I don't have a '{name}' template (saved: {names}). Add it to {p.name}.",
+                                   needs="clarify")
+        return self.insert(hit, expect=expect)
