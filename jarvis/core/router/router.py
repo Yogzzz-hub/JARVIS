@@ -565,6 +565,122 @@ class SmartRouter:
             self._record(bulk_decision)
             return bulk_decision
 
+        # 3a-1. META / RESPONSE-POLICY INSTRUCTION CHECK (evaluated before negation check)
+        from jarvis.core.router.meta_policy import match_meta_policy
+        meta_decision = match_meta_policy(clean_text or routing_text, request_id)
+        if meta_decision:
+            meta_decision.routing_ms = (perf_counter_ns() - t0) / 1e6
+            meta_decision.breakdown_ms = breakdown
+            self._record(meta_decision)
+            return meta_decision
+
+        # 3a-2. DICTATION CONTEXT GATE (evaluated before negation and capability routing)
+        from jarvis.core.desktop.dictation_controller import (
+            get_dictation_controller,
+            classify_dictation_turn,
+            DictationTurnType,
+            DictationState,
+        )
+        dict_ctrl = get_dictation_controller()
+        if dict_ctrl.is_active:
+            turn = classify_dictation_turn(clean_text or routing_text, dict_ctrl.state)
+            if turn:
+                if turn.turn_type == DictationTurnType.GLOBAL_EMERGENCY_COMMAND:
+                    if turn.escape_command and turn.escape_command != "cancel":
+                        dict_ctrl.stop()
+                        original_text = turn.escape_command
+                        clean_text = turn.escape_command
+                        routing_text = turn.escape_command
+                    else:
+                        dict_ctrl.stop()
+                        stop_dec = RouteDecision(
+                            request_id=request_id,
+                            lane=RouteLane.CONTROL,
+                            intent="dictation_mode_control",
+                            slots={"action": "stop"},
+                            confidence=1.0,
+                            source=RouteSource.EXACT,
+                            complexity=ComplexityLevel.SIMPLE,
+                            normalized_text=routing_text,
+                            reason_code=ReasonCode.EXACT_PATTERN,
+                            routing_ms=(perf_counter_ns() - t0) / 1e6,
+                            breakdown_ms=breakdown,
+                        )
+                        self._record(stop_dec)
+                        return stop_dec
+                else:
+                    # Captured by active dictation - STRICT CAPABILITY ISOLATION
+                    if turn.turn_type == DictationTurnType.DICTATION_CONTROL:
+                        intent = "dictation_mode_control"
+                        slots = {"action": turn.operation.lower()}
+                    elif turn.turn_type == DictationTurnType.EDIT_COMMAND:
+                        intent = "voice_edit"
+                        slots = {"action": turn.operation.lower(), **turn.slots}
+                    elif turn.turn_type == DictationTurnType.MIXED:
+                        intent = "voice_edit"
+                        slots = {"action": "mixed", "operations": turn.operations}
+                    elif turn.turn_type == DictationTurnType.LITERAL_TEXT:
+                        intent = "dictate_text"
+                        slots = {"text": turn.text, "literal": True}
+                    else:
+                        intent = "dictate_text"
+                        slots = {"text": turn.text}
+
+                    dict_dec = RouteDecision(
+                        request_id=request_id,
+                        lane=RouteLane.LANE_0,
+                        intent=intent,
+                        slots=slots,
+                        confidence=1.0,
+                        source=RouteSource.EXACT,
+                        complexity=ComplexityLevel.SIMPLE,
+                        normalized_text=routing_text,
+                        reason_code=ReasonCode.EXACT_PATTERN,
+                        routing_ms=(perf_counter_ns() - t0) / 1e6,
+                        breakdown_ms=breakdown,
+                    )
+                    self._record(dict_dec)
+                    return dict_dec
+        else:
+            # Controller is IDLE: check for start typing or literal mode
+            turn = classify_dictation_turn(clean_text or routing_text, dict_ctrl.state)
+            if turn and turn.turn_type in (DictationTurnType.START_DICTATION, DictationTurnType.LITERAL_TEXT):
+                if dict_ctrl.has_editable_target() or turn.slots.get("app"):
+                    start_dec = RouteDecision(
+                        request_id=request_id,
+                        lane=RouteLane.LANE_0,
+                        intent="dictate_text",
+                        slots={"action": "start", "text": turn.text or "", "target_app": turn.slots.get("app", "")},
+                        confidence=1.0,
+                        source=RouteSource.EXACT,
+                        complexity=ComplexityLevel.SIMPLE,
+                        normalized_text=routing_text,
+                        reason_code=ReasonCode.EXACT_PATTERN,
+                        routing_ms=(perf_counter_ns() - t0) / 1e6,
+                        breakdown_ms=breakdown,
+                    )
+                    self._record(start_dec)
+                    return start_dec
+                else:
+                    # No editable target: ask ONLY "Where should I type?"
+                    # Never route to PowerShell / general tool search
+                    clarify_dec = RouteDecision(
+                        request_id=request_id,
+                        lane=RouteLane.CLARIFY,
+                        intent="clarify",
+                        slots={},
+                        confidence=1.0,
+                        clarification="Where should I type?",
+                        source=RouteSource.EXACT,
+                        complexity=ComplexityLevel.SIMPLE,
+                        normalized_text=routing_text,
+                        reason_code=ReasonCode.LOW_CONFIDENCE,
+                        routing_ms=(perf_counter_ns() - t0) / 1e6,
+                        breakdown_ms=breakdown,
+                    )
+                    self._record(clarify_dec)
+                    return clarify_dec
+
         # 3. NEGATION CHECK (prevents execution)
         is_negated, constraints = check_negation(routing_text)
         positive_override = next((c["target"] for c in constraints if c.get("type") == "positive_override"), None)
@@ -1078,7 +1194,7 @@ class SmartRouter:
         # 3b-multi. "open notepad and type hello", "play X on youtube then set volume to 30": split into steps and route
         # each one, so a single-intent matcher never swallows the rest of the sentence as its argument.
         if not _IN_CLAUSE.get():
-            multi = await self._route_multi_step(routing_text or clean_text, request_id)
+            multi = await self._route_multi_step(original_text, request_id) or await self._route_multi_step(routing_text or clean_text, request_id)
             if multi:
                 multi.routing_ms = (perf_counter_ns() - t0) / 1e6
                 multi.breakdown_ms = breakdown

@@ -226,14 +226,18 @@ def parse_folder_path(val: str) -> FolderRef:
     cleaned = collapse_spaced_letters(cleaned)
     lowered = cleaned.casefold()
 
+    if lowered in ("that folder", "the folder", "this folder", "same folder", "that directory", "the directory", "same directory", "it"):
+        return FolderRef(cleaned)
+
+    from jarvis.security.paths import canonicalize_path
     for k, v in FOLDER_ALIASES.items():
         if lowered == k or lowered.endswith(f" {k}") or lowered.startswith(f"{k} "):
-            return FolderRef(k.title())
+            return FolderRef(str(canonicalize_path(k)))
 
     if lowered in FOLDER_ALIASES:
-        return FolderRef(lowered.title())
+        return FolderRef(str(canonicalize_path(lowered)))
 
-    resolved = Path(cleaned).expanduser()
+    resolved = canonicalize_path(cleaned)
     return FolderRef(str(resolved))
 
 

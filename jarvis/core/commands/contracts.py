@@ -15,11 +15,13 @@ class CommandRequest(Contract):
 
 class CommandResult(Contract):
     request_id: str
-    state: Literal["SUCCESS", "FAILED", "CANCELLED", "WAITING_CONFIRMATION"]
+    state: Literal["SUCCESS", "PARTIAL_SUCCESS", "COMPLETED", "FAILED", "CANCELLED", "WAITING_CONFIRMATION", "UNCERTAIN", "WAITING_FOR_USER"]
     message: str
     tool_result: ToolResult | None = None
     verification: VerificationResult | None = None
     metrics: dict[str, float | None]
+    outcome_version: int = 1
+    finalized: bool = True
 
 class WSInput(Contract):
     version: Literal[1]

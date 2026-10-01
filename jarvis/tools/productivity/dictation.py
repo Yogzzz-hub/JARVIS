@@ -39,8 +39,9 @@ VK_DELETE = VK.DELETE
 # =====================================================================
 
 class DictateInput(Contract):
-    text: str = Field(min_length=1, max_length=10000, description="Spoken text to format and type")
+    text: str = Field(default="", max_length=10000, description="Spoken text to format and type")
     target_app: Optional[str] = Field(default=None, max_length=256, description="Optional target app name or window title")
+    action: Optional[str] = Field(default=None, description="Dictation action (e.g. start, insert)")
     auto_punctuate: bool = True
     streaming: bool = False
 
@@ -54,9 +55,10 @@ class DictateOutput(Contract):
 
 
 class VoiceEditInput(Contract):
-    action: str = Field(description="Voice edit action: backspace, delete_word, delete_sentence, undo, redo, select_sentence, replace, capitalize, lowercase, copy, cut, paste")
+    action: str = Field(description="Voice edit action: backspace, delete_word, delete_sentence, undo, redo, select_sentence, replace, capitalize, lowercase, copy, cut, paste, mixed")
     target_text: Optional[str] = Field(default=None, description="Text to replace or target")
     replacement_text: Optional[str] = Field(default=None, description="Replacement text")
+    operations: Optional[list[dict[str, Any]]] = Field(default=None, description="Operations for mixed edit + insert")
 
 
 class VoiceEditOutput(Contract):
@@ -233,6 +235,12 @@ class DictationSessionManager:
         self.last_typed_text = ""
         self.last_stable_prefix = ""
 
+        try:
+            from jarvis.core.desktop.dictation_controller import get_dictation_controller
+            get_dictation_controller().start(window_title=target_title or "")
+        except Exception:
+            pass
+
         # Target: a named window ("dictate in claude" -> the window whose title mentions Claude), else the active one
         try:
             import win32gui
@@ -294,12 +302,22 @@ class DictationSessionManager:
 
     def stop(self) -> str:
         self.active_dictation_mode = False
+        try:
+            from jarvis.core.desktop.dictation_controller import get_dictation_controller
+            get_dictation_controller().stop()
+        except Exception:
+            pass
         target = self.remembered_target_title
         logger.info(f"Dictation mode stopped for: {target}")
         return target
 
     def is_active(self) -> bool:
-        return self.active_dictation_mode
+        try:
+            from jarvis.core.desktop.dictation_controller import get_dictation_controller
+            ctrl = get_dictation_controller()
+            return ctrl.is_active or self.active_dictation_mode
+        except Exception:
+            return self.active_dictation_mode
 
     def verify_target_focus(self) -> bool:
         """Verifies if the remembered dictation target is currently in foreground."""
@@ -480,15 +498,37 @@ _DICTATION_EDITS = [
 
 
 def handle_dictation_utterance(text: str) -> tuple[bool, str]:
-    """Voice input while dictation is on: type it into the remembered window, or run a spoken edit command.
-
-    Returns (still_active, message). The text is typed exactly as heard (formatted), never routed as a command,
-    so "open chrome" said while dictating is written, not executed - "stop typing" ends dictation.
-    """
+    """Voice input while dictation is on: type it into the remembered window, or run a spoken edit command."""
     mgr = get_dictation_manager()
+    from jarvis.core.desktop.dictation_controller import (
+        get_dictation_controller,
+        classify_dictation_turn,
+        DictationTurnType,
+        DictationTurn,
+    )
+    ctrl = get_dictation_controller()
+
     if mgr.is_exit_command(text):
         target = mgr.stop()
+        ctrl.stop()
         return False, f"Stopped typing into {target or 'the window'}."
+
+    if ctrl.is_active:
+        turn = classify_dictation_turn(text, ctrl.state)
+        if turn is None:
+            turn = DictationTurn(turn_type=DictationTurnType.TEXT, text=text)
+        if turn.turn_type == DictationTurnType.GLOBAL_EMERGENCY_COMMAND:
+            ctrl.stop()
+            mgr.stop()
+            return False, "Dictation cancelled."
+        if turn.turn_type == DictationTurnType.DICTATION_CONTROL and turn.operation == "STOP_DICTATION":
+            _, msg = ctrl.stop()
+            mgr.stop()
+            return False, msg
+        ok, msg = ctrl.execute_turn(turn)
+        return ctrl.is_active, msg
+
+    # Legacy / session manager fallback (direct keystrokes and type_unicode)
     cleaned = text.strip().lower().rstrip(".!,?")
     for pattern, action in _DICTATION_EDITS:
         if re.fullmatch(pattern, cleaned):
@@ -498,7 +538,6 @@ def handle_dictation_utterance(text: str) -> tuple[bool, str]:
                 mgr.last_typed_text = ""
                 return True, "Sent."
             if action in ("newline", "newparagraph"):
-                # Shift+Enter makes a line break in chat boxes (Claude, ChatGPT, WhatsApp) instead of sending
                 for _ in range(1 if action == "newline" else 2):
                     _send_combo([VK_SHIFT], VK_RETURN)
                 return True, "New line."
@@ -543,22 +582,17 @@ class DictationTool(Tool):
     )
 
     def run(self, arguments: DictateInput) -> dict[str, Any]:
-        mgr = get_dictation_manager()
-        formatted = format_dictation(arguments.text, arguments.auto_punctuate)
-        target = arguments.target_app or mgr.remembered_target_title or "active_window"
-
-        if not arguments.streaming:
-            # "open notepad and type hello": wait for the named app's window instead of typing into whatever is in front
-            if not (arguments.target_app and mgr.focus_app(arguments.target_app)):
-                mgr.refocus_target()
-            _type_unicode(formatted)
-
-        mgr.last_typed_text = formatted
-
+        from jarvis.core.desktop.dictation_controller import get_dictation_controller
+        ctrl = get_dictation_controller()
+        if not ctrl.is_active:
+            ctrl.start(app_name=arguments.target_app or "", initial_text=arguments.text or "")
+        else:
+            if arguments.text:
+                ctrl.on_stable_text(arguments.text)
         return {
-            "formatted_text": formatted,
-            "target_app": target,
-            "characters": len(formatted),
+            "formatted_text": ctrl.buffer.committed_text or arguments.text,
+            "target_app": ctrl.target.app_name or "active window",
+            "characters": len(ctrl.buffer.committed_text or arguments.text),
             "status": "inserted",
             "action_taken": "typed",
         }
@@ -567,7 +601,7 @@ class DictationTool(Tool):
 class VoiceEditTool(Tool):
     definition = ToolDefinition(
         name="voice_edit",
-        description="Performs voice-driven editing on active text: backspace, delete word, delete sentence, undo, redo, select, replace X with Y, capitalize, lowercase, copy, cut, paste.",
+        description="Performs voice-driven editing on active text: backspace, delete word, delete sentence, undo, redo, select, replace X with Y, capitalize, lowercase, copy, cut, paste, mixed.",
         input_model=VoiceEditInput,
         output_model=VoiceEditOutput,
         read_only=False,
@@ -578,16 +612,24 @@ class VoiceEditTool(Tool):
     )
 
     def run(self, arguments: VoiceEditInput) -> dict[str, Any]:
-        mgr = get_dictation_manager()
-        success, res_text, msg = mgr.execute_edit_action(
-            action=arguments.action,
-            target=arguments.target_text,
-            replacement=arguments.replacement_text,
-        )
+        from jarvis.core.desktop.dictation_controller import get_dictation_controller, DictationTurn, DictationTurnType
+        ctrl = get_dictation_controller()
+        if arguments.action == "mixed" and arguments.operations:
+            turn = DictationTurn(
+                turn_type=DictationTurnType.MIXED,
+                operations=arguments.operations,
+            )
+            success, msg = ctrl.execute_turn(turn)
+        else:
+            success, msg = ctrl.execute_edit(
+                action=arguments.action,
+                target=arguments.target_text,
+                replacement=arguments.replacement_text,
+            )
         return {
             "status": "SUCCESS" if success else "FAILED",
             "action": arguments.action,
-            "result_text": res_text,
+            "result_text": ctrl.buffer.committed_text,
             "message": msg,
         }
 
@@ -606,37 +648,46 @@ class DictationModeControlTool(Tool):
     )
 
     def run(self, arguments: DictationModeInput) -> dict[str, Any]:
-        mgr = get_dictation_manager()
+        from jarvis.core.desktop.dictation_controller import get_dictation_controller, DictationState
+        ctrl = get_dictation_controller()
         action = arguments.action.lower().strip()
 
         if action in ("start", "enable", "on", "begin", "resume", "play"):
-            target = mgr.start(arguments.target_app)
+            if ctrl.state == DictationState.PAUSED:
+                success, msg = ctrl.resume()
+            else:
+                success, msg = ctrl.start(app_name=arguments.target_app or "")
+            target = ctrl.target.app_name or "active window"
             return {
-                "active": True,
+                "active": ctrl.is_active,
                 "target_app": target,
-                "message": (f"Dictation on - I'll type what you say into '{target}'. Say 'new line', 'send it', "
-                            "'delete that' or 'stop typing'."),
+                "message": msg,
             }
         elif action in ("stop", "disable", "off", "end", "pause", "exit"):
-            target = mgr.stop()
+            if action == "pause":
+                ctrl.pause("tool command")
+                return {
+                    "active": False,
+                    "target_app": ctrl.target.app_name,
+                    "message": "Dictation paused.",
+                }
+            success, msg = ctrl.stop()
             return {
                 "active": False,
-                "target_app": target,
-                "message": f"Dictation mode stopped for '{target}'.",
+                "target_app": ctrl.target.app_name,
+                "message": msg,
             }
         elif action == "toggle":
-            if mgr.is_active():
-                target = mgr.stop()
+            if ctrl.is_active:
+                success, msg = ctrl.stop()
                 active = False
-                msg = f"Dictation mode stopped for '{target}'."
             else:
-                target = mgr.start(arguments.target_app)
+                success, msg = ctrl.start(app_name=arguments.target_app or "")
                 active = True
-                msg = f"Dictation mode activated for '{target}'."
-            return {"active": active, "target_app": target, "message": msg}
+            return {"active": active, "target_app": ctrl.target.app_name, "message": msg}
         else:
             return {
-                "active": mgr.is_active(),
-                "target_app": mgr.remembered_target_title,
-                "message": f"Dictation mode is {'ACTIVE' if mgr.is_active() else 'INACTIVE'}.",
+                "active": ctrl.is_active,
+                "target_app": ctrl.target.app_name,
+                "message": f"Dictation mode is {'ACTIVE' if ctrl.is_active else 'INACTIVE'}.",
             }

@@ -474,7 +474,10 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
         return dict(name=canonical, canonical_name=canonical, target=target.path, pid=pid, process_names=target.process_names, associated=getattr(target, "associated", False))
 
     def list_directory(args):
-        path = Path(args.path).expanduser().resolve(strict=True)
+        from jarvis.security.paths import canonicalize_path
+        path = canonicalize_path(args.path)
+        if not path.exists():
+            raise FileNotFoundError(f"Directory not found: {args.path}")
         # Visually reveal folder in File Explorer on screen for the user
         try:
             import ctypes

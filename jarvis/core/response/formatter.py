@@ -475,12 +475,14 @@ class ResponseFormatter:
         status_str = status.value if hasattr(status, "value") else str(status)
         total_nodes = len(node_results)
 
-        if status_str == "success":
+        if status_str in ("success", "completed"):
             if user_msg:
                 return user_msg
             return f"Done. I completed all {total_nodes} steps."
 
-        if status_str == "partial":
+        if status_str in ("partial", "partial_success"):
+            if user_msg:
+                return user_msg
             if isinstance(node_results, dict):
                 succeeded = sum(
                     1 for nr in node_results.values()
@@ -509,6 +511,18 @@ class ResponseFormatter:
 
         msg = error_msg.strip()
         msg_lower = msg.lower()
+
+        # Desktop location error sanitization: Never expose raw filesystem internals like C:\Users\...\Desktop
+        if "desktop" in msg_lower and any(kw in msg_lower for kw in ("winerror", "cannot find", "not found", "new folder", "c:\\", "filenotfound", "directory not found", "access")):
+            return "I couldn't access the configured Desktop location."
+        if re.search(r"[a-zA-Z]:\\(?:[^\s\\]+\\)*desktop\b", msg, re.I):
+            return "I couldn't access the configured Desktop location."
+
+        # Raw internal Windows path leak prevention
+        if re.search(r"[a-zA-Z]:\\(?:users|program files|windows|onedrive)[^\n\r]*", msg, re.I):
+            if "desktop" in msg_lower:
+                return "I couldn't access the configured Desktop location."
+            return "I couldn't access the requested file location."
 
         # 1. Pydantic / Contract Validation errors (never leak schema details to user)
         if "validation error" in msg_lower or "field required" in msg_lower or "errors.pydantic.dev" in msg_lower:

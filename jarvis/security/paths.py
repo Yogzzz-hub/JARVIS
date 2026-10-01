@@ -26,6 +26,41 @@ def get_jarvis_protected_paths() -> list[str]:
     paths.append(str(root / "jarvis" / "core"))
     return paths
 
+def get_known_folder(folder_name: str) -> Path:
+    """Dynamically resolves Windows Known Folders via registry and Known Folders API."""
+    name_clean = folder_name.lower().strip()
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+        guid_map = {
+            "desktop": "Desktop",
+            "downloads": "{374DE290-123F-4565-9164-39C4925E467B}",
+            "documents": "Personal",
+            "pictures": "My Pictures",
+            "music": "My Music",
+            "videos": "My Video",
+        }
+        attr = guid_map.get(name_clean, name_clean)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as k:
+            val, _ = winreg.QueryValueEx(k, attr)
+            resolved = Path(os.path.expandvars(val)).resolve()
+            if resolved.exists():
+                return resolved
+    except Exception:
+        pass
+
+    user_prof = Path(os.environ.get("USERPROFILE", str(Path.home())))
+    candidates = [
+        user_prof / "OneDrive" / folder_name.capitalize(),
+        user_prof / folder_name.capitalize(),
+        Path.home() / folder_name.capitalize(),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c.resolve()
+    return candidates[0]
+
+
 def canonicalize_path(path_str: str | Path) -> Path:
     """Canonicalize a filesystem path:
     1. Expand environment variables (e.g. %WINDIR%, %USERPROFILE%)
@@ -35,6 +70,22 @@ def canonicalize_path(path_str: str | Path) -> Path:
     5. Resolve simple names/relative paths to common user roots (Desktop, Downloads, Documents)
     """
     raw = str(path_str).strip().strip("'\"")
+    lowered = raw.lower()
+
+    # Exact known folder keywords / aliases
+    if lowered in ("desktop", "~/desktop", "desk top"):
+        return get_known_folder("desktop")
+    if lowered in ("downloads", "~/downloads", "down loads"):
+        return get_known_folder("downloads")
+    if lowered in ("documents", "~/documents", "docs", "doc u ments"):
+        return get_known_folder("documents")
+    if lowered in ("pictures", "~/pictures", "photos"):
+        return get_known_folder("pictures")
+    if lowered in ("music", "~/music"):
+        return get_known_folder("music")
+    if lowered in ("videos", "~/videos"):
+        return get_known_folder("videos")
+
     expanded = os.path.expanduser(os.path.expandvars(raw))
     p = Path(expanded)
     if p.is_absolute():
@@ -43,14 +94,10 @@ def canonicalize_path(path_str: str | Path) -> Path:
         except Exception:
             return Path(os.path.normpath(expanded))
 
-    # For relative names, check common user locations if exists
-    desktop = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Desktop"
-    if not desktop.exists():
-        desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
-    downloads = Path(os.environ.get("USERPROFILE", "")) / "Downloads"
-    documents = Path(os.environ.get("USERPROFILE", "")) / "OneDrive" / "Documents"
-    if not documents.exists():
-        documents = Path(os.environ.get("USERPROFILE", "")) / "Documents"
+    # For relative names, check approved user locations
+    desktop = get_known_folder("desktop")
+    downloads = get_known_folder("downloads")
+    documents = get_known_folder("documents")
 
     for base in (desktop, downloads, documents, Path.cwd()):
         candidate = base / raw
@@ -58,7 +105,6 @@ def canonicalize_path(path_str: str | Path) -> Path:
             return candidate.resolve(strict=False)
 
     # If location keyword is present in relative string
-    lowered = raw.lower()
     base_dir = desktop
     clean_name = raw
     import re
@@ -72,6 +118,8 @@ def canonicalize_path(path_str: str | Path) -> Path:
         clean_name = re.sub(r"\s+(?:in|to)\s+documents", "", raw, flags=re.IGNORECASE).strip()
         base_dir = documents
 
+    if clean_name.lower() in ("desktop", "downloads", "documents"):
+        return base_dir
     return (base_dir / clean_name).resolve(strict=False)
 
 def is_protected_path(

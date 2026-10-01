@@ -130,7 +130,9 @@ FOLLOWUP = re.compile(
     rf"|^did\s+{_U}\s+(?:already\s+|actually\s+)?(?:message|text|ping|reply\s+to)\s+[a-z .'-]{{1,30}}?(?:\s+(?:already|yet))?$"
     rf"|^(?:say|repeat)\s+(?:that|it)\s+(?:again|one\s+more\s+time|once\s+more|1\s+more\s+time)|^(?:pardon|sorry)\s*\??$|^come\s+again"
     rf"|^did\s+my\s+(?:message|msg|text|whatsapp|mail|email)\s+(?:to\s+[a-z .'-]{{1,30}}?\s+)?(?:go(?:\s+through|\s+out)?|get\s+(?:sent|delivered|there|through)|send|reach|arrive|land)$"
-    rf"|^who\s+did\s+{_U}\s+(?:just\s+)?(?:message|text|send\s+(?:it|that|a\s+message)\s+to|reply\s+to)")
+    rf"|^who\s+did\s+{_U}\s+(?:just\s+)?(?:message|text|send\s+(?:it|that|a\s+message)\s+to|reply\s+to)"
+    rf"|^what\s+(?:actually\s+)?failed|^why\s+did\s+(?:it|that|the\s+task|the\s+command)\s+fail"
+    rf"|^which\s+(?:step|action|part)\s+failed|^what\s+went\s+wrong")
 
 
 def is_followup(text: str) -> bool:
@@ -147,6 +149,10 @@ def answer_followup(text: str, log: Optional[ActionLog] = None) -> str:
     last = log.last() or log.last(include_chat=True)
     if last is None:
         return "I haven't done anything for you in the last few hours."
+    if re.search(r"\b(?:what\s+failed|why\s+did\s+(?:it|that|the\s+task)\s+fail|which\s+step\s+failed|what\s+went\s+wrong)\b", t):
+        if last.ok:
+            return f"The last action ({last.describe()}) succeeded without errors."
+        return f"{last.describe()} failed: {last.reply or last.extra.get('reason') or last.state.lower()}."
     if re.search(r"\b(?:repeat|say (?:that|it) (?:again|one more time|once more)|come again|pardon|what did (?:you|u|jarvis) say)\b", t):
         said = log.last(include_chat=True)
         return said.reply or f"I {said.describe()}."

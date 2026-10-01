@@ -79,12 +79,16 @@ class TaskGraph(BaseModel):
 
 class GraphStatus(StrEnum):
     SUCCESS = "SUCCESS"
+    COMPLETED = "COMPLETED"
     PARTIAL = "PARTIAL"
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     NEEDS_CLARIFICATION = "NEEDS_CLARIFICATION"
     CAPABILITY_GAP = "CAPABILITY_GAP"
     NEEDS_CONFIRMATION = "NEEDS_CONFIRMATION"
+    WAITING_FOR_USER = "WAITING_FOR_USER"
+    UNCERTAIN = "UNCERTAIN"
 
 
 class PlanConfidence(StrEnum):
@@ -98,12 +102,16 @@ class NodeState(StrEnum):
     READY = "READY"
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
+    VERIFIED_SUCCESS = "VERIFIED_SUCCESS"
     FAILED = "FAILED"
     SKIPPED_DEPENDENCY_FAILED = "SKIPPED_DEPENDENCY_FAILED"
     SKIPPED_CONDITION_FALSE = "SKIPPED_CONDITION_FALSE"
     BLOCKED_AMBIGUOUS_INPUT = "BLOCKED_AMBIGUOUS_INPUT"
+    SKIPPED = "SKIPPED"
+    BLOCKED = "BLOCKED"
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"
+    UNCERTAIN = "UNCERTAIN"
 
 
 class NodeResult(BaseModel):
@@ -123,6 +131,7 @@ class GraphResult(BaseModel):
     graph_id: str
     status: GraphStatus
     node_results: dict[str, NodeResult] = Field(default_factory=dict)
+    action_outcomes: list[Any] = Field(default_factory=list)
     successful_nodes: list[str] = Field(default_factory=list)
     failed_nodes: list[str] = Field(default_factory=list)
     skipped_nodes: list[str] = Field(default_factory=list)
