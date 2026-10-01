@@ -88,12 +88,12 @@ _EVENT_FAIL = r"(?:fails|failed|breaks|errors?(?: out)?|crashes|goes wrong)"
 def _condition(c: str) -> Optional[dict]:
     """A condition clause -> watch slots (condition, subject, threshold). None when it isn't one we can observe."""
     c = re.sub(r"^(?:the|a|an|my|this|that)\s+", lambda m: m.group(0), c.strip(" ,."))
-    m = re.match(rf"^(?:the\s+)?(?P<x>[\w' ]+?)\s+(?:button|control|option|link)?\s*(?:becomes|is|gets|turns)\s+"
-                 rf"(?:enabled|clickable|active|available)$", c)
+    m = re.match(r"^(?:the\s+)?(?P<x>[\w' ]+?)\s+(?:button|control|option|link)?\s*(?:becomes|is|gets|turns)\s+"
+                 r"(?:enabled|clickable|active|available)$", c)
     if m:
         return {"condition": "control_enabled", "subject": m.group("x").strip()}
-    m = re.match(rf"^(?:the\s+|a\s+)?(?P<x>[\w' ]*?(?:button|control|option|link|dialog|popup))\s+(?:appears|shows up|is shown|"
-                 rf"is visible|pops up)$", c)
+    m = re.match(r"^(?:the\s+|a\s+)?(?P<x>[\w' ]*?(?:button|control|option|link|dialog|popup))\s+(?:appears|shows up|is shown|"
+                 r"is visible|pops up)$", c)
     if m:
         return {"condition": "control_appears", "subject": m.group("x").strip()}
     m = re.match(r"^(?:a\s+|an\s+)?captcha\s+(?:appears|shows up|pops up|comes up)$", c)
@@ -104,11 +104,11 @@ def _condition(c: str) -> Optional[dict]:
     if m:
         x = re.sub(r"^(?:phone\s+)?", "", m.group("x"))
         return {"condition": "file_appears", "subject": re.sub(r"s$", "", x) if x not in ("downloads",) else ""}
-    m = re.match(rf"^(?:the|this|that|my)?\s*(?:phone\s+)?(?P<x>screenshot|photo|file|pdf|recording)\s+(?:arrives|lands|comes in|"
-                 rf"is here|shows up)$", c)
+    m = re.match(r"^(?:the|this|that|my)?\s*(?:phone\s+)?(?P<x>screenshot|photo|file|pdf|recording)\s+(?:arrives|lands|comes in|"
+                 r"is here|shows up)$", c)
     if m:
         return {"condition": "file_appears", "subject": m.group("x")}
-    m = re.match(rf"^(?:the|this|that|my)?\s*download(?:s)?\s+(?:finishes|is done|completes|is finished|is complete|ends)$", c)
+    m = re.match(r"^(?:the|this|that|my)?\s*download(?:s)?\s+(?:finishes|is done|completes|is finished|is complete|ends)$", c)
     if m:
         return {"condition": "download_done"}
     m = re.match(rf"^{_PHONE}\s+(?:comes|is|gets|goes)\s+(?:back\s+)?(?:online|connected|reachable)$|^{_PHONE}\s+"
@@ -121,12 +121,12 @@ def _condition(c: str) -> Optional[dict]:
         n = m.groupdict().get("n")
         return {"condition": "battery_above", "subject": "phone", "threshold": float(n) if n else
                 (100.0 if "fully" in c else 80.0)}
-    m = re.match(rf"^(?:the\s+|my\s+)?(?:pc\s+|laptop\s+)?battery\s+(?:drops|falls|goes|gets|is)\s+(?:below|under|to|down to)\s+"
-                 rf"(?P<n>\d{{1,3}})\s*%?(?:\s+percent)?$", c)
+    m = re.match(r"^(?:the\s+|my\s+)?(?:pc\s+|laptop\s+)?battery\s+(?:drops|falls|goes|gets|is)\s+(?:below|under|to|down to)\s+"
+                 r"(?P<n>\d{1,3})\s*%?(?:\s+percent)?$", c)
     if m:
         return {"condition": "battery_below", "threshold": float(m.group("n"))}
-    m = re.match(rf"^(?:the\s+|this\s+|that\s+)?(?:page|tab|site)\s+(?:changes|updates|reloads|loads|finishes loading)"
-                 rf"(?:\s+(?:state|status))?$", c)
+    m = re.match(r"^(?:the\s+|this\s+|that\s+)?(?:page|tab|site)\s+(?:changes|updates|reloads|loads|finishes loading)"
+                 r"(?:\s+(?:state|status))?$", c)
     if m:
         return {"condition": "page_changed"}
     m = re.match(rf"^(?:the\s+|this\s+|that\s+)?(?:(?P<ide>{_IDES})(?:\s+agent)?|(?:ai\s+)?(?:response|generation|agent|answer|reply))"
@@ -294,8 +294,8 @@ def _workflow(t, raw, rid, mode):
     if m:
         on = m.group("v") in ("enable", "turn on", "switch on", "reenable", "re-enable")
         return _d(rid, t, "workflow_op", {"action": "enable" if on else "disable", "name": _wf_name(m.group("n"))})
-    m = re.match(rf"^(?:cancel|delete|remove|skip|stop)\s+(?:tomorrow'?s|the\s+scheduled|the\s+next|next|the)\s+(?:scheduled\s+)?run"
-                 rf"(?:\s+of\s+(?P<n>.+))?$|^(?:cancel|remove|clear)\s+(?:the\s+)?schedule\s+(?:for|of)\s+(?P<n2>.+)$", t)
+    m = re.match(r"^(?:cancel|delete|remove|skip|stop)\s+(?:tomorrow'?s|the\s+scheduled|the\s+next|next|the)\s+(?:scheduled\s+)?run"
+                 r"(?:\s+of\s+(?P<n>.+))?$|^(?:cancel|remove|clear)\s+(?:the\s+)?schedule\s+(?:for|of)\s+(?P<n2>.+)$", t)
     if m:
         return _d(rid, t, "workflow_op", {"action": "cancel_schedule", "name": _wf_name(m.group("n") or m.group("n2") or "")
                                           if (m.group("n") or m.group("n2")) else ""})
@@ -361,7 +361,7 @@ _SETTINGS = {"wi-fi": "wifi", "wifi": "wifi", "bluetooth": "bluetooth", "display
 
 
 def _phone(t, raw, rid, mode):
-    phone = bool(re.search(rf"\b(?:phone|mobile|android|apk)\b", t)) or mode == "phone"
+    phone = bool(re.search(r"\b(?:phone|mobile|android|apk)\b", t)) or mode == "phone"
     # objects that exist only on the phone (or the phone named): notification, APK, screen recording, recents
     m = re.match(r"^(?:find|show|read|list|check|get)\s+(?:me\s+)?(?:only\s+)?(?:the\s+)?(?:latest\s+|last\s+|new\s+|recent\s+)?"
                  r"(?P<app>[\w]+\s+)?notifications?(?:\s+from\s+(?P<who>[\w ]+?))?(?:" + _ON_PHONE + r")?$", t)
@@ -406,7 +406,7 @@ def _phone(t, raw, rid, mode):
     if re.match(rf"^(?:go|switch)\s+back\s+to\s+(?:the\s+)?(?:previous|last|other)\s+(?:phone\s+)?app(?:{_ON_PHONE})?$", t) and \
             (phone or "phone app" in t):
         return _d(rid, t, "phone_op", {"action": "key", "key": "previous_app"})
-    if re.match(rf"^bring\s+(?:the\s+)?phone(?:'s)?\s+app\s+(?:back\s+)?(?:to\s+the\s+front|up)(?:\s+again)?$", t):
+    if re.match(r"^bring\s+(?:the\s+)?phone(?:'s)?\s+app\s+(?:back\s+)?(?:to\s+the\s+front|up)(?:\s+again)?$", t):
         return _d(rid, t, "phone_op", {"action": "key", "key": "previous_app"})
     # state questions about the phone
     if re.match(rf"^(?:what(?:'s| is)|which (?:song|track|video|media) is)\s+playing\s+on\s+{_PHONE}$", t):
@@ -450,7 +450,7 @@ def _phone(t, raw, rid, mode):
     # phone settings pages
     m = re.match(rf"^open\s+(?:the\s+)?(?P<p>[\w-]+)\s+(?:settings|info|page)\s+(?:for|of)\s+(?:this|that|the|my)\s+(?P<a>[\w ]*?)app"
                  rf"(?:{_ON_PHONE})?$|^open\s+(?:the\s+)?(?:app\s+)?info\s+for\s+(?:this|that|the)\s+app$", t)
-    if m:
+    if m and phone:
         page = _SETTINGS.get((m.groupdict().get("p") or "info").lower(), "app_info")
         return _d(rid, t, "phone_op", {"action": "settings", "target": page, "app": ""})
     # move things between phone and PC
@@ -471,7 +471,8 @@ def _phone(t, raw, rid, mode):
     if re.match(rf"^(?:show|open)\s+(?:me\s+)?(?:that|the|this)\s+phone\s+screenshot(?:\s+here)?$|^show\s+me\s+the\s+screenshot\s+i\s+"
                 rf"just\s+took(?:{_ON_PHONE})$", t):
         return _d(rid, t, "phone_op", {"action": "pull", "target": "screenshot", "arg": "latest"})
-    if re.match(rf"^(?:bring|get|copy|paste|grab)\s+(?:me\s+)?(?:the\s+)?(?:copied text|clipboard|text i copied)\s+from\s+{_PHONE}"
+    if re.match(rf"^(?:bring|get|copy|paste|grab|fetch|pull)\s+(?:me\s+)?(?:the\s+|my\s+)?(?:copied text|clipboard(?: text)?|text i (?:just\s+)?copied)\s+"
+                rf"(?:from|on|off)\s+{_PHONE}"
                 rf"(?:\s+(?:here|to\s+(?:my\s+)?(?:pc|computer)))?$", t):
         return _d(rid, t, "phone_op", {"action": "clipboard"})
     m = re.match(rf"^(?:open|continue|show|load|send)\s+(?:this|the|that)\s+(?P<o>url|link|page|tab|site|article)\s+on\s+{_PHONE}$|"
@@ -742,12 +743,12 @@ def _files(t, raw, rid, mode):
 # ------------------------------------------------------------------------------------------------- browser
 def _browser(t, raw, rid, mode):
     page = r"(?:this|the|current|that)\s+(?:page|site|website|tab|article)"
-    m = re.match(rf"^(?:search|look up|find)\s+(?:on\s+)?(?:this|the)\s+(?:site|website|page)\s+for\s+(?P<q>.+)$|^search\s+for\s+(?P<q2>.+?)"
-                 rf"\s+on\s+(?:this|the)\s+(?:site|website)$", t)
+    m = re.match(r"^(?:search|look up|find)\s+(?:on\s+)?(?:this|the)\s+(?:site|website|page)\s+for\s+(?P<q>.+)$|^search\s+for\s+(?P<q2>.+?)"
+                 r"\s+on\s+(?:this|the)\s+(?:site|website)$", t)
     if m:
         return _d(rid, t, "browser_op", {"action": "site_search", "target": _raw(raw, m.group("q") or m.group("q2"))})
-    if re.match(rf"^(?:duplicate|clone)\s+(?:this|the|current)\s+tab$|^open\s+(?:this|the current)\s+(?:page|tab)\s+(?:again\s+)?in\s+"
-                rf"(?:a\s+)?(?:new|second|another)\s+tab$", t):
+    if re.match(r"^(?:duplicate|clone)\s+(?:this|the|current)\s+tab$|^open\s+(?:this|the current)\s+(?:page|tab)\s+(?:again\s+)?in\s+"
+                r"(?:a\s+)?(?:new|second|another)\s+tab$", t):
         return _d(rid, t, "browser_op", {"action": "duplicate"})
     if re.match(rf"^(?:stop|cancel|halt)\s+(?:loading|the loading of)\s+(?:{page})$|^stop\s+(?:{page})\s+(?:from\s+)?loading$", t):
         return _d(rid, t, "browser_op", {"action": "stop"})
@@ -868,8 +869,8 @@ def _controls(t, raw, rid, mode):
                 r"stopping)(?:\s+me)?$|^what(?:'s| is)\s+(?:this|that|the)\s+(?:popup|pop-up|dialog|modal)$|^is something\s+"
                 r"blocking\s+(?:me|the screen)$", t):
         return _d(rid, t, "ui_op", {"action": "modal"})
-    m = re.match(rf"^(?:choose|pick|select)\s+(?P<o>[\w .+#-]+?)\s+(?:from|in|out of)\s+(?:this|the|that)\s+(?P<w>list|dropdown|drop-down|"
-                 rf"menu|options|combo ?box|picker)$", t)
+    m = re.match(r"^(?:choose|pick|select)\s+(?P<o>[\w .+#-]+?)\s+(?:from|in|out of)\s+(?:this|the|that)\s+(?P<w>list|dropdown|drop-down|"
+                 r"menu|options|combo ?box|picker)$", t)
     if m:
         return _d(rid, t, "ui_op", {"action": "select", "option": _raw(raw, m.group("o")), "target": m.group("w"), "surface": surf})
     m = re.match(r"^(?:choose|pick)\s+(?P<o>[\w.+#-]+(?:\s+[\w.+#-]+)?)$", t)
@@ -931,7 +932,7 @@ def _controls(t, raw, rid, mode):
         slots = {"action": "remove_attachment", "text": which or "first"} if intent == "ide_op" else \
             {"action": "remove_attachment", "target": which, "surface": surf}
         return _d(rid, t, intent, slots)
-    m = re.match(rf"^(?:find|locate|where(?:'s| is))\s+(?:the\s+)?(?P<x>[\w ]+?\s+(?:button|toggle|checkbox|switch|field|link|icon|tab))$", t)
+    m = re.match(r"^(?:find|locate|where(?:'s| is))\s+(?:the\s+)?(?P<x>[\w ]+?\s+(?:button|toggle|checkbox|switch|field|link|icon|tab))$", t)
     if m:
         if surf == "phone":
             return _d(rid, t, "phone_op", {"action": "find", "target": m.group("x")})
@@ -954,7 +955,7 @@ def _windows(t, raw, rid, mode):
     if re.match(r"^(?:go|switch|take me|get me)\s+back\s+to\s+(?:the\s+)?(?:app|window|program)\s+i\s+(?:was|had been)\s+(?:just\s+)?"
                 r"(?:using|in|on|working in|working on)$", t):
         return _d(rid, t, "window_op", {"action": "focus", "target": "previous"})
-    m = re.match(rf"^close\s+(?:only\s+|just\s+)?(?:the\s+)?(?P<x>[\w ]+?)\s+window(?:\s+only)?$", t)
+    m = re.match(r"^close\s+(?:only\s+|just\s+)?(?:the\s+)?(?P<x>[\w ]+?)\s+window(?:\s+only)?$", t)
     if m and (re.search(r"\b(?:only|just)\b", t) or re.fullmatch(rf"(?:{_APPS})", m.group("x"))) \
             and m.group("x") not in ("this", "that", "the", "top", "current", "active", "other"):
         return _d(rid, t, "window_op", {"action": "close", "target": m.group("x")})
@@ -962,7 +963,8 @@ def _windows(t, raw, rid, mode):
                 r"^(?:make|set)\s+(?:this|the)\s+window\s+normal\s+size(?:\s+again)?$", t):
         return _d(rid, t, "window_op", {"action": "restore", "target": ""})
     m = re.match(r"^(?:make|set)\s+(?P<x>this|the|that|my)?\s*(?P<w>[\w]+\s+)?window\s+(?P<d>smaller|bigger|larger|wider|narrower|a bit smaller|"
-                 r"a bit bigger|a little smaller|a little bigger)$|^(?P<v>shrink|enlarge|grow)\s+(?:this|the|that)\s+(?P<w2>[\w]+\s+)?window$", t)
+                 r"a bit bigger|a little smaller|a little bigger)$|^(?P<v>shrink|enlarge|grow)\s+(?:this|the|that|my)\s+(?P<w2>[\w]+\s+)?window"
+                 r"(?:\s+(?:a\s+(?:bit|little|touch)|slightly|some(?:what)?))?$", t)
     if m:
         d = m.group("d") or ("smaller" if m.group("v") == "shrink" else "bigger")
         w = (m.group("w") or m.group("w2") or "").strip()
@@ -980,15 +982,15 @@ def _windows(t, raw, rid, mode):
     if re.match(r"^(?:what|which)\s+(?:apps|windows|programs|applications)\s+(?:are|do i have)\s+(?:open|running)(?:\s+(?:right now|now))?$|"
                 r"^(?:list|show)\s+(?:me\s+)?(?:all\s+)?(?:the\s+|my\s+)?open\s+(?:apps|windows|programs)$", t):
         return _d(rid, t, "window_op", {"action": "list"})
-    m = re.match(rf"^where\s+(?:did|has)\s+(?:my\s+|the\s+)?(?P<x>[\w ]+?)(?:\s+window)?\s+(?:go|gone|disappear(?:ed)?|went)$|^i\s+(?:lost|can'?t "
-                 rf"find)\s+(?:my\s+|the\s+)?(?P<x2>[\w ]+?)\s+window$|^find\s+(?:my\s+|the\s+)?(?P<x3>[\w ]+?)\s+window$", t)
+    m = re.match(r"^where\s+(?:did|has)\s+(?:my\s+|the\s+)?(?P<x>[\w ]+?)(?:\s+window)?\s+(?:go|gone|disappear(?:ed)?|went)$|^i\s+(?:lost|can'?t "
+                 r"find)\s+(?:my\s+|the\s+)?(?P<x2>[\w ]+?)\s+window$|^find\s+(?:my\s+|the\s+)?(?P<x3>[\w ]+?)\s+window$", t)
     if m:
         x = m.group("x") or m.group("x2") or m.group("x3")
         if x in ("file", "files", "download", "it", "that"):
             return None
         return _d(rid, t, "window_op", {"action": "find", "target": x})
-    if re.match(r"^(?:show|give|tell)\s+(?:me\s+)?(?:the\s+)?(?:info|information|details)\s+(?:for|about|on)\s+(?:this|the|that|current)\s+"
-                r"(?:app|window|program)$", t):
+    if re.match(r"^(?:show|give|tell|open)\s+(?:me\s+)?(?:the\s+)?(?:info|information|details|properties|settings)(?:\s+page)?\s+"
+                r"(?:for|about|on|of)\s+(?:this|the|that|current)\s+(?:app|window|program)$", t):
         return _d(rid, t, "window_op", {"action": "info", "target": ""})
     if re.match(r"^(?:what|which)\s+(?:app|application|program|window)\s+(?:am\s+i\s+(?:in|using|on)|is\s+(?:in\s+front|active|focused|"
                 r"open\s+now|on\s+top|current))$", t):

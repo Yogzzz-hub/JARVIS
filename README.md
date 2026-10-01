@@ -950,6 +950,34 @@ Design: [docs/UNIVERSAL_OPERATOR_ARCHITECTURE.md](docs/UNIVERSAL_OPERATOR_ARCHIT
 [docs/UNIVERSAL_OPERATOR_500PLUS_ACCEPTANCE.md](docs/UNIVERSAL_OPERATOR_500PLUS_ACCEPTANCE.md) · real-machine
 checklist (not yet run): [reports/UNIVERSAL_OPERATOR_REAL_ACCEPTANCE.md](reports/UNIVERSAL_OPERATOR_REAL_ACCEPTANCE.md).
 
+### AGI-520 capability layer (files, IDE, phone, system, watches, workflows, task control)
+
+Built on the same primitives and the same request path - no second AI brain. Three more tools (`file_op`,
+`system_op`, `workflow_op`) and new actions on the existing ones cover the 520-capability spec
+([docs/AGI_520_CAPABILITIES.md](docs/AGI_520_CAPABILITIES.md)).
+
+| Say | What happens |
+|---|---|
+| make this window smaller · where did my calculator window go? · remember this window arrangement · restore my coding layout | resize / find and restore a buried window / save and restore a named layout (window metadata only) |
+| choose Python from this list · set this slider to 70 percent · why can't I press Continue? · clear this field · remove the screenshot attachment | UI patterns; a removed attachment chip never deletes a file |
+| move the cursor left one word · how many words are in this field? · save this as notes.txt · paste this as plain text | caret, count, Save As (dialog verified), plain paste |
+| stop loading this page · copy this page link · take me to installation · tell me if this page needs me to sign in | page state through the page itself; CAPTCHAs and logins go to you |
+| show files between 20 and 200 MB · show that download in its folder · the file moved, find it again · restore the test file from the Recycle Bin | `file_op`: filters, reveal, relocate by name, verify a move/delete, Shell restore |
+| go to app.py · show Problems · rename this symbol to user_id · stop the current generation · copy the current error | `ide_op`: the IDE's own keys and buttons |
+| bring today's phone screenshots here · open this page on my phone · open the page from my phone here · dismiss that Gmail notification · install my latest test APK (asks first) | `phone_op`: typed ADB only, lock-aware |
+| how much disk space is left? · which local models are ready? · unload the vision model · which audio device is active? | `system_op`: measured, never looked up online |
+| tell me when the Continue button becomes enabled · when the download finishes, open its folder · notify me only if the build fails · tell me on my phone when this finishes | conditional watches; the follow-up is your own command, re-run through JARVIS with a fresh check |
+| run my morning workflow · show me what this workflow will do · run this every morning except weekends · save these steps as a workflow | `workflow_op`: steps run one at a time and stop at the first failure |
+| stop everything you're doing · pause after the current verified step · continue from where it safely stopped | task control; the microphone keeps listening |
+
+**Task-scoped capabilities.** Every command runs under a grant listing only the tools its route or validated plan
+needs. The executor refuses anything else, and the grant is revoked when the single final response is sent
+(`jarvis/core/tasks/scope.py`).
+
+**Guards.** A consequential tool must match a verb the owner actually said, so "shrink this window" never closes it.
+"Send that to Arun" asks what to send. "Do this on my phone" asks what to do. "Rename this symbol" never renames a
+file.
+
 ### Morning briefing, focus, workspaces, routines, RSS, Node-RED
 
 - **Morning briefing.** "Good morning Jarvis" gathers calendar, feeds, tasks, notes, PC status and downloads in
@@ -1182,6 +1210,18 @@ The policy, confirmation, ledger, verifier, LLM tool catalog and JDE catalog pic
 Tests that need Windows hardware (window management, UI Automation, the live HTTP server, Piper voices) fail or skip
 on Linux CI. They pass on a configured Windows PC.
 
+### 520-capability suite
+
+`python -m tests.agi.runner [--split dev|holdout|all] [--fails]` routes all 520 rows of
+`tests/agi/capabilities_520.md` with no AI model.
+
+- `dev` is the spec's own example plus generated variants.
+- `holdout` is one paraphrase per row. It was frozen with the expectations (`tests/agi/FROZEN.sha256`) before any
+  router work.
+- Every row is also checked negated ("don't ..."), and nothing may run.
+
+Results and the honest first-run holdout number are in [docs/AGI_520_CAPABILITIES.md](docs/AGI_520_CAPABILITIES.md).
+
 ---
 
 ## 14. Project phases and feature history
@@ -1205,6 +1245,8 @@ on Linux CI. They pass on a configured Windows PC.
 | AI integration | One Ollama client with roles, grounded chat with RAG and web, streaming answers, AI agent, web agent, phone control, software install, vision computer-use, phone ⇄ PC files |
 | JDE | Local calibrated decision engine (read_only mode), with a 500-case benchmark |
 | Everyday pack | Instant offline answers, battery, network, timers, stopwatch, to-do list, personal memory in SQLite + RAG, voice shortcuts, command history, "do that again", password generator, recycle bin; fixes for relative volume/mute/restore/WhatsApp status routing; 25× faster routing |
+| Universal Operator | Typed window / control / text / clipboard / screen / deliver / browser / video / watch / IDE / phone primitives, live dictation, 598 scenarios |
+| AGI-520 | Task-scoped capability grants, pause/resume/stop-all, file / system / workflow tools, conditional watches, IDE and phone actions, capability parser; 520-capability suite with a frozen holdout ([report](docs/AGI_520_CAPABILITIES.md)) |
 
 ---
 

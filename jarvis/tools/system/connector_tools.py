@@ -43,6 +43,7 @@ class LocalSendFileInput(Contract):
 
 class LocalSendTextInput(Contract):
     text: str = Field(default="", description="Text or URL to send to phone. If empty, the copied (clipboard) text is sent.")
+    from_selection: bool = Field(default=False, description="copy the current selection first and send that")
     target_alias: Optional[str] = Field(default=None, description="Optional target device alias")
 
 
@@ -381,6 +382,13 @@ class LocalSendTextTool(Tool):
     def run(self, arguments: LocalSendTextInput) -> dict:
         arguments = _coerce_args(LocalSendTextInput, arguments)
         text = (arguments.text or "").strip()
+        if not text and arguments.from_selection:  # "send the selected text to my phone": copy it first (verified)
+            try:
+                from jarvis.core.operator.clip import ClipOperator
+                got = ClipOperator().copy_selection()
+                text = (getattr(got.resource, "text", "") or "").strip() if got.ok else ""
+            except Exception:
+                text = ""
         if not text:  # "send this link to my phone": the link the owner copied
             try:
                 from jarvis.tools.system.keyboard_tools import _read_clipboard_text

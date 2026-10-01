@@ -101,7 +101,8 @@ _COMMAND_LIKE = re.compile(r"^(?:use|retry|try|make|do|send|keep|run|start|go|ta
                            r"attach|upload|prepare|create|compare|summari[sz]e|repeat|redo|undo|click|type|press)\s+"
                            r"(?:the|a|an|my|this|that|it|me|your|another|some|all)\b")
 _SENTENCE_SLOTS = {"save_workspace": "name", "launch_workspace": "name", "create_folder": "path", "search_notes": "query",
-                   "search_web": "query", "find_file": "query", "knowledge_search": "question", "set_reply_language": "mode"}
+                   "search_web": "query", "find_file": "query", "knowledge_search": "question", "set_reply_language": "mode",
+                   "localsend_text": "text"}
 
 _CHANGE_VERB = re.compile(r"^(?:(?:please|now|then|and|also|just|jarvis|hey\s+jarvis|can\s+you|could\s+you)[\s,]+)*"
                           r"(?P<v>create|schedule|book|draft|compose|attach|upload|paste|insert|install|uninstall|delete|remove|"
@@ -124,12 +125,58 @@ _ANTECEDENT = re.compile(r"\b(?:need|want|get|download|grab|use|have|like|love)\
                          r"(?P<x>[a-z][\w.+#-]*(?:\s+[a-z0-9][\w.+#-]*){0,2}?)\s+(?:for|to|on|so|because|,|and|but|which|that)\b")
 
 
+# A consequential tool is only taken when the request says that kind of thing: "shrink this window" never closes it,
+# "put the copied text on my phone" never pushes a file called "copied text".
+_SEND = r"send|tell|message|msg|text|reply|respond|forward|share|ping|whats\s*app|say|inform|ask|remind|wish|answer|dm|let\s+\w+\s+know"
+_GIVE = r"send|push|put|share|transfer|copy|move|throw|toss|chuck|fling|sling|drop|give|pass|beam|ship|upload|get|bring"
+_CONSEQUENTIAL_VERBS = {
+    "close_window": r"close|closing|quit|exit|shut|kill|terminate|end|dismiss|stop|x\s+out|get\s+rid\s+of",
+    "close_app": r"close|closing|quit|exit|shut|kill|terminate|end|dismiss|stop|x\s+out|get\s+rid\s+of",
+    "delete_file": r"delete|remove|erase|trash|bin|get\s+rid\s+of|wipe|clear|discard|destroy|scrap",
+    "empty_recycle_bin": r"(?:empty|clear|purge|clean|wipe|delete|flush)\b.*\b(?:recycle|bin|trash)",
+    "move_file": r"move|put|drop|relocate|transfer|shift|file\s+(?:it|this|that)|organi[sz]e",
+    "rename_file": r"rename|re-name|call|name|retitle",
+    "install_software": r"install|set\s*up|setup|get|download|add|grab|need|want",
+    "uninstall_software": r"uninstall|remove|delete|get\s+rid\s+of",
+    "send_whatsapp_message": _SEND, "send_whatsapp_bulk": _SEND, "reply_whatsapp_message": _SEND,
+    "reply_whatsapp_all": _SEND,
+    "android_push_file": _GIVE, "localsend_file": _GIVE,
+    "system_power_control": r"shut\s*down|shutdown|restart|reboot|sleep|hibernate|lock|log\s*(?:off|out)|sign\s*out|power|turn\s+off",
+}
+
+
+def missing_consequential_verb(intent: str, text: str, normalized: str = "") -> bool:
+    verbs = _CONSEQUENTIAL_VERBS.get(intent)
+    if not verbs:
+        return False
+    from jarvis.core.router.normalize import correct_command_typos
+    low = (text or "").lower()
+    # the same typo repair the router used to pick the tool ("clsoe discord", "dleete notes.txt")
+    for t in (low, (normalized or "").lower(), correct_command_typos(" ".join(low.split()))):
+        if re.search(rf"\b(?:{verbs})", t):
+            return False
+    return True
+
+
 def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> Optional[dict]:
     """None when the route can run as it is; otherwise a verdict: reroute / rematch / planner / clarify."""
     slots = slots or {}
     low = " ".join((text or "").lower().replace("’", "'").split())
+    if missing_consequential_verb(intent, low, normalized):
+        return _verdict("clarify", question="I'm not sure what you want done - I won't " + intent.split("_")[0] +
+                                            " anything unless you say so. What should I do?")
+    if intent in ("android_push_file", "localsend_file") and re.fullmatch(
+            r"(?:the\s+|my\s+|this\s+|that\s+)?(?:copied\s+text|clipboard(?:\s+text)?|text(?:\s+i\s+copied)?|selection|selected\s+text)",
+            str(slots.get("path") or "").strip().lower()):
+        # text, not a file: the phone gets the clipboard text
+        return _verdict("reroute", intent="localsend_text", slots={"text": ""})
     key = _SENTENCE_SLOTS.get(intent)
     value = str(slots.get(key) or "").strip().lower() if key else ""
+    if intent == "localsend_text" and value and _COMMAND_LIKE.match(value) and \
+            re.search(r"\b(?:copied|selected|clipboard|selection|highlighted)\b", value):
+        # "put this copied text on my phone": the copied / selected text - never the command itself
+        return _verdict("reroute", intent="localsend_text",
+                        slots={"text": "", "from_selection": bool(re.search(r"\b(?:selected|selection|highlighted)\b", value))})
     if value and _COMMAND_LIKE.match(value) and not (intent == "search_web" and value.startswith(("show", "tell"))):
         return _verdict("planner", reason="the whole command was taken as a name or a query")
     if intent in APP_INTENTS:
@@ -145,6 +192,9 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
             return _verdict("reroute", intent="dialog_interaction", slots={"action": "dismiss"})
         if re.search(rf"\b{_UI}\b", name):
             return _verdict("planner", reason="names a control inside a window, not an app")
+        if re.search(r"\b(?:for|of|in)\s+(?:this|that|the\s+current)$", name):
+            # "open notification settings for this app" read as an app called "notification settings for this"
+            return _verdict("planner", reason="a page of an app, not an app name")
         if re.match(r"^(?:stop|start|open|close|run|kill|restart|launch|quit|exit)\b", name):
             # "stop test app" read as close_app "stop test": a verb is never part of an app's name
             return _verdict("clarify", question="Which app do you mean? Tell me its name.")

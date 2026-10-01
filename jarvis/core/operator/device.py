@@ -125,6 +125,9 @@ class FakeAdb(Adb):
             return 0, "1 file pushed", ""
         if a[:2] == ["shell", "ls"]:
             path = a[2]
+            inside = sorted(os.path.basename(f) for f in self.files if f.startswith(path.rstrip("/") + "/"))
+            if inside:
+                return 0, "\n".join(inside), ""
             return (0, path, "") if path in self.files else (1, "", "No such file")
         if a[:3] == ["shell", "pm", "list"]:
             return 0, "\n".join(f"package:{p}" for p in sorted(self.packages)), ""
@@ -760,10 +763,11 @@ class DeviceOperator:
         bad = self._gate(needs_unlocked=False)
         if bad:
             return bad
-        if not re.fullmatch(r"[\w .()+,-]{1,120}", name or "") or not re.fullmatch(r"/sdcard/[\w/ .-]{0,120}", folder):
+        if not re.fullmatch(r"[\w .()+,-]{1,120}", name or "") or not re.fullmatch(r"/sdcard/[\w/.-]{0,120}", folder):
             return OperatorOutcome(False, "That file name is not one I can check safely.", needs="clarify")
-        code, out, _ = self.adb.run(["shell", "ls", "-l", f"'{folder.rstrip('/')}/{name}'"])
-        ok = code == 0 and name in (out or "") and "No such file" not in (out or "")
+        # list the folder (a fixed, validated path) and look for the exact name - nothing from the name reaches a shell
+        code, out, _ = self.adb.run(["shell", "ls", folder.rstrip("/")])
+        ok = code == 0 and name in [line.strip() for line in (out or "").splitlines()]
         return OperatorOutcome(ok, f"Yes - {name} is on the phone in {folder}." if ok else
                                f"{name} is not in {folder} on the phone.", evidence={"verified": ok})
 

@@ -96,7 +96,8 @@ _VERBS = ("go switch return take bring jump flip head open launch start show mak
           "video videos screenshot download phone mobile prompt agent changes edits suggestions seconds minutes minute "
           "second hours automatically characters italic times watching installer updates refresh three four five "
           "seven eight third fifth phone paste refresh sidebar response discard skipping image symbol definition "
-          "references attachment notification workflow slider dropdown recording settings bluetooth problems")
+          "references attachment notification workflow slider dropdown recording settings bluetooth problems "
+          "minimise maximise minimize maximize shrink")
 _OP_VOCAB: frozenset[str] = frozenset(
     w for w in re.findall(r"[a-z]{4,}", " ".join((_IDES, _APPS, _FAMILY, _ROLE, _UNITS, _RESOURCE, _VERBS)))
 )
