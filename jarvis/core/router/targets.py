@@ -207,7 +207,11 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
         return None
     if intent in FILE_CHANGE_INTENTS:
         path = str(slots.get("path") or slots.get("source") or slots.get("name") or "").strip().lower()
-        if path and _BARE_FILE.match(path) and not re.search(r"[\\/]|\.\w{2,4}$", path):
+        said = re.search(r"[\\/]", path) and not re.search(r"[\\/]", low)  # a folder the resolver added, not the owner
+        base = re.split(r"[\\/]", path)[-1] if said else path
+        if base and _BARE_FILE.match(base) and not re.search(r"\.\w{2,4}$", base) \
+                and (said or not re.search(r"[\\/]", path)):
+            path = base
             noun = re.sub(r"^(?:the|that|this|my|a)\s+", "", path)
             noun = "file" if noun in ("it", "that", "this", "them", "one") else noun
             verb = {"delete_file": "remove", "move_file": "move", "rename_file": "rename", "copy_file": "copy"}[intent]

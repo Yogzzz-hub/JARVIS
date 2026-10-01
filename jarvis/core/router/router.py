@@ -240,6 +240,9 @@ class SmartRouter:
         if discourse.RULES_LIST.match(low) or discourse.RULES_CLEAR.match(low):
             return self._decision(request, RouteLane.LANE_0, "standing_rules",
                                   {"action": "clear" if discourse.RULES_CLEAR.match(low) else "list"})
+        from jarvis.core.router.meta_policy import match_meta_policy
+        if match_meta_policy(text, request.request_id) is not None:
+            return None  # reporting / response policies ("keep replies short") have their own CONTROL handler
         rule = discourse.standing_rule(text)
         if rule is not None:
             return self._decision(request, RouteLane.LANE_0, "standing_rule", rule)

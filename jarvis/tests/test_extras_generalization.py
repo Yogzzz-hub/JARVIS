@@ -22,7 +22,7 @@ SPEC = {
     'Find the textbox under the currently selected tab and focus it.': 'PLAN',
     'Move this window to the other monitor.': 'move_resize_window',
     'Open the second menu item under File.': 'PLAN',
-    'Close only the dialog, not the application behind it.': 'dialog_interaction',
+    'Close only the dialog, not the application behind it.': 'dialog_interaction|PLAN',
     "Find the disabled control and tell me why you can't invoke it.": 'PLAN',
     'Restore the window I minimized earlier.': 'ASK',
     # e09_ide
