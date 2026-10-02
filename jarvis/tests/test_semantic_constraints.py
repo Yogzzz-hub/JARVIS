@@ -187,3 +187,48 @@ async def test_rejected_or_prohibited_alternatives_never_run():
     assert d.intent != "send_whatsapp_message"
     d = await _route("I said 'shut down the pc' to my brother, not to you")
     assert d.intent is None and d.lane != RouteLane.LANE_0
+
+
+# ------------------------------------------------------------------------------------------------ what is not a correction
+@pytest.mark.parametrize("text", [
+    "hey jarvis, make it brighter",            # an address before the command is not a clause to correct
+    "please make that bold",
+    "share it with everyone, no strangers",    # "no" + a plural is a negative constraint, not a correction
+    "turn up the fan, make it faster",         # "make it" + a comparative is a restatement, not a corrected value
+])
+def test_courtesy_restatement_and_negative_constraints_are_not_corrections(text):
+    assert apply_correction(text) == (text, [])
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("set the timer to 10, make it 15", "set the timer to 15"),
+    ("okay set the alarm for 6, no, 7", "okay set the alarm for 7"),
+    ("launch Zoom app - sorry, Teams", "launch Teams"),            # a name with its kind noun is replaced whole
+    ("delete the draft, no wait, keep it", CANCELLED),
+])
+def test_real_corrections_after_an_opening_still_apply(text, expected):
+    assert apply_correction(text)[0] == expected
+
+
+def test_a_mode_name_is_not_a_prohibition():
+    assert trailing_prohibition("switch on do not disturb for an hour") == ("switch on do not disturb for an hour", [])
+    assert prohibitions("do not track me on this site, open the settings")[1] == []
+
+
+@pytest.mark.asyncio
+async def test_not_everything_is_not_nothing():
+    d = await _route("don't close everything, close slack instead")
+    assert d.intent == "close_app" and d.slots.get("name") == "slack", d.slots
+
+
+@pytest.mark.asyncio
+async def test_a_bare_kind_of_file_is_asked_about_not_deleted():
+    for text in ("delete the spreadsheet", "remove the recording", "trash the old screenshot"):
+        d = await _route(text)
+        assert d.intent != "delete_file" or not d.slots.get("path"), (text, d.slots)
+
+
+@pytest.mark.asyncio
+async def test_tell_someone_to_do_something_keeps_the_person_as_recipient():
+    d = await _route("tell Kumar to call me")
+    assert d.intent == "send_whatsapp_message" and d.slots["recipient"] == "Kumar" and d.slots["message"] == "call me"

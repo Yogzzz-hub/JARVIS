@@ -267,6 +267,8 @@ class SmartRouter:
         if decision.intent != "clarify":
             decision = await self._qualified(request, decision)
         decision = self._plausible(request, decision)
+        decision = self._mode_domain(request, decision)
+        decision = self._bare_kind_target(request, decision)
         decision = self._broad_scope(request, decision)
         decision = self._constraints(request, decision, prohibited, rejected)
         decision = self._coordinate(request, decision)
@@ -307,8 +309,9 @@ class SmartRouter:
             verb = (re.match(r"[a-z]+", p.lower()) or [""])[0]
             effect = self._PROHIBITED_EFFECT.get(verb)
             obj = re.sub(r"^\S+\s+(?:(?:the|my|a|an)\s+)?", "", p.lower(), count=1).strip()
-            generic = not obj or re.fullmatch(r"(?:it|that|this|them|anything|everything|any\s+\w+|yet|now|it\s+yet)", obj)
-            # "don't open spotify, open chrome": only Spotify is prohibited; "don't pay anything": any payment is
+            generic = not obj or re.fullmatch(r"(?:it|that|this|them|anything|any\s+\w+|yet|now|it\s+yet)", obj)
+            # "don't open spotify, open chrome": only Spotify is prohibited; "don't pay anything": any payment is.
+            # "don't open everything, open spotify" prohibits the set-wide action only (not-all, not none)
             if effect and set(tools) & self._EFFECT_TOOLS.get(effect, set()) and (generic or obj in targets.lower()):
                 return self._decision(request, RouteLane.REJECT, None, {"prohibited": p},
                                       f"You asked me not to {p}, so I won't.", ReasonCode.NEGATED_ACTION)
@@ -352,6 +355,48 @@ class SmartRouter:
 
     _REMOVE_VERB = r"(?:delete|remove|erase|trash|bin|discard|throw\s+(?:away|out)|get\s+rid\s+of|dump|junk|toss|scrap|clear\s+out)"
 
+    # a named device mode decides which capabilities can serve the request ("switch on do not disturb" is never a window
+    # switch, "enable dark mode for an hour" is never the clock). Read-only status questions about the mode are fine.
+    _MODE_TOOLS = (
+        (re.compile(r"\b(?:do\s+not\s+disturb|dnd|silent\s+mode|focus\s+assist|airplane\s+mode|aeroplane\s+mode|flight\s+mode|"
+                    r"battery\s+saver|power\s+saver|night\s+light|night\s+mode|dark\s+(?:mode|theme)|light\s+(?:mode|theme)|"
+                    r"auto[\s-]?rotat(?:e|ion))\b", re.I),
+         {"android_toggle", "android_quick_action", "open_system_settings", "system_op", "start_study_focus", "computer_task",
+          "browser_op", "app_theme", "phone_op", "system_settings"}),
+    )
+
+    def _mode_domain(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent or decision.subcommands:
+            return decision
+        for pattern, tools in self._MODE_TOOLS:
+            m = pattern.search(request.text or "")
+            if m and decision.intent not in tools and not self._is_read_only(decision.intent) or \
+                    m and decision.intent in ("get_time", "get_date", "switch_window", "battery_status"):
+                return self._decision(request, RouteLane.CLARIFY, None, {},
+                                      f"I don't have a direct switch for {m.group(0).lower()} here. Say 'on my phone' if you mean the "
+                                      f"phone, or I can open the settings page for it.", ReasonCode.MISSING_REQUIRED_SLOT)
+        return decision
+
+    def _bare_kind_target(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """A destructive file action needs a particular file: "remove the recording" names only a kind of file, so the
+        owner is asked which one (the executor's scope guard would ask too - this asks before anything is planned)."""
+        from jarvis.security.destructive import DESTRUCTIVE_FILE_TOOLS
+        key = DESTRUCTIVE_FILE_TOOLS.get(decision.intent or "")
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not key or decision.subcommands:
+            return decision
+        value = str((decision.slots or {}).get(key) or "").strip().lower()
+        words = re.sub(r"^(?:the|my|that|this|a|an)\s+", "", value).split()
+        if words and not re.search(r"[\\/._\d]", value) and all(w in self._FILE_KIND_WORDS for w in words):
+            return self._decision(request, RouteLane.CLARIFY, "clarify", {}, f"Which {' '.join(words)} do you mean? Tell me its name "
+                                  f"or where it is.", ReasonCode.MISSING_REQUIRED_SLOT)
+        return decision
+
+    # words that only say what kind of file it is, or how old: alone they name no particular file
+    _FILE_KIND_WORDS = frozenset({"file", "files", "archive", "invoice", "receipt", "presentation", "spreadsheet", "sheet", "document",
+                                  "doc", "pdf", "photo", "picture", "image", "screenshot", "video", "clip", "log", "code", "temporary",
+                                  "temp", "old", "new", "recent", "latest", "song", "music", "report", "notes", "note", "backup", "zip",
+                                  "installer", "setup", "download", "recording", "audio", "draft", "copy", "duplicate", "big", "large"})
+
     def _typed_removal(self, request: CommandRequest) -> RouteDecision | None:
         """A removal whose object is a FILE or FOLDER (typed, see semantics.resources) is a file delete, whatever verb
         says it: "get rid of old_log.log in my downloads", "bin the old screenshot", "I don't need setup.exe anymore".
@@ -371,7 +416,7 @@ class SmartRouter:
         if not re.search(r"\.[a-z0-9]{1,5}\b", obj) and re.search(r"\b(?:app|application|program|software|browser\s+history|history|cookies|cache|messages?|chats?|"
                      r"e-?mails?|contacts?|reminders?|notes?|tabs?|bookmarks?|passwords?|attachments?|rows?|columns?|lines?|"
                      r"paragraphs?|words?|sentences?|text|formatting|highlights?|filters?|watermark|background|border|links?|"
-                     r"items?|from\s+(?:the|this|my)\s+(?:cart|list|email|mail|message|document|doc|slide|sheet|page))\b", obj):
+                     r"items?|attached|uploaded|from\s+(?:the|this|my)\s+(?:cart|list|email|mail|message|document|doc|slide|sheet|page))\b", obj):
             return None
         ref = parse_path_ref(obj)
         if ref.kind == ROOT:
@@ -380,6 +425,9 @@ class SmartRouter:
                                   ReasonCode.POLICY_BLOCKED)
         if ref.kind not in (FILE, FOLDER) or (ref.kind == FOLDER and not ref.parent and not re.search(r"\bfolder\b", obj)):
             return None
+        if ref.kind == FILE and not ref.parent and not re.search(r"\.[a-z0-9]{1,5}\b|[_\d]", ref.name) \
+                and all(w in self._FILE_KIND_WORDS for w in ref.name.lower().split()):
+            return None   # "delete the invoice", "delete the video clip": a bare kind of file names no file - "which one?" follows
         return self._decision(request, RouteLane.LANE_0, "delete_file", {"path": ref.slot})
 
     @staticmethod
@@ -447,6 +495,10 @@ class SmartRouter:
         verdict = check(tools, request.text or "", self._CONSEQUENTIAL_EFFECTS)
         if verdict is None:
             return decision
+        if verdict["kind"] == "chat" and verdict.get("reason") == "question" and decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) \
+                and (all(t and self._is_read_only(t) for t in tools)
+                     or str((decision.slots or {}).get("action") or "") in ("explain", "describe", "read", "status", "check", "diagnose")):
+            return decision   # "why is the continue button greyed out": a question a read-only / explaining capability answers
         if verdict["kind"] == "chat":
             return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.7,
                                  source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.SIMPLE,

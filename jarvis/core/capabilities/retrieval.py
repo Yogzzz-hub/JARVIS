@@ -105,6 +105,11 @@ _PHONE_MENTION = re.compile(r"\b(?:phone|mobile|android|smartphone|cell ?phone|h
 _NUMBER_WORDS = re.compile(r"\b(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|percent|%)\b")
 
 
+_DURATION = re.compile(r"\b(?:for|during)\s+(?:the\s+next\s+)?(?:an?|one|two|three|four|five|six|ten|fifteen|twenty|thirty|"
+                       r"forty|fifty|sixty|half\s+an?|a\s+few|a\s+couple\s+of|\d+(?:\.\d+)?)\s*(?:hours?|hrs?|minutes?|mins?|"
+                       r"seconds?|secs?|days?|weeks?)\b")
+
+
 class CapabilityRetriever:
     """
     Sub-millisecond BM25 and semantic hybrid capability retriever with
@@ -135,30 +140,27 @@ class CapabilityRetriever:
     _WEAK_ANCHORS = frozenset({"stop", "start", "run", "status", "check", "find", "get", "make", "play", "close", "send", "file",
                                "files", "page", "app", "apps", "phone", "screen", "audio", "list", "search", "open"})
 
+    # adjectives / quantifiers that only qualify the head word of a keyword phrase
+    _MODIFIERS = frozenset({"total", "full", "whole", "entire", "complete", "all", "every", "quick", "fast", "slow", "big", "small",
+                            "high", "low", "more", "less", "very", "really", "little"})
+
     def anchored(self, cap: CapabilityDefinition, query: str) -> bool:
         """True when the request names something distinctive of this capability (a keyword word or its id word).
         A request with no such word ("i'm feeling tired") must not trigger the action on scoring alone."""
         cached = self._anchor_cache.get(cap.id)
         if cached is None:
-            # anchors: single-word keywords and the capability's own id words. The words of a multi-word keyword are not
-            # anchors on their own ("total" of "total silence" must not make "read me the cart total" a mute)
-            single = [k for k in cap.keywords if len(re.findall(r"[a-z]+", k.lower())) == 1]
-            words = [w for w in re.findall(r"[a-z]+", " ".join(single + [cap.id.replace(".", " ").replace("_", " ")]).lower())
-                     if w not in STOPWORDS and w not in self._GENERIC_ANCHORS]
-            phrases = [[_stem_and_normalize(w) for w in re.findall(r"[a-z]+", k.lower()) if w not in STOPWORDS]
-                       for k in cap.keywords if len(re.findall(r"[a-z]+", k.lower())) > 1]
-            all_words = [w for w in re.findall(r"[a-z]+", " ".join(cap.keywords).lower()) if w not in STOPWORDS]
-            cached = ({_stem_and_normalize(w) for w in words} - self._GENERIC_ANCHORS, {w for w in all_words + words if len(w) >= 4},
-                      [p for p in phrases if p])
+            # a modifier inside a multi-word keyword ("total" of "total silence") is not an anchor on its own:
+            # "read me the cart total" is not a mute. A modifier that is itself a keyword still is.
+            single = {k.lower().strip() for k in cap.keywords}
+            words = [w for w in re.findall(r"[a-z]+", " ".join(list(cap.keywords) + [cap.id.replace(".", " ").replace("_", " ")]).lower())
+                     if w not in STOPWORDS and w not in self._GENERIC_ANCHORS and (w not in self._MODIFIERS or w in single)]
+            cached = ({_stem_and_normalize(w) for w in words} - self._GENERIC_ANCHORS, {w for w in words if len(w) >= 4})
             self._anchor_cache[cap.id] = cached
-        anchors, raw_anchors, phrases = cached
-        q_words = [w for w in re.findall(r"[a-z]+", query.lower()) if w not in STOPWORDS]
-        q_stems = {_stem_and_normalize(w) for w in q_words}
-        hit = q_stems & anchors
-        for ph in phrases:   # a multi-word keyword counts when at least two of its words (or all, if fewer) are said
-            got = q_stems & set(ph)
-            if len(got) >= min(2, len(set(ph))):
-                hit |= got
+        anchors, raw_anchors = cached
+        # how long something should last ("enable dark mode for an hour") is a duration, not a question about the time
+        q_text = _DURATION.sub(" ", query.lower())
+        q_words = [w for w in re.findall(r"[a-z]+", q_text) if w not in STOPWORDS]
+        hit = {_stem_and_normalize(w) for w in q_words} & anchors
         if hit:
             # the shared word must be distinctive: "stop", "status" or "audio" alone are anchors of many capabilities
             # and prove nothing ("stop the jarvis project" is not dictation, "check the pnr status page" is not git)

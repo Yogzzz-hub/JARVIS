@@ -67,6 +67,9 @@ _SECRET_NOUN = r"(?:pin(?:\s+(?:code|number))?|passwords?|pass\s*code|passcode|o
 # a secret *value* is said: "my PIN is 4590", "password: hunter2", "cvv 123"
 _SECRET_VALUE = re.compile(rf"\b{_SECRET_NOUN}\b\s*(?:is|=|:|was|are|of)?\s*[\"']?[\w@#$%^&*!.-]*\d[\w@#$%^&*!.-]*", re.I)
 _SECRET_TOPIC = re.compile(rf"\b{_SECRET_NOUN}\b", re.I)
+_SECRET_OBJECT = re.compile(rf"\b(?:remember|memori[sz]e|save|store|note|keep|write|jot|record|add)\s+(?:down\s+)?"
+                            rf"(?!that\s+(?:the|my|our|his|her|their|its?|this)\b)(?:(?:my|our|the|this|that|his|her)\s+)?(?:\w+\s+){{0,3}}?"
+                            rf"{_SECRET_NOUN}\b(?!\s+(?:is|was|has|have|had|got|changed|will|expires?|expired|needs?|should|can|manager|generator)\b)", re.I)
 _MEMORY_VERB = re.compile(r"\b(?:remember|memori[sz]e|save|store|note(?:\s+down)?|keep|write\s+down|jot|record|add)\b", re.I)
 _CREDENTIAL_CHANGE = re.compile(
     rf"\b(?:change|reset|set|update|modify|replace|remove|disable|turn\s+off|bypass)\s+(?:the\s+|my\s+|our\s+)?(?:\w+\s+){{0,3}}?"
@@ -107,8 +110,10 @@ _IDENTITY = re.compile(r"\b(?:aadhaa?r|aadhar|pan\s*(?:card|number|no)|passport\
                        r"voter\s+id|driving\s+licen[cs]e\s+number|bank\s+account\s+(?:number|details)|ifsc\s+and\s+account)\b", re.I)
 _EXFILTRATE = re.compile(r"\b(?:zip|copy|compress|archive|back\s*up)\s+(?:my\s+|the\s+)?(?:whole|entire|full|all\s+of\s+(?:my\s+)?)?\s*(?:c\s*:|[a-z]\s+drive|drive|"
                          r"disk|computer|pc|laptop|home\s+folder|everything)\b.*\b(?:upload|send|share|post|email)\b", re.I)
-_CONTENT_AUTHORITY = re.compile(r"\b(?:the\s+)?(?:readme|file|document|doc|pdf|email|mail|message|page|website|site|comment|note|text)\s+"
-                                r"(?:says|said|tells|told|asks|wants|instructs)\s+(?:that\s+)?(?:jarvis|you|the\s+assistant)\s+(?:should|must|to|can)\b", re.I)
+_CONTENT_SOURCE = r"(?:readme|file|document|doc|pdf|email|mail|message|page|website|site|comment|note|text|pop[\s-]?up|dialog|banner|" \
+                  r"notification|alert|ad|advert|link|chat|bot|screen|window|form)"
+_CONTENT_AUTHORITY = re.compile(rf"\b{_CONTENT_SOURCE}\b(?:\s+(?:on|in|from|at)\s+\S+)?\s+(?:says|said|tells|told|asks|wants|instructs|claims)\s+"
+                                r"(?:that\s+)?(?:jarvis|you|the\s+assistant)\s*(?:'re|\s+are|\s+is)?\s*(?:should|must|to|can|allowed|permitted|authori[sz]ed)\b", re.I)
 _ACADEMIC = re.compile(r"\b(?:live|ongoing|current|online|proctored)\s+(?:exam|test|quiz|assessment)\b.*\b(?:solve|answer|do|write|complete)\b"
                        r"|\b(?:solve|answer|do)\s+(?:my\s+)?(?:exam|test|quiz)\s+(?:questions?\s+)?(?:for\s+me\s+)?(?:right\s+now|live|during)\b", re.I)
 _HOAX = re.compile(r"\b(?:call|dial|ring|message|text)\s+(?:100|101|102|108|112|911|999|the\s+police|police|fire\s+brigade|ambulance)\b.*"
@@ -206,19 +211,41 @@ def positive_clauses(text: str) -> list[str]:
     return keep or ([] if parts else [text or ""])
 
 
+# words relayed to another person are that person's to act on, not JARVIS's: "tell divya to pay the eb bill", "let ramesh
+# know pay the rent", "amma kitta bill kattu nu sollu". They are still data that leaves the device, so secrets and identity
+# numbers inside them are checked; actions inside them (paying, wiping, booking) are not JARVIS's actions.
+_RELAY = re.compile(
+    r"\b(?:tell|ask|remind|inform|let)\s+(?!me\b|us\b|jarvis\b|you\b|yourself\b)(?:my\s+)?[a-z][\w'-]*(?:\s+know)?\s*,?\s+"
+    r"(?:that\s+|to\s+|about\s+)?(?P<c>.+)$"
+    r"|\b(?:text|message|msg|whatsapp|send|reply|write|email|mail|ping|dm)\b.*?\b(?:saying|that\s+says|with\s+the\s+message)\s+(?P<c2>.+)$"
+    r"|^(?:.*?\s)?[a-z][\w'-]*\s+(?:kitta|kitte|kittae|ku|kku)\s+(?P<c3>.+?)\s+(?:nu|nnu|endru|enru)\s+"
+    r"(?:sollu|solliru|sollidu|sollunga|anuppu|anupu|message\s+pannu|text\s+pannu)\b", re.I)
+
+
+def directed_text(text: str) -> str:
+    """The part of a request JARVIS itself is asked to do (relayed speech removed)."""
+    m = _RELAY.search(text or "")
+    if not m:
+        return text or ""
+    g = "c" if m.group("c") else ("c2" if m.group("c2") else "c3")
+    return ((text or "")[:m.start(g)] + (text or "")[m.end(g):]).strip()
+
+
 def read_signals(text: str) -> RiskSignals:
     raw = " ".join((text or "").replace("’", "'").split())
     low = raw.lower()
-    pos = " , ".join(positive_clauses(raw))
+    pos_all = " , ".join(positive_clauses(raw))
+    pos = " , ".join(positive_clauses(directed_text(raw)))   # actions: only what JARVIS is asked to do
     pos_low = pos.lower()
     s = RiskSignals()
     s.advice_question = (bool(_ADVICE_Q.search(low)) and not _REQUEST_LEAD.match(low)) \
         or bool(re.search(r"\b(?:tell\s+me|explain|show\s+me|teach\s+me|know)\s+how\s+(?:to|do|does|can|i)\b|^\s*how\s+(?:to|do|does|can)\b", low))
     s.payment = bool(_PAYMENT.search(pos_low))
-    s.secret_value = bool(_SECRET_VALUE.search(pos))
-    s.secret_topic = bool(_SECRET_TOPIC.search(pos_low))
-    s.memory_of_secret = s.secret_topic and bool(_MEMORY_VERB.search(pos_low)) and (s.secret_value or bool(
-        re.search(r"\b(?:my|our|the)\s+(?:\w+\s+){0,3}?" + _SECRET_NOUN, pos_low)))
+    s.secret_value = bool(_SECRET_VALUE.search(pos_all))
+    s.secret_topic = bool(_SECRET_TOPIC.search(pos_all.lower()))
+    # storing the secret itself: its value is said, or the secret is the object of the memory verb ("save my bank
+    # password"). A statement about a secret ("note down that the wifi password changed") stores no secret.
+    s.memory_of_secret = s.secret_topic and bool(_MEMORY_VERB.search(pos_low)) and (s.secret_value or bool(_SECRET_OBJECT.search(pos_all.lower())))
     s.credential_change = bool(_CREDENTIAL_CHANGE.search(pos_low)) and bool(re.search(r"\b(?:password|passcode|pin|login|lock\s*screen|2fa|two[\s-]factor)\b", pos_low))
     s.login_with_secret = bool(_LOGIN_WITH_SECRET.search(pos_low))
     s.third_party = bool(_THIRD_PARTY.search(pos)) or (bool(_COVERT.search(pos_low)) and bool(re.search(_OTHER_PERSON, pos))
@@ -231,14 +258,14 @@ def read_signals(text: str) -> RiskSignals:
     s.standing_share = bool(_STANDING.search(pos_low)) and bool(_SHARE_VERB.search(pos_low)) and bool(_PERSONAL_DATA.search(pos_low))
     s.piracy = bool(_PIRACY.search(pos_low))
     s.other_credential = bool(_OTHER_CREDENTIAL.search(pos))
-    s.identity_share = bool(_IDENTITY.search(pos_low)) and bool(re.search(r"\b(?:send|share|reply|forward|give|tell|post|type|enter|fill)\b", pos_low))
+    s.identity_share = bool(_IDENTITY.search(pos_all.lower())) and bool(re.search(r"\b(?:send|share|reply|forward|give|tell|post|type|enter|fill)\b", pos_all.lower()))
     s.exfiltrate = bool(_EXFILTRATE.search(pos_low))
     s.content_authority = bool(_CONTENT_AUTHORITY.search(low))
     s.academic = bool(_ACADEMIC.search(pos_low))
     s.hoax = bool(_HOAX.search(pos_low))
-    s.mass_contact = bool(_MASS_CONTACT.search(pos_low))
+    s.mass_contact = bool(_MASS_CONTACT.search(pos_all.lower()))
     s.destructive_dev = bool(_DESTRUCTIVE_DEV.search(pos_low))
-    s.secret_expose = bool(_SECRET_EXPOSE.search(pos_low))
+    s.secret_expose = bool(_SECRET_EXPOSE.search(pos_all.lower()))
     s.captcha = bool(_CAPTCHA_ANY.search(pos_low)) and bool(re.search(r"\b(?:fill|solve|tick|check|click|do|type|pannu|enter|pass|bypass)\b", pos_low))
     s.payment_ui = s.payment_ui or (ui and bool(re.search(r"\b(?:and\s+)?pay(?:\s+now)?\b['\"]?", pos_low)) and not s.payment)
     s.without_asking = bool(_WITHOUT_ASKING.search(low))

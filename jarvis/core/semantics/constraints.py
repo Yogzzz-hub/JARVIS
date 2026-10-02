@@ -74,8 +74,11 @@ _CATEGORIES = [
 ]
 _CANCEL = re.compile(r"^(?:just\s+)?(?:leave\s+it(?:\s+(?:as\s+it\s+is|alone|be))?|forget\s+(?:it|that|about\s+it)|never\s*mind|"
                      r"cancel\s+(?:that|it)|don'?t\s+(?:do\s+)?(?:it|that|anything)|skip\s+(?:it|that)|nothing|no\s+need|"
-                     r"don'?t\s+\w+.*\bforget\s+it)\b", re.I)
+                     r"don'?t\s+\w+.*\bforget\s+it|keep\s+(?:it|that|them|this)\b(?:\s+and\s+don'?t\s+\w+)?)\b", re.I)
 CANCELLED = "__cancelled__"
+# kind nouns that follow a name ("VLC player", "chrome browser", "budget file")
+_KIND_NOUNS = {"app", "application", "player", "browser", "program", "software", "file", "folder", "window", "tab", "document",
+               "doc", "song", "video", "track", "playlist", "channel", "site", "website", "page", "game", "editor"}
 
 
 def _category(word: str) -> list[str] | None:
@@ -95,10 +98,24 @@ def _replace_same_category(a: str, word: str) -> str | None:
     return a[:m.start()] + word + a[m.end():]
 
 
+# an address or courtesy opening is not a clause that can be corrected: "hey jarvis, make it louder", "please make that uppercase"
+_ADDRESS = re.compile(r"^(?:(?:hey|hi|hello|ok(?:ay)?|um+|uh+|hmm+|so|well|please|pls|jarvis|could\s+you(?:\s+please)?|"
+                      r"can\s+you(?:\s+please)?|would\s+you(?:\s+please)?)\b\s*,?\s*)+", re.I)
+# the typed values a "make that / make it" correction can carry ("set it to 30, make it 40"); "make it louder" is a command
+_TYPED_VALUE = re.compile(rf"^(?:(?:at|on|to|for|by|in|from|with)\s+)?(?:{_TIME}|{_WEEKDAY}|{_NUMBER}(?:\s*\w+)?|['\"].+|[A-Z]\w*)\s*[.!]?$")
+
+
 def apply_correction(text: str) -> tuple[str, list[tuple[str, str]]]:
     """'X - no, Y' / 'X, actually Y' / 'X... no wait, Y' -> X with the corrected part replaced by Y (typed alignment).
     Returns the corrected text and the (old, new) pairs; unchanged text when nothing is corrected."""
     t = " ".join((text or "").split())
+    lead = _ADDRESS.match(t)
+    if lead and lead.end():
+        body = t[lead.end():]
+        out, pairs = apply_correction(body)
+        if not pairs or out == CANCELLED:
+            return (out if pairs else text), pairs
+        return t[:lead.end()] + out, pairs
     m = _CORRECTION.search(t) or _LOOSE.search(t)
     if not m:
         return text, []
@@ -106,6 +123,12 @@ def apply_correction(text: str) -> tuple[str, list[tuple[str, str]]]:
     b_full = m.group("b").strip()
     if not a or not b_full:
         return text, []
+    marker = t[m.start():m.start("b")].strip(" ,;.-—–…").lower()
+    if re.fullmatch(r"make\s+(?:that|it)", marker) and not _TYPED_VALUE.match(b_full):
+        return text, []      # "turn it up, make it louder": a restatement, not a corrected value
+    if re.fullmatch(r"no+", marker) and not re.search(r"no+\s*[,;]", t[m.start():m.start("b")], re.I) \
+            and re.match(r"\w+(?:[^s\W]s|ing)\b", b_full, re.I):
+        return text, []      # "reply to everyone, no groups": "no" + a plural / gerund is a negative constraint
     if _CANCEL.match(b_full) and (not _MSG_LEAD.match(a)
                                   or re.search(r"\b(?:forget\s+(?:it|that)|never\s*mind|cancel\s+(?:that|it))\s*[.!]?$", b_full, re.I)):
         return CANCELLED, [(a, "")]          # "dark mode on... wait no, leave it as it is": nothing is to be done
@@ -198,9 +221,12 @@ def apply_correction(text: str) -> tuple[str, list[tuple[str, str]]]:
             if rm:
                 return a[:rm.start("n")] + b + a[rm.end("n"):] + tail, [(rm.group("n"), b)]
         return text, []
-    # 4. a short object: "open chrome, sorry edge" -> the last word(s) of the same length
+    # 4. a short object: "open chrome, sorry edge" -> the last word(s) of the same length; a name with its kind noun
+    #    ("start VLC player - sorry, Spotify") is replaced whole
     if len(bw) <= 3 and not re.match(r"^(?:i|it|that|this|we|you)\b", b, re.I):
         k = len(bw)
+        if len(aw) >= k + 2 and aw[-1].lower() in _KIND_NOUNS and bw[-1].lower() not in _KIND_NOUNS:
+            k += 1
         return " ".join(aw[:-k] + bw) + tail, [(" ".join(aw[-k:]), b)]
     return text, []
 
@@ -225,7 +251,9 @@ def extract_exclusions(text: str) -> tuple[str, list[str]]:
     return t, out
 
 
-_PROHIBIT = re.compile(r"^\s*(?:(?:please|but|and|so|jarvis)\s*,?\s+)*(?:don'?t|do\s+not|never|no\s+need\s+to)\s+(?P<p>[^,;]+?)\s*"
+# "do not disturb" / "do not track" name a mode or setting, they prohibit nothing ("turn on do not disturb on my phone")
+_NOT_A_MODE = r"(?!disturb\b(?!\s+(?:me|us|him|her|them)\b)|track\b)"
+_PROHIBIT = re.compile(rf"^\s*(?:(?:please|but|and|so|jarvis)\s*,?\s+)*(?:don'?t|do\s+not|never|no\s+need\s+to)\s+{_NOT_A_MODE}(?P<p>[^,;]+?)\s*"
                        r"(?:,|;|\.(?=\s|$)|\s+-\s+|\s+(?=just\b|only\b|instead\b))\s*(?:just|only|instead|but)?\s*,?\s*(?P<rest>\S.*)$", re.I)
 
 
@@ -234,7 +262,7 @@ def prohibitions(text: str) -> tuple[str, list[str]]:
     m = _PROHIBIT.match(text or "")
     if not m:
         return text, []
-    rest = m.group("rest").strip()
+    rest = re.sub(r"\s+instead\s*[.!]?$", "", m.group("rest").strip(), flags=re.I)   # "..., open spotify instead"
     if len(rest.split()) < 2:
         return text, []
     prohibited = m.group("p").strip()
@@ -271,7 +299,7 @@ def contrast(text: str) -> tuple[str, list[str]]:
     return text, []
 
 
-_PROHIBIT_TAIL = re.compile(r"^(?P<rest>.+?)\s*,?\s+(?:but\s+|and\s+)?(?:don'?t|do\s+not|never)\s+(?P<p>[^,;]+?)\s*[.!]?$", re.I)
+_PROHIBIT_TAIL = re.compile(rf"^(?P<rest>.+?)\s*,?\s+(?:but\s+|and\s+)?(?:don'?t|do\s+not|never)\s+{_NOT_A_MODE}(?P<p>[^,;]+?)\s*[.!]?$", re.I)
 _TANGLISH_NOT = re.compile(r"^(?P<p>.+?)\s+(?:pannadha|pannaadha|pannadhe|pannatha|pannaadheenga|venam|vendam|vendaam|vendaa|koodadhu)\s*,\s*"
                            r"(?P<rest>\S.*)$", re.I)
 
