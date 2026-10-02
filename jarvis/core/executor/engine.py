@@ -230,6 +230,7 @@ class ExecutionEngine:
                         "confirmation_required": True,
                         "ticket_id": ticket.ticket_id,
                         "human_summary": ticket.human_summary,
+                        "bound_arguments": {k: v for k, v in arg_dict.items() if k != "confirmation_ticket"},
                         "ticket": ticket.model_dump(mode="json"),
                     },
                     error=f"CONFIRMATION_REQUIRED: {ticket.human_summary}",

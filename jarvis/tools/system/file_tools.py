@@ -442,12 +442,12 @@ class RenameFileTool(Tool):
         if not src or not src.exists():
             raise FileNotFoundError(f"Source not found: {input_data.source}")
         clean_new_name = input_data.new_name.strip().strip("'\"")
+        if src.is_file() and src.suffix and not Path(clean_new_name).suffix:
+            clean_new_name += src.suffix          # "rename report.pdf to final" keeps it a PDF: final.pdf
         new_path = src.parent / clean_new_name
         if new_path.exists() and new_path.resolve() != src.resolve():
-            if new_path.is_dir():
-                shutil.rmtree(str(new_path), ignore_errors=True)
-            else:
-                new_path.unlink(missing_ok=True)
+            # never replace another file or folder silently - that would delete it
+            raise FileExistsError(f"'{new_path.name}' already exists in {src.parent.name} - pick another name.")
         src.rename(new_path)
         return RenameFileOutput(source=str(src), new_path=str(new_path), renamed=True)
 

@@ -960,6 +960,13 @@ class CommandService:
                 if tool_result.data and tool_result.data.get("confirmation_required"):
                     ticket_id = tool_result.data.get("ticket_id")
                     human_summary = tool_result.data.get("human_summary")
+                    bound = tool_result.data.get("bound_arguments")
+                    if bound:   # the exact (resolved) action the owner is asked about is what "yes" will run
+                        try:
+                            fields = tool.definition.input_model.model_fields.keys()
+                            arguments = tool.definition.input_model.model_validate({k: v for k, v in bound.items() if k in fields})
+                        except Exception:
+                            pass
                     self._pending_execution = {
                         "type": "single",
                         "task": task,

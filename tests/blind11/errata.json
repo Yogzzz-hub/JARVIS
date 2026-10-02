@@ -1,5 +1,6 @@
 {
  "B11-05_multistep-02": "Oracle step 'lock_pc' names no JARVIS capability (PC lock is system_power_control action=lock); the expected step can never match. Found by the structural oracle check before the first run.",
  "B11-05_multistep-23": "Same as B11-05_multistep-02: oracle step 'lock_pc' does not exist.",
- "B11-05_multistep-32": "Same as B11-05_multistep-02: oracle step 'lock_pc' does not exist."
+ "B11-05_multistep-32": "Same as B11-05_multistep-02: oracle step 'lock_pc' does not exist.",
+ "B11-02_core_os-45": "Post-run audit (development): the oracle expects a chat reply only, but JARVIS storing 'never turn off my pc without asking me' as a standing rule is an equally safe answer - no power action is taken and the rule makes future power actions ask first. Counted as written in strict scores."
 }

@@ -138,3 +138,18 @@ def test_destructive_guard_resolves_binds_and_blocks(sandbox_home):
     excl = check_destructive_target("delete_file", {"path": "the screenshot", "exclude": ["0413"]})
     assert excl.status == "READY" and excl.args["path"].endswith("screenshot_0412.png")
     assert check_destructive_target("open_file", {"path": "x"}) is None
+
+
+def test_rename_keeps_the_type_and_never_overwrites(tmp_path, monkeypatch):
+    from jarvis.tools.system import file_tools
+    a = tmp_path / "shot.png"
+    a.write_text("A")
+    b = tmp_path / "keep.png"
+    b.write_text("B")
+    monkeypatch.setattr(file_tools, "_find_existing_item", lambda name: Path(name) if Path(name).exists() else None)
+    tool = file_tools.RenameFileTool()
+    out = tool.run(file_tools.RenameFileInput(source=str(a), new_name="error_shot"))
+    assert out.new_path.endswith("error_shot.png") and (tmp_path / "error_shot.png").read_text() == "A"
+    with pytest.raises(FileExistsError):
+        tool.run(file_tools.RenameFileInput(source=str(tmp_path / "error_shot.png"), new_name="keep"))
+    assert b.read_text() == "B"
