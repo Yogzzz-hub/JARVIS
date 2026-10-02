@@ -636,11 +636,13 @@ unread emoji emojis selfie livestream streaming subtitles captions fullscreen mi
 subfolder pdf pdfs webcam bluetooth wifi headphones earphones earbuds charger charging volume brightness notification
 notifications whatsapp youtube spotify chrome firefox gmail inbox voicemail replies preview previews automation
 automations workflow workflows trigger triggers handler handlers callback endpoint config aight gonna wanna gotta lemme
-everyone everybody everything anyone anybody someone somebody nobody italic
+everyone everybody everything anyone anybody someone somebody nobody italic gimme kindly terminate dictate dictating
+antivirus firewall ahead headlines summarise summarize organise minimise maximise reconnect reconnects readme
 """.split())
 # Words after which the owner's own content follows: there only command words are repaired, never the content.
 _CONTENT_AFTER = re.compile(r"\b(?:send|sent|text|message|msg|type|write|dictate|saying|note|notes|remember|remind|email|mail|"
-                            r"compose|draft|rename|name|named|called|titled|caption|post|tweet)\b|\b(?:reply|respond)\b(?!\s+to\b)|"
+                            r"compose|draft|rename|name|named|called|titled|caption|post|tweet)\b|(?:^|[,.;!]\s*|\b(?:and|then|please|jarvis|just)\s+)"
+                            r"(?:reply|respond)\b(?!\s+to\b)|\b(?:reply|respond|write\s+back)\s+to\s+(?!every|all\b|them\b)[\w'-]+|"
                             r"\b(?:tell|ask)\s+(?!me\b|you\b)|(?:^|[,.;!]|\b(?:and|then|please|jarvis|just|also))\s*say\b")
 # Thanglish puts the content first ("amma ku late aagum nu anuppu"): the whole command is protected.
 _CONTENT_WHOLE = re.compile(r"\b(?:anuppu|anupu|anuppidu|anuppunga|sollu|sollidu|sollunga|nu)\b")
@@ -670,6 +672,15 @@ def _swap_vocab() -> tuple[frozenset[str], frozenset[str]]:
     return _SWAP_VOCAB
 
 
+def _inflected(w: str, vocab: frozenset[str]) -> bool:
+    """'loading', 'retries', 'closes': an ending on a known word ('load', 'retry', 'close')."""
+    for end, back in (("ing", ""), ("ing", "e"), ("ied", "y"), ("ies", "y"), ("ed", ""), ("ed", "e"), ("es", ""), ("s", ""),
+                      ("er", ""), ("ers", "")):
+        if w.endswith(end) and len(w) - len(end) >= 4 and (w[: len(w) - len(end)] + back) in vocab:
+            return True
+    return False
+
+
 def _swaps(w: str) -> set[str]:
     return {w[:i] + w[i + 1] + w[i] + w[i + 2:] for i in range(len(w) - 1) if w[i] != w[i + 1]}
 
@@ -686,7 +697,9 @@ def repair_swapped_letters(text: str) -> str:
     parts = re.split(r"(\"[^\"]*\"|“[^”]*”)", text)
 
     def fix(segment: str, vocab: frozenset[str]) -> str:
-        words = re.findall(r"[A-Za-z]+|[^A-Za-z]+", segment)
+        # a file name, path, URL or handle ("readme.md", "c:/users", "user_id") is one token that is never repaired
+        words = re.findall(r"[\w.:/\\-]*[^\sA-Za-z][\w.:/\\-]*[A-Za-z][\w.:/\\-]*|[\w.:/\\-]*[A-Za-z][\w.:/\\-]*[^\sA-Za-z,!?;'\"]"
+                           r"[\w.:/\\-]*|[A-Za-z]+|[^A-Za-z]+", segment)
         prev = ""
         for i, tok in enumerate(words):
             if not tok.isalpha():
@@ -694,8 +707,8 @@ def repair_swapped_letters(text: str) -> str:
                     prev = ""
                 continue
             low = tok.lower()
-            if len(low) >= 4 and low not in known:
-                hits = [c for c in _swaps(low) if c in vocab]
+            if len(low) >= 4 and low not in known and not _inflected(low, known):
+                hits = [c for c in _swaps(low) if c in vocab or _inflected(c, vocab)]
                 if prev in _BEFORE_NAME:
                     hits = [c for c in hits if c in command]
                 if len(hits) > 1:

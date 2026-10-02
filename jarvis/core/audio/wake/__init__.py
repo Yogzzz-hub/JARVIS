@@ -63,7 +63,9 @@ class OpenWakeWordEngine:
         self._loaded = False
         self.last_score = 0.0
         self.peak_score = 0.0
+        self._prev_score = 0.0
         self.load_error = ""
+        self.near_misses = 0
 
     def _ensure_loaded(self):
         if self._loaded:
@@ -101,7 +103,12 @@ class OpenWakeWordEngine:
                         download_models(model_names=["hey_jarvis"])
                     except Exception:
                         pass
-                self._model = Model(**kwargs)
+                try:   # OpenWakeWord's own Speex noise suppression, when speexdsp_ns is installed
+                    import importlib.util
+                    speex = importlib.util.find_spec("speexdsp_ns") is not None
+                except Exception:
+                    speex = False
+                self._model = Model(enable_speex_noise_suppression=True, **kwargs) if speex else Model(**kwargs)
                 if self._model.models:
                     self._model_name = list(self._model.models.keys())[0]
                 self._loaded = True
@@ -151,7 +158,15 @@ class OpenWakeWordEngine:
                         )
                     continue
 
-            if score >= self.threshold:
+            # A quiet or distant "hey jarvis" often scores just under the threshold on two consecutive 80 ms chunks;
+            # two near-threshold chunks in a row count, a single one (a cough, a TV word) never does.
+            prev, self._prev_score = self._prev_score, float(score)
+            confirmed = prev >= 0.7 * self.threshold and score >= 0.7 * self.threshold \
+                and (prev + score) / 2 >= 0.85 * self.threshold
+            if score < self.threshold and confirmed:
+                self.near_misses += 1
+            if score >= self.threshold or confirmed:
+                self._prev_score = 0.0
                 self._last_trigger_ns = now
                 logger.info("Wake word detected: score=%.3f, model=%s", score, self._model_name)
                 return WakeDetection(
@@ -166,6 +181,7 @@ class OpenWakeWordEngine:
         """Reset internal state for new session."""
         self._buffer = np.array([], dtype=np.int16)
         self._last_trigger_ns = 0
+        self._prev_score = 0.0
         if self._model:
             self._model.reset()
 

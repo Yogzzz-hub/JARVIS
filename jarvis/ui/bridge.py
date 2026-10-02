@@ -174,6 +174,7 @@ class BridgeWorker(QObject):
                         "voice.listening": UIEventType.LISTENING_STARTED,
                         "voice.speech_ended": UIEventType.LISTENING_STOPPED,
                         "voice.partial": UIEventType.TRANSCRIPT_PARTIAL,
+                        "voice.stable_prefix": UIEventType.TRANSCRIPT_STABLE,
                         "voice.final": UIEventType.TRANSCRIPT_FINAL,
                         "voice.wake_detected": UIEventType.WAKE_DETECTED,
                         "voice.error": UIEventType.VOICE_ERROR,

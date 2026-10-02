@@ -105,6 +105,11 @@ class VoiceConfig(Frozen):
     # on (it only heard itself). "high" interrupts on quieter speech; "low" suits loud speakers next to the mic.
     talk_over: bool = True
     talk_over_sensitivity: Literal["low", "normal", "high"] = "normal"
+    # Background-noise removal for speech recognition and live transcription (the wake word hears the raw mic).
+    # "high" for loud rooms (fans, traffic); "low" if your voice ever sounds thin; "off" to disable.
+    noise_suppression: Literal["off", "low", "medium", "high"] = "medium"
+    # Lift a quiet or distant voice (up to 4x) so it is recognised; silence is never amplified.
+    auto_gain: bool = True
 
 class DecisionConfig(Frozen):
     # JARVIS Decision Engine rollout stage: "off", "shadow" (log only) or "read_only" (stage B).

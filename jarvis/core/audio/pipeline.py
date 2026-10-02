@@ -180,7 +180,7 @@ class VoicePipeline:
 
         # Register consumers
         self._wake_consumer = self.hub.register("wake_word", queue_size=50)
-        self._vad_consumer = self.hub.register("vad", queue_size=100)
+        self._vad_consumer = self.hub.register("vad", queue_size=100, clean=True)   # VAD + speech recognition
 
         try:
             await self.hub.start()

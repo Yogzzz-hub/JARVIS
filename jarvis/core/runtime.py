@@ -421,7 +421,7 @@ class Runtime:
             asyncio.create_task(self.service.handle(CommandRequest(text="cancel", source="voice")))
         mic_dev = None if cfg.device in (None, "", "default") else cfg.device
         self.voice = VoicePipeline(
-            hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level),
+            hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level, enhancer=self._noise_suppressor(cfg)),
             wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold),
             stt_engine=self._stt_engine(cfg, project),
             endpoint_detector=EndpointDetector(default_silence_ms=cfg.endpoint_silence_ms),
@@ -476,6 +476,14 @@ class Runtime:
         except Exception:
             return ""
 
+    @staticmethod
+    def _noise_suppressor(cfg):
+        level = getattr(cfg, "noise_suppression", "medium")
+        if level == "off":
+            return None
+        from jarvis.core.audio.denoise import NoiseSuppressor
+        return NoiseSuppressor(strength=level, auto_gain=getattr(cfg, "auto_gain", True))
+
     def _audio_level(self, frame):
         import numpy as np
         if frame.timestamp_ns - self._last_level_ns < 50_000_000:
@@ -484,7 +492,16 @@ class Runtime:
         samples = np.frombuffer(frame.pcm, dtype=np.int16).astype(np.float32) / 32768
         rms = float(np.sqrt(np.mean(samples * samples)))
         self._level_history = self._level_history[1:] + [min(1.0, rms * 15)]
-        self.bus.emit("audio.level", "", levels=self._level_history, rms=rms)
+        extra = {}
+        hub = getattr(self.voice, "hub", None) if self.voice else None
+        noise = getattr(hub, "noise_levels", None) if hub else None
+        if noise is not None:
+            extra = {"noise_db": noise.noise_db, "snr_db": noise.snr_db, "reduction_db": noise.reduction_db,
+                     "gain_db": noise.gain_db}
+        wake = getattr(self.voice, "wake_engine", None) if self.voice else None
+        if wake is not None:
+            extra["wake_score"] = round(float(getattr(wake, "last_score", 0.0) or 0.0), 3)
+        self.bus.emit("audio.level", "", levels=self._level_history, rms=rms, **extra)
 
     def voice_status(self):
         return {"enabled": self.config.features.voice,

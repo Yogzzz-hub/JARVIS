@@ -23,6 +23,8 @@ class JarvisUIState(QObject):
     assistantStateChanged = Signal(str)
     transcriptPartialChanged = Signal(str)
     transcriptFinalChanged = Signal(str)
+    transcriptStableChanged = Signal(str)
+    noiseChanged = Signal()
     responseChanged = Signal(str)
     activeTaskChanged = Signal(dict)
     confirmationChanged = Signal(dict)
@@ -60,6 +62,8 @@ class JarvisUIState(QObject):
         self._assistant_state: str = AssistantState.IDLE.value
         self._transcript_partial: str = ""
         self._transcript_final: str = ""
+        self._transcript_stable: str = ""
+        self._noise: dict[str, float] = {"noise_db": -90.0, "snr_db": 0.0, "reduction_db": 0.0, "wake_score": 0.0}
         self._response: str = ""
         self._active_task: dict[str, Any] = {}
         self._confirmation: dict[str, Any] = {}
@@ -238,6 +242,74 @@ class JarvisUIState(QObject):
         if abs(newest - self._audio_level) > 0.01:
             self._audio_level = newest
             self.audioLevelChanged.emit(newest)
+
+    # --- Live transcript: the words that will not change any more vs. the tail still being revised ---
+    @Property(str, notify=transcriptStableChanged)
+    def transcriptStable(self) -> str:
+        return self._transcript_stable
+
+    def set_transcript_stable(self, text: str) -> None:
+        cleaned = " ".join((text or "").split())
+        if self._transcript_stable != cleaned:
+            self._transcript_stable = cleaned
+            self.transcriptStableChanged.emit(cleaned)
+
+    @Property(str, notify=transcriptPartialChanged)
+    def transcriptTentative(self) -> str:
+        """The part of the live transcript after the stable words (shown dimmed: it may still change)."""
+        stable, partial = self._transcript_stable.split(), self._transcript_partial.split()
+        n = 0
+        for a, b in zip(stable, partial):
+            if a.lower().strip(",.!?") != b.lower().strip(",.!?"):
+                break
+            n += 1
+        if n < len(stable):
+            return self._transcript_partial
+        return " ".join(partial[n:])
+
+    # --- Microphone quality (noise suppression) ---
+    def set_noise(self, payload: dict) -> None:
+        changed = False
+        for key in self._noise:
+            if key in payload:
+                try:
+                    v = round(float(payload[key]), 1 if key != "wake_score" else 2)
+                except (TypeError, ValueError):
+                    continue
+                if v != self._noise[key]:
+                    self._noise[key] = v
+                    changed = True
+        if changed:
+            self.noiseChanged.emit()
+
+    @Property(float, notify=noiseChanged)
+    def noiseDb(self) -> float:
+        return self._noise["noise_db"]
+
+    @Property(float, notify=noiseChanged)
+    def snrDb(self) -> float:
+        return self._noise["snr_db"]
+
+    @Property(float, notify=noiseChanged)
+    def noiseReductionDb(self) -> float:
+        return self._noise["reduction_db"]
+
+    @Property(float, notify=noiseChanged)
+    def wakeScore(self) -> float:
+        return self._noise["wake_score"]
+
+    @Property(str, notify=noiseChanged)
+    def micQuality(self) -> str:
+        """Plain words for the room: what the user can act on."""
+        if self._noise["noise_db"] <= -85:
+            return ""
+        snr = self._noise["snr_db"]
+        noise = self._noise["noise_db"]
+        if noise > -30:
+            return "Very noisy room - speak closer to the mic"
+        if noise > -42:
+            return "Background noise - filtering it out"
+        return "Quiet room" if snr < 6 else "Clear voice"
 
     @Property(float, notify=audioLevelChanged)
     def audioLevel(self) -> float:

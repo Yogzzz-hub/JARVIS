@@ -138,6 +138,17 @@ sentence after the first). While JARVIS talks you can simply talk over it - no w
   right next to the microphone, `"high"` headphones. JARVIS learns how loud its own voice comes back into the
   microphone, so its echo is not taken for you.
 
+**Noisy rooms, quiet voices, live transcript.**
+- Background noise (fans, AC hum, traffic) is filtered before speech recognition and live transcription.
+  - `noise_suppression = "medium"` in `[voice]`: low / medium / high / off.
+  - `auto_gain = true` lifts a quiet or distant voice and never amplifies silence.
+  - The wake word hears the raw microphone, which is what it was trained on.
+- A quiet "hey Jarvis" that lands just under the threshold twice in a row still wakes JARVIS; a single cough or TV
+  word does not.
+- The voice overlay shows the live transcript with settled words solid and still-changing words dimmed, plus a
+  mic-quality line (room noise, signal-to-noise, how much is being filtered).
+- Details and measurements: [docs/GENERALISATION_AND_VOICE.md](docs/GENERALISATION_AND_VOICE.md).
+
 **Control words.** These work at any time:
 - "stop" / "cancel" stop the current task;
 - "stop talking" / "be quiet" stop speech;
@@ -1255,6 +1266,13 @@ chat; 500 to 1,341 each) with no AI model. The templates and the generator were 
 before any fix. About a quarter of the templates form a holdout that is never used to choose a fix. Results, including
 the first blind holdout run, are in [docs/PHASE500_REPORT.md](docs/PHASE500_REPORT.md).
 
+### Unseen-command sets (Blind-7, Blind-8)
+
+`python -m tests.blind7.runner` and `python -m tests.blind8.runner [--fails]` score commands written with new wording
+and new names, frozen before the fixes they measure. On their first runs the router was at 80% and 86% without an AI
+model. With Ollama running, anything it doesn't recognise goes to the model or a question, never to a wrong action
+(0 criticals on both). See [docs/GENERALISATION_AND_VOICE.md](docs/GENERALISATION_AND_VOICE.md).
+
 ---
 
 ## 14. Project phases and feature history
@@ -1281,6 +1299,7 @@ the first blind holdout run, are in [docs/PHASE500_REPORT.md](docs/PHASE500_REPO
 | Universal Operator | Typed window / control / text / clipboard / screen / deliver / browser / video / watch / IDE / phone primitives, live dictation, 598 scenarios |
 | AGI-520 | Task-scoped capability grants, pause/resume/stop-all, file / system / workflow tools, conditional watches, IDE and phone actions, capability parser; 520-capability suite with a frozen holdout ([report](docs/AGI_520_CAPABILITIES.md)) |
 | Phase-500 | 16,502-command suite (500+ per phase/area) with a frozen holdout; timed and triggered commands, clipboard history, app restart / running / theme, window isolate, phone call keys, dry runs; swapped-letter repair; safety fixes for questions, reopen, reported speech, borrowed authority and rule overrides ([report](docs/PHASE500_REPORT.md)) |
+| Generalisation + voice | Construction canonicaliser (synonym verbs, subject-first, modal requests, elided verbs), WhatsApp-message watches, noise suppression with automatic gain, two-chunk wake confirmation, flicker-free live transcript, voice overlay with mic quality; Blind-7 / Blind-8 unseen-command sets ([report](docs/GENERALISATION_AND_VOICE.md)) |
 
 ---
 

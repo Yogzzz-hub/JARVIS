@@ -9,7 +9,7 @@ Window {
     property var controller
 
     width: 480
-    height: 132
+    height: 156
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
     color: "transparent"
     visible: false
@@ -97,13 +97,37 @@ Window {
                 width: 200
             }
 
-            // Live transcript or final response
+            // Microphone quality while listening: room noise, how much is being filtered, wake-word confidence
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 12
+                visible: stateModel ? (stateModel.isListening && stateModel.micQuality !== "") : false
+                Text {
+                    text: stateModel ? stateModel.micQuality : ""
+                    color: stateModel && stateModel.noiseDb > -30 ? "#FFB45E" : "#7FD9FF"
+                    font.pixelSize: 12
+                }
+                Text {
+                    text: stateModel ? ("noise " + Math.round(stateModel.noiseDb) + " dB  ·  SNR " + Math.round(stateModel.snrDb)
+                                        + " dB  ·  filtered " + Math.round(stateModel.noiseReductionDb) + " dB") : ""
+                    color: "#6F8AA8"
+                    font.pixelSize: 11
+                }
+            }
+
+            // Live transcript: words that will not change are solid, the tail still being revised is dimmed
             Text {
                 width: parent.width
+                textFormat: Text.StyledText
                 text: {
                     if (!stateModel) return "...";
                     if (stateModel.isListening) {
-                        return stateModel.transcriptPartial ? stateModel.transcriptPartial : "Listening...";
+                        if (!stateModel.transcriptPartial) return "Listening...";
+                        var tail = stateModel.transcriptTentative;
+                        var solid = stateModel.transcriptStable && tail !== stateModel.transcriptPartial
+                                    ? stateModel.transcriptStable : "";
+                        var esc = function(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); };
+                        return esc(solid) + (solid && tail ? " " : "") + (tail ? "<font color=\"#7F9BB8\">" + esc(tail) + "</font>" : "");
                     }
                     if (stateModel.response) return stateModel.response;
                     if (stateModel.transcriptFinal) return stateModel.transcriptFinal;

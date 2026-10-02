@@ -170,6 +170,10 @@ class SmartRouter:
         unswapped = repair_swapped_letters(request.text or "")
         if unswapped != request.text:
             request = request.model_copy(update={"text": unswapped})   # "open the rceycle bin": two letters swapped
+        from jarvis.core.router.canonical import canonicalize
+        canon = canonicalize(request.text or "")
+        if canon != " ".join((request.text or "").split()) and canon.strip():
+            request = request.model_copy(update={"text": canon})   # "gimme X", "X is stuck, kill it", "can the volume be 40"
         # Questions about JARVIS itself and control of its own tasks: runtime state only - before retrieval, the
         # planner or any model, so they can never reach an unrelated (e.g. install / delete) capability.
         from jarvis.core.router.introspection import match_introspection
@@ -1308,7 +1312,7 @@ class SmartRouter:
             return vol_dec
 
         # 3.1e Search Notes ("search my notes for password hints")
-        if frame.intent == "search_notes":
+        if frame.intent == "search_notes" and not re.search(r"\bnotes?\.[a-z0-9]{1,5}\b", routing_text, re.I):   # notes.txt is a file
             m_nq = re.search(r"\bnotes?\s+(?:for|about|on|regarding)\s+(?P<q>.+)$", routing_text, re.I) or \
                    re.search(r"\bsearch\s+(?:my\s+)?notes?\s+(?:for\s+)?(?P<q>.+)$", routing_text, re.I)
             q_val = m_nq.group("q").strip() if m_nq else (frame.clean_query or "")

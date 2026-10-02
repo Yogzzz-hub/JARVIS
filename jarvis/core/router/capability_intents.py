@@ -111,6 +111,13 @@ def _condition(c: str) -> Optional[dict]:
     m = re.match(r"^(?:the|this|that|my)?\s*download(?:s)?\s+(?:finishes|is done|completes|is finished|is complete|ends)$", c)
     if m:
         return {"condition": "download_done"}
+    # "nisha messages me", "i get a message from nisha", "anyone texts me": a new one-to-one WhatsApp message
+    m = re.match(r"^(?P<x>[a-z][\w'-]{1,20}|anyone|someone|anybody)\s+(?:messages|texts|whatsapps|pings|writes\s+to|replies\s+to|"
+                 r"sends)\s+me(?:\s+(?:a\s+)?(?:message|text|msg))?(?:\s+on\s+whats\s*app)?$|^i\s+(?:get|receive)\s+(?:a\s+)?(?:new\s+)?"
+                 r"(?:whatsapp\s+)?(?:message|text|msg|reply)\s+from\s+(?P<x2>[a-z][\w'-]{1,20})(?:\s+on\s+whats\s*app)?$", c)
+    if m:
+        who = m.group("x") or m.group("x2") or ""
+        return {"condition": "whatsapp_message", "subject": "" if who in ("anyone", "someone", "anybody") else who}
     m = re.match(rf"^{_PHONE}\s+(?:comes|is|gets|goes)\s+(?:back\s+)?(?:online|connected|reachable)$|^{_PHONE}\s+"
                  rf"(?:reconnects|connects|is back|comes back)$", c)
     if m:
@@ -125,6 +132,12 @@ def _condition(c: str) -> Optional[dict]:
                  r"(?P<n>\d{1,3})\s*%?(?:\s+percent)?$", c)
     if m:
         return {"condition": "battery_below", "threshold": float(m.group("n"))}
+    # "my battery hits 85 percent" / "the battery reaches 90%" / "my laptop is fully charged"
+    m = re.match(r"^(?:the\s+|my\s+)?(?:pc\s+|laptop\s+)?(?:battery|charge)\s+(?:hits|reaches|gets\s+to|is\s+at|goes\s+(?:up\s+)?to|"
+                 r"climbs\s+to)\s+(?P<n>\d{1,3})\s*%?(?:\s+percent)?$|^(?:the\s+|my\s+)?(?:laptop|pc|battery)\s+is\s+fully\s+charged$", c)
+    if m:
+        n = m.groupdict().get("n")
+        return {"condition": "battery_above", "threshold": float(n) if n else 100.0}
     m = re.match(r"^(?:the\s+|this\s+|that\s+)?(?:page|tab|site)\s+(?:changes|updates|reloads|loads|finishes loading)"
                  r"(?:\s+(?:state|status))?$", c)
     if m:
@@ -766,6 +779,20 @@ def _files(t, raw, rid, mode):
                  r"^copy\s+the\s+(?:path|location)\s+of\s+(?:this|that|the)\s+(?P<o2>file|folder)$", t)
     if m:
         return _d(rid, t, "file_op", {"action": "copy_path", "folder_path": (m.group("o") or m.group("o2")) == "folder"})
+    m = re.match(r"^(?:make|create)\s+(?:a\s+)?(?:copy|duplicate)\s+of\s+(?:the\s+file\s+)?(?P<f>[\w .()-]+\.[a-z0-9]{1,5})$|"
+                 r"^duplicate\s+(?:the\s+file\s+)?(?P<f2>[\w .()-]+\.[a-z0-9]{1,5})$", t)
+    if m:
+        return _d(rid, t, "file_op", {"action": "duplicate", "target": _raw(raw, m.group("f") or m.group("f2")).strip()})
+    m = re.match(r"^(?:summari[sz]e|sum\s+up|give\s+me\s+(?:a\s+)?(?:summary|gist)\s+of)\s+my\s+(?:[a-z]+\s+){0,3}(?:policy|statement|"
+                 r"receipt|ticket|certificate|slip|bill|report|letter|itinerary|record|marksheet|resume|cv|invoice|agreement|"
+                 r"proposal|assignment|notes|document|file|pdf)$", t)
+    if m:
+        return _d(rid, t, "document_qa", {"question": _raw(raw, t).strip()})
+    m = re.match(r"^(?:summari[sz]e|sum\s+up|give\s+me\s+(?:a\s+)?(?:summary|gist)\s+of)\s+(?:the\s+)?(?:file\s+|document\s+)?"
+                 r"(?P<f>[\w .()-]+\.(?:pdf|docx?|txt|md|pptx?|xlsx?|csv|rtf))$|^what\s+does\s+(?:the\s+)?(?:file\s+)?"
+                 r"(?P<f2>[\w .()-]+\.(?:pdf|docx?|txt|md|pptx?|xlsx?|csv|rtf))\s+say(?:\s+about\s+.+)?$", t)
+    if m:
+        return _d(rid, t, "document_qa", {"question": _raw(raw, t).strip()})
     m = re.match(r"^(?:make|create)\s+(?:a\s+)?(?:copy|duplicate)\s+of\s+(?:this|that|the)\s+(?:file|document|pdf)$|^duplicate\s+"
                  r"(?:this|that|the)\s+(?:file|document|pdf)$", t)
     if m:
@@ -1102,7 +1129,7 @@ def _windows(t, raw, rid, mode):
 # ------------------------------------------------------------------------------------------------- dry run
 def _dry_run(t, raw, rid, mode):
     """'dry run: delete x' / 'what would you do if I said close y' / 'preview the command z': explain, run nothing."""
-    m = re.match(r"^(?:dry\s*-?\s*run|simulate|test\s+run)\s*[:,-]?\s+(?P<c>.+)$|^what\s+would\s+(?:you|jarvis)\s+do\s+if\s+i\s+"
+    m = re.match(r"^(?:dry\s*-?\s*run|simulate|test\s+run)\s*[:,-]?\s+(?P<c>.+)$|^what\s+(?:would\s+(?:you|jarvis)\s+do|would\s+happen|happens)\s+if\s+i\s+"
                  r"(?:said|say|told\s+you|asked\s+you\s+to)\s*[:,]?\s+(?P<c2>.+)$|^(?:preview|explain)\s+(?:the\s+)?command\s*[:,]?\s+"
                  r"(?P<c3>.+)$|^how\s+would\s+you\s+handle\s*[:,]?\s+(?P<c4>.+)$", t)
     if not m:
@@ -1120,6 +1147,9 @@ _DANGER = re.compile(
     r"(?:all\s+)?system\s+files)\b"
     r"|\b(?:bypass|break|crack|hack|skip|get\s+past|get\s+around|unlock\s+without)\s+(?:the\s+|my\s+)?(?:\w+\s+)?(?:lock\s*screen|"
     r"screen\s+lock|pin|passcode|password|pattern|captcha|otp|2fa|two[\s-]factor|login)\b"
+    r"|\b(?:unlock|open|get\s+into|access)\s+(?:my\s+|the\s+|this\s+|someone'?s?\s+)?(?:\w+\s+)?(?:phone|mobile|laptop|pc|computer|"
+    r"account)\s+without\s+(?:the\s+|my\s+|a\s+|its\s+)?(?:pin|passcode|password|pattern|fingerprint|face\s*id|code)\b"
+    r"|\b(?:wipe|erase)\s+(?:my\s+|the\s+)?(?:whole|entire|complete)\s+(?:hard\s+)?(?:drive|disk|ssd|pc|computer)\b"
     r"|\bsolve\s+(?:this|the|that)\s+captcha\b"
     r"|\brun\s+(?:this|that|a|some|the)\s+(?:powershell|cmd|batch|bash|shell)\s+script\s+from\s+(?:the\s+)?(?:internet|web|net|"
     r"site|website|email)\b")
@@ -1300,6 +1330,9 @@ def _pc(t, raw, rid, mode):
         if m.group("m3") and re.search(r"\boff\b", t):
             mode_ = "light" if m.group("m3") == "dark" else "dark"
         return _d(rid, t, "system_op", {"action": "theme", "target": "dark" if mode_ == "night" else mode_})
+    if re.match(r"^(?:read|what'?s|what\s+is)\s+(?:out\s+)?(?:on|in)?\s*(?:me\s+)?(?:my\s+|the\s+)?clipboard(?:\s+contents?)?$|"
+                r"^(?:read|show)\s+(?:me\s+)?(?:my\s+|the\s+)?clipboard(?:\s+contents?|\s+text)$|^read\s+(?:me\s+)?(?:my\s+|the\s+)?clipboard$", t):
+        return _d(rid, t, "clipboard_op", {"action": "read"})
     # "open / show clipboard history" stays Windows' own panel (Win+V); "my clipboard history" is JARVIS's list of this session
     if re.match(r"^(?:show|list|read|what'?s\s+in|open)\s+(?:me\s+)?my\s+clipboard\s+history$|^(?:list|read|what'?s\s+in)\s+(?:me\s+)?"
                 r"(?:the\s+)?clipboard\s+history$|^what\s+(?:did|have)\s+i\s+cop(?:y|ied)(?:\s+(?:before|earlier|recently|today))?$", t):

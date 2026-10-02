@@ -60,11 +60,13 @@ def test_prefix_consensus_contradiction_invalidation():
     assert pc.view.stable == "open chrome browser"
 
     # User corrected themselves / speech revised: "open firefox instead"
-    # Doesn't match prior stable tokens -> history cleared
+    # The contradicted words are dropped and the history is cleared; the part that still agrees ("open") stays
+    # stable, so the live transcript never flickers back to empty
     v_rev = pc.update("turn_2", 3, "open firefox instead")
-    # History was cleared, so stable is temporarily reset until 2 new matching observations
-    assert v_rev.stable == ""
-    assert v_rev.unstable == "open firefox instead"
+    assert v_rev.stable == "open"
+    assert v_rev.unstable == "firefox instead"
+    v_next = pc.update("turn_2", 4, "open firefox instead please")
+    assert v_next.stable == "open firefox instead"
 
 
 def test_prefix_consensus_finish():

@@ -226,6 +226,7 @@ class JarvisUIController(QObject):
         elif ev_type == UIEventType.LISTENING_STARTED:
             self.state.set_voice_status("READY")
             self.state.set_transcript_partial("")
+            self.state.set_transcript_stable("")
             self.state.set_status_message("Listening...")
             self.state.set_assistant_state(AssistantState.LISTENING.value)
             self.showDashboardRequested.emit()
@@ -236,6 +237,8 @@ class JarvisUIController(QObject):
         elif ev_type == UIEventType.TRANSCRIPT_PARTIAL:
             text = event.payload.get("text", "")
             self.state.set_transcript_partial(text)
+        elif ev_type == UIEventType.TRANSCRIPT_STABLE:
+            self.state.set_transcript_stable(event.payload.get("text", ""))
         elif ev_type == UIEventType.TRANSCRIPT_FINAL:
             text = event.payload.get("text", "")
             self.state.set_transcript_final(text)
@@ -253,6 +256,7 @@ class JarvisUIController(QObject):
                 self.state.set_llm_status("ONLINE" if event.payload.get("reachable") else "OFFLINE")
         elif ev_type == UIEventType.AUDIO_LEVEL:
             self.state.set_audio_levels(event.payload.get("levels", []))
+            self.state.set_noise(event.payload)
         elif ev_type == UIEventType.WHATSAPP_PERSONAL:
             payload = dict(event.payload)
             name = str(payload.pop("event", ""))

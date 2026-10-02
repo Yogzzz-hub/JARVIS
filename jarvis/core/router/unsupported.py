@@ -61,10 +61,36 @@ _PERSONAL_FRAME = re.compile(
     r"|(?:email|mail)\s+[a-z]+)", re.I)
 
 
+# Working with information ABOUT a real-world thing on this PC is supported too: "find my flight ticket" (a document),
+# "go to zomato.com" (a website), "search the web for flights to delhi". Only clearly PC objects count - a clinic, a
+# restaurant, a credit score or a delivery is still the real-world thing itself.
+_DOC_NOUNS = (r"ticket|tickets|receipt|receipts|statement|statements|invoice|invoices|report|reports|policy|slip|certificate|"
+              r"itinerary|confirmation|bill|bills|prescription\s+(?:pdf|file|scan)|document|documents|file|files|pdf|pdfs|scan|photo")
+_PC_OBJECT = re.compile(rf"^(?:please\s+)?(?:find|locate|open|show(?:\s+me)?|where(?:'s|\s+is|\s+are)|dig\s+(?:out|up)|summari[sz]e|"
+                        rf"read|delete|move|copy|rename|send|share|print|attach)\s+(?:me\s+)?(?:my|the|this|that)\s+(?:\w+\s+){{0,3}}"
+                        rf"(?:{_DOC_NOUNS})\b"
+                        rf"|\b[\w-]+\.(?:com|in|org|net|io|co|dev|ai|edu|gov)\b"
+                        rf"|^(?:search|look\s+up|google)\s+(?:the\s+web\s+|online\s+|google\s+)?(?:for\s+)?(?!.*\b(?:book|order|reserve|buy|pay)\b)", re.I)
+_REAL_WORLD_ACT = re.compile(r"\b(?:book|order|reserve|buy|purchase|pay|hail|rent|deliver|delivery|transfer\s+money|send\s+money)\b", re.I)
+_SHOP = re.compile(r"^(?:please\s+)?(?:buy|order|purchase)\s+(?:me\s+)?(?:a\s+|an\s+|some\s+|this\s+|that\s+)?(?P<x>.+?)\s+(?:on|from)\s+"
+                   r"(?P<s>amazon|flipkart|myntra|ebay|croma)(?:\s+now)?$", re.I)
+_IMPOSSIBLE = next(p for p in UNSUPPORTED_DOMAINS_PATTERNS if "teleport" in p.pattern)   # impossible: never "a PC object"
+
+
 def check_unsupported_external(routing_text: str, request_id: str) -> RouteDecision | None:
     """Checks if the request targets external physical devices or unsupported services."""
     cleaned = routing_text.strip()
     if _PERSONAL_FRAME.match(cleaned):
+        return None
+    shop = _SHOP.match(cleaned)
+    if shop:
+        return RouteDecision(
+            request_id=request_id, lane=RouteLane.CLARIFY, intent="unknown", slots={"shop": shop.group("s").lower()},
+            confidence=0.0, source=RouteSource.EXACT, complexity=ComplexityLevel.SIMPLE,
+            clarification=f"I don't buy things or pay for you. Want me to search {shop.group('s').title()} for "
+                          f"{shop.group('x')} so you can check it and buy it yourself?",
+            normalized_text=routing_text, reason_code=ReasonCode.UNKNOWN_INTENT, candidate_count=0)
+    if not _IMPOSSIBLE.search(cleaned) and not _REAL_WORLD_ACT.search(cleaned) and _PC_OBJECT.search(cleaned):
         return None
     # the words of a message are the message ("tell arun I'll bring naan"), not a request to JARVIS
     cleaned = re.split(r"\s+(?:saying|that says|to say|that|nu)\s+", cleaned, maxsplit=1)[0] \

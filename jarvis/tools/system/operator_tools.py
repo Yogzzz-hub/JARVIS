@@ -599,7 +599,7 @@ class WatchOpInput(Contract):
     condition: str = Field(default="", description="for when: download_done | file_appears | window_opened | "
                                                    "window_closed | phone_connected | battery_below | battery_above | "
                                                    "control_appears | control_enabled | ide_done | page_changed | "
-                                                   "task_done | captcha")
+                                                   "task_done | captcha | whatsapp_message")
     subject: str = Field(default="", description="what the condition is about: window/app, file name, control, task")
     threshold: Optional[float] = Field(default=None, description="battery percent etc.")
     then: str = Field(default="", description="the owner's own follow-up command, run through JARVIS when it happens")
@@ -697,6 +697,20 @@ def _condition(hub: "_Hub", a: "WatchOpInput"):
             return False
         what = f"{subj} appears in {folder.name}" if subj else f"the download in {folder.name} finishes"
         return appeared, what
+    if cond == "whatsapp_message":
+        # observes the inbox only: a new one-to-one message (from that person, if named) since the watch started.
+        # Group messages never count, and the message itself is not read out - only who wrote.
+        from jarvis.integrations.whatsapp.ai import get_whatsapp_ai
+        inbox = get_whatsapp_ai().inbox
+        who = subj.casefold()
+
+        def incoming() -> list:
+            return [m for m in inbox.get_recent(limit=60, include_groups=False) if not getattr(m, "is_from_me", False)
+                    and (not who or who in (m.sender_display_name or "").casefold().split()
+                         or (m.sender_display_name or "").casefold().startswith(who))]
+        seen = {m.message_id for m in incoming()}
+        return ((lambda: any(m.message_id not in seen for m in incoming())),
+                f"{subj or 'someone'} messages you on WhatsApp")
     if cond in ("phone_connected", "device_online"):
         from jarvis.core.operator.device import get_device_operator
         dev = get_device_operator()

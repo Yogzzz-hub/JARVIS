@@ -19,10 +19,11 @@ logger = logging.getLogger("jarvis.audio.hub")
 
 
 class AudioConsumer:
-    """A registered consumer with its own bounded queue."""
+    """A registered consumer with its own bounded queue. ``clean`` consumers get noise-suppressed audio."""
 
-    def __init__(self, name: str, queue_size: int = 100):
+    def __init__(self, name: str, queue_size: int = 100, clean: bool = False):
         self.name = name
+        self.clean = clean
         self.queue: asyncio.Queue[AudioFrame] = asyncio.Queue(maxsize=queue_size)
         self.dropped = 0
         self.total = 0
@@ -50,8 +51,12 @@ class AudioHub:
         ring_buffer_ms: int = 2000,
         sample_rate: int = CANONICAL_SAMPLE_RATE,
         on_frame: Callable | None = None,
+        enhancer=None,
     ):
         self.source = source or MicSource()
+        # optional noise suppressor (jarvis.core.audio.denoise.NoiseSuppressor): applied once per frame for the
+        # consumers that asked for clean audio and for the pre-roll ring; the wake word keeps the raw microphone
+        self.enhancer = enhancer
         self.ring = RingBuffer(duration_ms=ring_buffer_ms, sample_rate=sample_rate)
         self._consumers: list[AudioConsumer] = []
         self._running = False
@@ -60,9 +65,9 @@ class AudioHub:
         self.total_dropped = 0
         self.on_frame = on_frame
 
-    def register(self, name: str, queue_size: int = 100) -> AudioConsumer:
+    def register(self, name: str, queue_size: int = 100, clean: bool = False) -> AudioConsumer:
         """Register a consumer before start. Returns consumer handle."""
-        consumer = AudioConsumer(name, queue_size)
+        consumer = AudioConsumer(name, queue_size, clean=clean)
         self._consumers.append(consumer)
         logger.debug("Registered audio consumer: %s (queue=%d)", name, queue_size)
         return consumer
@@ -83,20 +88,37 @@ class AudioHub:
                 if not self._running:
                     break
                 self.total_frames += 1
+                clean = self._clean(frame)
 
-                # Always write to ring buffer
-                self.ring.write(frame)
+                # Always write to ring buffer (cleaned: it is the speech-recognition pre-roll)
+                self.ring.write(clean)
                 if self.on_frame:
                     self.on_frame(frame)
 
                 # Fan out to all consumers
                 for consumer in self._consumers:
-                    consumer.put(frame)
+                    consumer.put(clean if consumer.clean else frame)
 
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("AudioHub distribution error")
+
+    def _clean(self, frame: AudioFrame) -> AudioFrame:
+        if self.enhancer is None:
+            return frame
+        try:
+            pcm = self.enhancer.process(frame.pcm)
+        except Exception:
+            logger.exception("Noise suppression failed; passing the raw microphone audio")
+            self.enhancer = None
+            return frame
+        return AudioFrame(sequence_id=frame.sequence_id, timestamp_ns=frame.timestamp_ns, sample_rate=frame.sample_rate,
+                          channels=frame.channels, sample_count=len(pcm) // 2, pcm=pcm, source=frame.source)
+
+    @property
+    def noise_levels(self):
+        return getattr(self.enhancer, "levels", None)
 
     async def stop(self) -> None:
         """Stop audio capture and distribution."""

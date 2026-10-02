@@ -281,6 +281,8 @@ def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     t = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
     if not t:
         return None
+    if re.match(r"^(?:tell|let|notify|alert|ping|announce)\s+(?:me|it)\b.*\b(?:when|whenever|if|as\s+soon\s+as)\b", t):
+        return None  # "tell me when anyone texts me" asks to be told later, it never replies to anyone
     m = _BULK_PEOPLE.search(t) or _BULK_ALL_MESSAGES.search(t)
     if not m or re.search(r"\b(?:e-?mails?|mails?|gmail|inbox|sms|missed calls?)\b", t[: m.end() + 12]):
         return None
