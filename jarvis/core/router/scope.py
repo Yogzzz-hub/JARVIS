@@ -235,7 +235,8 @@ def broad_in_text(text: str) -> bool:
 def _broad_core(low: str) -> bool:
     """'delete everything', 'remove all my stuff': a destructive verb whose object is a universal quantifier."""
     if re.search(r"\b(?:delete|remove|erase|wipe|trash|uninstall|destroy)\s+(?:all\s+(?:of\s+)?)?(?:my\s+|the\s+)?"
-                 r"(?:everything|every\s*thing|ellam|ellathayum|whatever|the\s+lot|all\s+(?:my\s+|the\s+)?(?:files|data|stuff|documents|"
+                 r"(?:everything|every\s*thing|ellam|ellathayum|whatever|the\s+lot|every\s+(?:single\s+)?(?:file|document|photo|picture|app|program|"
+                 r"folder|email|mail|chat|message|contact)|all\s+(?:my\s+|the\s+)?(?:files|data|stuff|documents|"
                  r"photos|pictures|apps|programs|folders|emails|mails|chats|messages|contacts))\b", low):
         return True
     return bool(re.search(r"\b(?:ellam|ellathayum|motham)\s+(?:delete|remove|erase|uninstall)", low))
