@@ -54,6 +54,7 @@ docs/*
 !docs/PHASE500_REPORT.md
 !docs/GENERALISATION_AND_VOICE.md
 !docs/CONTEXT_AND_FOLLOWUPS.md
+!docs/BLIND10_REPORT.md
 config/profile.toml
 jarvis/db/window_layouts.json
 jarvis/db/workflows.json

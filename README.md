@@ -1297,6 +1297,12 @@ the carry-over was built against. See [docs/CONTEXT_AND_FOLLOWUPS.md](docs/CONTE
 with the wake word, with a filler, with "please", with "okay" and with a typo. Fixes use only the dev half. The holdout
 half went from 54.7% to **91.6%**; the goal of 95% is not met yet.
 
+`python -m tests.blind10.runner` scores 1,100 unseen commands, 50 per phase across 22 phases including browser
+automation. A command counts only if JARVIS picks the right action **with the right details**, so precision, recall and
+false actions are measured. First run, router only (no AI model): **65.6% accurate, 76.7% precision, 68.1% recall**
+after an audit of my own expectation mistakes (strict: 63.2%). It found 29 critical wrong actions. Full per-phase report:
+[docs/BLIND10_REPORT.md](docs/BLIND10_REPORT.md).
+
 ---
 
 ## 14. Project phases and feature history
