@@ -62,5 +62,7 @@
   "Written by an independent generator session that never saw JARVIS's router code, tests or earlier blind sets; a novelty check against every existing test and doc phrase ran before the lock.",
   "No case is edited after the first run. Oracle mistakes go to docs/BLIND11_ORACLE_ERRATA.md and errata.json; strict and audited scores are both reported.",
   "JARVIS is not changed after the first run. Any later fix makes Blind-11 development data; the next unseen benchmark is Blind-12."
- ]
+ ],
+ "status": "EXPOSED_DEVELOPMENT_DATA",
+ "status_note": "Blind-11 was run once, untouched, at candidate 54991db (results in tests/blind11/results/ and docs/BLIND11_REPORT.md). Its failures were then read and used to repair JARVIS, so from that point Blind-11 is development data. No later Blind-11 score may be called unseen. The next unseen benchmark is Blind-12."
 }
