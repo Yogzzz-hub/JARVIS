@@ -39,7 +39,7 @@ def generate_human_summary(tool_name: str, args: dict[str, Any], risk: RiskLevel
                 items_str += f", and {remaining} more"
             return f"Delete {len(items)} files: {items_str}"
         name = Path(target).name or str(target)
-        return f"Permanently delete '{name}'"
+        return f"Delete '{name}' (it can be restored - nothing is deleted permanently)"
 
     if tn in ("create_folder", "mkdir"):
         name = Path(args.get("path", "")).name or args.get("path", "")

@@ -83,6 +83,7 @@ def _set_clipboard_text(text: str) -> bool:
 
 class ShortcutInput(Contract):
     key: str = Field(description="Shortcut to trigger: enter, escape, tab, shift_tab, up, down, left, right, home, end, page_up, page_down, ctrl_a, ctrl_c, ctrl_v, ctrl_x, ctrl_z, ctrl_y, ctrl_f, ctrl_s")
+    times: int = Field(default=1, ge=1, le=10, description="How many times to press it")
 
 
 class ShortcutOutput(Contract):
@@ -123,6 +124,19 @@ class KeyboardShortcutTool(Tool):
     )
 
     def run(self, arguments: ShortcutInput) -> dict[str, Any]:
+        if isinstance(arguments, dict):
+            arguments = ShortcutInput(**arguments)
+        out: dict[str, Any] = {}
+        for _ in range(max(1, int(getattr(arguments, "times", 1) or 1))):
+            out = self._press(arguments)
+            if out.get("status") != "SUCCESS":
+                return out
+        n = int(getattr(arguments, "times", 1) or 1)
+        if n > 1:
+            out["message"] = f"Pressed '{arguments.key}' {n} times."
+        return out
+
+    def _press(self, arguments: ShortcutInput) -> dict[str, Any]:
         k = arguments.key.lower().strip().replace(" ", "_").replace("+", "_").replace("-", "_")
 
         if k == "enter":

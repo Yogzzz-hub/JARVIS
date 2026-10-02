@@ -159,6 +159,19 @@ def to_english_command(text: str) -> str:
         i = raw.lower().find(fragment)
         return raw[i:i + len(fragment)] if i >= 0 else fragment
 
+    # media: "paatu stop pannu", "paatu niruthu", "next paatu podu", "munnadi paatu"
+    m = re.fullmatch(r"(?:(?:inda|indha|this)\s+)?(?:paatu|paattu|pattu|paadal|song|music)\s+(?:ah\s+|a\s+)?(?:stop|niruthu|nirutthu|niruthunga|"
+                     r"pause|nippattu)(?:\s+" + _PANNU + r")?", body)
+    if m:
+        return "pause the music"
+    m = re.fullmatch(r"(?P<d>next|adutha|aduththa|previous|munnadi|munnaadi|pazhaya)\s+(?:paatu|paattu|pattu|paadal|song|track)(?:\s+(?:podu|"
+                     r"potu|play|pannu|vai|vei))?", body)
+    if m:
+        return "next track" if m.group("d") in ("next", "adutha", "aduththa") else "previous track"
+    # word order: "wifi on pannu phone la" == "phone la wifi on pannu"
+    m = re.fullmatch(r"(?P<x>[a-z ]{2,30}?)\s+(?P<s>on|off)\s+" + _PANNU + r"\s+(?P<d>phone|mobile)\s*(?:la|le|il|lla)", body)
+    if m:
+        return f"turn {m.group('s')} {m.group('x').strip()} on my phone"
     # two steps: "word open pannitu volume 10 ku vai" -> "open word and then set volume to 10"
     parts = re.split(r"\s+(?:pannitu|pannittu|panitu|pannittu)\s+", body, maxsplit=1)
     if len(parts) == 2 and parts[1].strip():

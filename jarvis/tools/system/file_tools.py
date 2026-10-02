@@ -311,6 +311,19 @@ def _resolve_target_folder(raw_path: str) -> Path:
         folder_name = re.sub(r"\s+(?:in|to)\s+documents", "", raw_clean, flags=re.IGNORECASE).strip()
         base_dir = documents
 
+    else:
+        # "Documents/tax 2025", "pictures\\trips", "videos/edits": a known folder first, then the new name inside it
+        home = Path(os.environ.get("USERPROFILE", ""))
+        known = {"desktop": desktop, "downloads": downloads, "documents": documents, "pictures": home / "Pictures",
+                 "music": home / "Music", "videos": home / "Videos"}
+        m = re.match(r"^(?P<k>desktop|downloads|documents|pictures|music|videos)[\\/]+(?P<rest>.+)$", raw_clean, re.IGNORECASE)
+        if m:
+            base_dir, folder_name = known[m.group("k").lower()], m.group("rest").strip()
+        else:
+            m = re.match(r"^(?P<rest>.+?)\s+(?:in|on|to|inside|under)\s+(?:my\s+|the\s+)?(?P<k>pictures|music|videos)(?:\s+folder)?$", raw_clean, re.IGNORECASE)
+            if m:
+                base_dir, folder_name = known[m.group("k").lower()], m.group("rest").strip()
+
     p = Path(folder_name)
     if not p.is_absolute():
         p = base_dir / folder_name
@@ -446,7 +459,7 @@ class DeleteFileTool(Tool):
             input_model=DeleteFileInput,
             output_model=DeleteFileOutput,
             read_only=False,
-            requires_confirmation=False,
+            requires_confirmation=True,   # recoverable from the bin, but removing the owner's file is always asked first
             risk=RiskLevel.REVERSIBLE,
             timeout_s=5.0,
             tags=("files", "delete"),

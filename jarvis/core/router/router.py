@@ -176,6 +176,9 @@ class SmartRouter:
             request = request.model_copy(update={"text": canon})   # "gimme X", "X is stuck, kill it", "can the volume be 40"
         # Questions about JARVIS itself and control of its own tasks: runtime state only - before retrieval, the
         # planner or any model, so they can never reach an unrelated (e.g. install / delete) capability.
+        early = self._domain_first(request)
+        if early is not None:   # "git status of jarvis" is about the jarvis repo, not about JARVIS itself
+            return self._check_frame_safety(self._plausible(request, early), request.text or "")
         from jarvis.core.router.introspection import match_introspection
         own = match_introspection(request.text or "", request.request_id)
         if own is not None:
@@ -228,7 +231,7 @@ class SmartRouter:
         if said is not None:
             self._record(said)
             return said
-        decision = await self._route(request)
+        decision = self._domain_first(request) or await self._route(request)
         decision = await self._tell_me(request, decision)
         decision = self._sanity(decision, request.text or "")
         decision = await self._last_clause(request, decision)
@@ -237,7 +240,59 @@ class SmartRouter:
         if decision.intent != "clarify":
             decision = await self._qualified(request, decision)
         decision = self._plausible(request, decision)
+        decision = self._broad_scope(request, decision)
         return self._check_frame_safety(decision, request.text or "")
+
+    _DEFINITION_Q = re.compile(
+        r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:what(?:'s|\s+is|\s+are)\s+(?:a|an|the\s+point\s+of|meant\s+by)\b|which\s+.{1,40}\s+(?:is|are)\s+"
+        r"(?:the\s+)?(?:best|better|good|worse|fastest|safest)\b|how\s+(?:does|do|did|can|could|would|is|are)\b|why\s+(?:is|are|do|does|did|would)\b|"
+        r"explain\b|tell\s+me\s+about\b|what\s+do\s+you\s+think\b|let'?s\s+(?:talk|chat|play|discuss)\b|talk\s+to\s+me\b|"
+        r"(?:what|which)\s+(?:time|language|languages)\s+do\s+you\b|(?:give|tell)\s+me\s+(?:\d+\s+|some\s+|a\s+few\s+|an?\s+)?"
+        r"(?:ideas?|tips?|advice|suggestions?|reasons?|examples?|facts?|jokes?|stor(?:y|ies)|quotes?|opinions?)\b|"
+        r"(?:give|tell)\s+me\s+(?:some\s+)?(?:medical|legal|financial|career)\s+advice\b)", re.I)
+    _QUESTION = re.compile(r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:what|which|who|whom|whose|why|how|when|where|is|are|was|were|do|does|did|"
+                           r"can|could|should|would|will)\b", re.I)
+
+    def _retrieval_ok(self, tool: str, text: str) -> bool:
+        """Scoring alone never turns a question into an action: a definition or opinion question ("what's a browser
+        cookie", "which browser is best", "give me 3 startup ideas") reaches no tool at all, and any other question only
+        a read-only one."""
+        if self._DEFINITION_Q.match(text or ""):
+            return False
+        if self._QUESTION.match(text or "") and not (self._is_read_only(tool) or tool in self._INFO_TOOLS
+                                                       or re.match(r"(?:get|list|read|check|find|search|show|recall|recent|command)_", tool)):
+            return False
+        return True
+
+    _INFO_TOOLS = frozenset({"recent_actions", "command_history", "battery_status", "system_info", "network_info", "get_time",
+                             "calendar_list_events", "gmail_list_recent", "read_whatsapp_messages", "list_reminders",
+                             "describe_screen", "resource_usage", "task_status", "previous_outcome", "recall_facts"})
+
+    def _broad_scope(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """'delete all my files and then shut down', 'wipe everything': a destructive verb whose object is everything never
+        reaches the planner or a tool - whichever path the sentence took, it is asked about first."""
+        from jarvis.core.router.scope import broad_in_text
+        if decision.lane in (RouteLane.REJECT, RouteLane.CLARIFY, RouteLane.CONTROL) or decision.intent == "standing_rule":
+            return decision
+        if decision.intent == "dictate_text" or (decision.slots or {}).get("literal"):
+            return decision   # "type literally delete all files": words to type are data, never a command
+        text = request.text or ""
+        if decision.lane == RouteLane.LANE_2 and decision.needs_planner and self._DEFINITION_Q.match(clean_for_matching(text) or text):
+            # "what's a good name for a chatbot app", "explain how vpn works": answered, never planned as a task
+            return decision.model_copy(update={"needs_planner": False, "reason_code": ReasonCode.QUESTION_NOT_COMMAND,
+                                               "complexity": ComplexityLevel.SIMPLE})
+        text = request.text or ""
+        if decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and not decision.subcommands \
+                and re.match(r"(?:(?:hey\s+)?jarvis\s*,?\s*)?what(?:'s|\s+is|\s+are)\s+(?:a|an)\s+[a-z]", clean_for_matching(text) or text, re.I):
+            # "what's a browser cookie": a question about a kind of thing is answered, never that thing's tool run
+            return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.7,
+                                 source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
+        if broad_in_text(text) and not re.search(r"\b(?:don'?t|do\s+not|never)\b", text, re.I):
+            return self._decision(request, RouteLane.CLARIFY, None, {}, "That would touch everything, not one thing - I won't do "
+                                  "that in one go. Tell me exactly what (which folder, which type) and I'll show you first.",
+                                  ReasonCode.MISSING_REQUIRED_SLOT)
+        return decision
 
     @staticmethod
     def _file_subject(text: str) -> str:
@@ -258,6 +313,30 @@ class SmartRouter:
                      "than", "between", "except", "not", "without", "under", "over") for w in words):
             return ""   # a time, size or place constraint, not a name: leave it to the constraint search
         return " ".join(words) if words and len(words) <= 4 else ""
+
+    def _domain_first(self, request: CommandRequest) -> RouteDecision | None:
+        """Single-capability requests whose details are spelled out ("emails from my manager", "git status of jarvis",
+        "reply to divya with ok done"): matched before the broader matchers can take the words for something else.
+        Negated and multi-step sentences are left to the full pipeline."""
+        text = request.text or ""
+        if _IN_CLAUSE.get() or re.search(r"\b(?:don'?t|do\s+not|never|and|then|after\s+that|also)\b|,", text, re.I):
+            return None
+        from jarvis.core.router.capability_intents import _domains
+        lowered = " ".join(text.lower().split()).strip(" .?!")
+        lowered = re.sub(r"^(?:(?:hey|ok|okay|hi)\s+)?jarvis\s*[,.!:]?\s+|^(?:um+|uh+|hmm+|ok|okay|so|please|pls)\s*,?\s+", "", lowered)
+        if self._DEFINITION_Q.match(lowered):
+            return None   # "what's a browser cookie": a question about a thing, never that thing's tool
+        d = None
+        for candidate in dict.fromkeys((lowered, (clean_for_matching(text) or text).lower().strip(" .?!"))):
+            try:
+                d = _domains(candidate, text, request.request_id, "")
+            except Exception:
+                d = None
+            if d is not None:
+                break
+        if d is not None:
+            self._record(d)
+        return d
 
     def _carried_over(self, text: str) -> str | None:
         """A short follow-up ("make it 60", "do the same for paint", "close the first one") as the full command it
@@ -297,6 +376,8 @@ class SmartRouter:
                                              rf"prepare|attach|bring\s+back|copy|paste)\b", text, re.I)):
             # "find my latest PDF, copy its summary and paste it ...": one look-up tool cannot do the other steps
             verdicts.append({"kind": "planner", "reason": "several steps for a single look-up tool"})
+        if decision.subcommands:   # 'it' after the first step is that step's result: the planner links the steps
+            verdicts = [{"kind": "planner"} if (v and v.get("pronoun") and i > 0) else v for i, v in enumerate(verdicts)]
         verdict = next((v for v in verdicts if v), None)
         if verdict is None:
             return decision
@@ -319,6 +400,19 @@ class SmartRouter:
                 return again.model_copy(update={"slots": {**(again.slots or {}), **({"qualifiers": quals} if quals else {})}})
             verdict = {"kind": "planner"}
         quals = (decision.slots or {}).get("qualifiers")
+        if verdict["kind"] == "chat":
+            # "write my college assignment": something to compose, answered by the assistant, never typed into a window
+            return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.7,
+                                 source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
+        if verdict["kind"] == "refuse":
+            # a security check, a payment or a lock screen: never done for the owner, in any step of the sentence
+            return self._decision(request, RouteLane.REJECT, None, {"refused": verdict.get("reason", "unsafe_action")},
+                                  verdict["question"], ReasonCode.EXACT_PATTERN)
+        if verdict["kind"] == "clarify" and verdict.get("hard"):
+            # the scope or target of a consequential step is unclear: ask about the whole sentence, never plan around it
+            return self._decision(request, RouteLane.CLARIFY, decision.intent if not decision.subcommands else None, {},
+                                  verdict["question"], ReasonCode.MISSING_REQUIRED_SLOT)
         if verdict["kind"] == "reroute" and not decision.subcommands:
             slots = dict(verdict["slots"])
             if quals:
@@ -527,8 +621,13 @@ class SmartRouter:
         token = _IN_CLAUSE.set(True)
         try:
             inner = await self._route(CommandRequest(text=m.group("cmd")))
+            first = await self._route(CommandRequest(text=m.group("remark")))
         finally:
             _IN_CLAUSE.reset(token)
+        if first.lane in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.CONTROL) and first.intent \
+                and not re.match(r"(?:i|i'm|im|i've|my|we|we're|it|it's|this|that|there)\b", m.group("remark").strip(), re.I) \
+                and first.intent not in ("chat", "general_chat", "ollama_chat", "quick_answer", "search_web"):
+            return decision   # "close chrome, then lock the pc": the first part is a step too, never dropped
         if inner.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and inner.intent and not inner.subcommands \
                 and inner.intent not in self._SEND_INTENTS and not (inner.slots or {}).get("pronoun"):
             return inner
@@ -539,9 +638,17 @@ class SmartRouter:
     _QUESTION_START = re.compile(r"^(?:(?:hold\s+on|wait|so|and|but|sorry|hey\s+jarvis|jarvis|um+|uh+)\s*,?\s+)*"
                                  r"(?:was|were|did|has|have|is|are|does|do|had)\b(?!\s+(?:not|n't|tell|send|message|text|let|ask|remind|inform|ping|reply)\b)", re.I)
 
+    _NEXT_STEP = re.compile(r"(?:,\s*|\s+)(?:and\s+then|then|and\s+after\s+that|after\s+that|and\s+also)\s+(?:please\s+)?(?:call|ring|dial|open|close|"
+                            r"launch|send|set|remind|play|lock|shut|turn|mute|email|text|message|search|find|delete|move|copy|take|start)\b", re.I)
+
     def _check_recipient(self, decision: RouteDecision, text: str = "") -> RouteDecision:
         if decision.intent not in self._SEND_INTENTS:
             return decision
+        if decision.lane == RouteLane.LANE_0 and self._NEXT_STEP.search(str((decision.slots or {}).get("message") or "")):
+            # "message amma i reached and then call her": the second step is not part of the message
+            return RouteDecision(request_id=decision.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.6,
+                                 source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.COMPLEX, needs_planner=True,
+                                 normalized_text=decision.normalized_text, reason_code=ReasonCode.MULTI_STEP)
         if isinstance((decision.slots or {}).get("message"), str) and re.match(r"^[\s,;:.-]+", decision.slots["message"]):
             decision = decision.model_copy(update={"slots": {**decision.slots, "message": decision.slots["message"].lstrip(" ,;:.-")}})
         if decision.lane == RouteLane.LANE_0 and self._QUESTION_START.match((text or "").strip()):
@@ -2683,7 +2790,8 @@ class SmartRouter:
         if top_caps:
             best_cap, score = top_caps[0]
             second_score = top_caps[1][1] if len(top_caps) > 1 else 0.0
-            anchored = getattr(self.capability_retriever, "anchored", lambda *_: True)(best_cap, routing_text)
+            anchored = getattr(self.capability_retriever, "anchored", lambda *_: True)(best_cap, routing_text) \
+                and self._retrieval_ok(best_cap.target_tool, routing_text)
             if anchored and (score >= 8.5 or (score >= 6.0 and (score - second_score) >= 2.5)):
                 slots, missing = extract_slots(best_cap, routing_text, self.working_memory, self.reference_resolver)
                 if not missing:
@@ -2768,7 +2876,8 @@ class SmartRouter:
             sem_caps = self.capability_retriever.retrieve(routing_text, top_k=2, min_score=6.0)
             if sem_caps:
                 best_cap, score = sem_caps[0]
-                if score >= 6.0 and getattr(self.capability_retriever, "anchored", lambda *_: True)(best_cap, routing_text):
+                if score >= 6.0 and getattr(self.capability_retriever, "anchored", lambda *_: True)(best_cap, routing_text) \
+                        and self._retrieval_ok(best_cap.target_tool, routing_text):
                     from jarvis.core.capabilities.slot_extractor import extract_slots
                     slots, missing = extract_slots(best_cap, routing_text, self.working_memory, self.reference_resolver)
                     if not missing:

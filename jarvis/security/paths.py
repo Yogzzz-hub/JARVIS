@@ -94,6 +94,12 @@ def canonicalize_path(path_str: str | Path) -> Path:
         except Exception:
             return Path(os.path.normpath(expanded))
 
+    # "Documents/tax 2025", "pictures/trips": a known user folder first, then the rest inside it
+    import re as _re
+    m = _re.match(r"^(?P<k>desktop|downloads|documents|pictures|music|videos)[\\/]+(?P<rest>.+)$", raw, _re.IGNORECASE)
+    if m:
+        return (get_known_folder(m.group("k").lower()) / m.group("rest").strip()).resolve(strict=False)
+
     # For relative names, check approved user locations
     desktop = get_known_folder("desktop")
     downloads = get_known_folder("downloads")

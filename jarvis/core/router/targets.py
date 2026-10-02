@@ -188,6 +188,18 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
     """None when the route can run as it is; otherwise a verdict: reroute / rematch / planner / clarify."""
     slots = slots or {}
     low = " ".join((text or "").lower().replace("’", "'").split())
+    from jarvis.core.router.scope import check_creation, check_interaction, check_object, check_scope, check_typing
+    if intent in APP_INTENTS:
+        name = str(slots.get("name") or slots.get("app") or "").strip().lower()
+        if name in ("it", "that", "this", "them", "one", "that one", "this one") and (" " + name) in low:
+            # "i need calculator for college, can you install it": the app was named earlier in the same sentence
+            m = _ANTECEDENT.search(low[: low.rfind(" " + name)] + " ,")
+            if m and not re.fullmatch(r"(?:it|that|this|them|one|you|me|help|something|anything)", m.group("x")):
+                return _verdict("reroute", intent=intent, slots={**slots, "name": m.group("x").strip()})
+    scoped = check_interaction(intent, slots, low) or check_typing(intent, slots, low) or check_scope(intent, slots, low) \
+        or check_creation(intent, slots, low) or check_object(intent, slots, low)
+    if scoped:
+        return scoped   # "delete everything", "uninstall that one", "delete my history": never one guessed name
     if intent in ("reply_whatsapp_message", "send_whatsapp_message") and \
             re.search(r"\b(?:who|whom|which)\s+(?:messaged|texted|wrote|sent|replied|called|pinged)\b",
                       str(slots.get("recipient") or "").lower()):
@@ -197,6 +209,9 @@ def check_target(intent: str, slots: dict, text: str, normalized: str = "") -> O
     if missing_consequential_verb(intent, low, normalized):
         return _verdict("clarify", question="I'm not sure what you want done - I won't " + intent.split("_")[0] +
                                             " anything unless you say so. What should I do?")
+    if intent in ("android_push_file", "localsend_file") and not str(slots.get("path") or "").strip() \
+            and re.search(r"\b(?:text|message|note|clipboard|selection|selected|copied)\b", low):
+        return _verdict("reroute", intent="localsend_text", slots={"text": "", "from_selection": bool(re.search(r"\bselect", low))})
     if intent in ("android_push_file", "localsend_file") and re.fullmatch(
             r"(?:the\s+|my\s+|this\s+|that\s+)?(?:copied\s+text|clipboard(?:\s+text)?|text(?:\s+i\s+copied)?|selection|selected\s+text)",
             str(slots.get("path") or "").strip().lower()):

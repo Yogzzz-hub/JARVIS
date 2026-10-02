@@ -373,6 +373,7 @@ class CommandService:
                 request = request.model_copy(update={"text": carried})
             decision = await self.router.route(request)
             decision = self._bare_media_control(decision, request.text or "", task)
+            self._grant_routed_scope(task, decision)
             self._last_decisions[task.request_id] = decision
             try:
                 task.intent = decision.intent or ""
@@ -431,6 +432,7 @@ class CommandService:
                         pending = self._pending_execution
                         self._pending_execution = None
                         t_id = ticket_to_approve or pending.get("ticket_id")
+                        self._grant_pending_scope(task, pending)
 
                         if pending["type"] == "compound":
                             self.tasks.transition(task, State.EXECUTING)
@@ -1031,6 +1033,52 @@ class CommandService:
             self.active.discard(current)
             raise
         return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=locals().get("predicted_ms", 400.0))
+
+    def _grant_pending_scope(self, task, pending: dict) -> None:
+        """'yes' runs the action the owner just approved: this task gets that action's capability, never more."""
+        names = []
+        tool = pending.get("tool")
+        if tool is not None:
+            names.append(getattr(getattr(tool, "definition", None), "name", None) or str(tool))
+        for sub in pending.get("remaining") or []:
+            names.append(sub[0] if isinstance(sub, (list, tuple)) else str(sub))
+        graph = pending.get("graph")
+        for node in getattr(graph, "nodes", None) or []:
+            names.append(getattr(node, "tool", None))
+        self._grant_tools_scope(task, [n for n in names if n])
+
+    def _grant_tools_scope(self, task, tools) -> None:
+        try:
+            from jarvis.security.policy.scope import TOOL_CAPABILITY_REQUIREMENTS, get_task_scope_manager
+            scope = get_task_scope_manager().get_scope(task.request_id)
+            if scope is None:
+                return
+            for tool in tools:
+                name = getattr(getattr(tool, "definition", None), "name", None) or str(tool)
+                required = TOOL_CAPABILITY_REQUIREMENTS.get(name or "")
+                if required:
+                    scope.granted_capabilities.add(required)
+        except Exception:
+            pass
+
+    def _grant_routed_scope(self, task, decision) -> None:
+        """The owner's own sentence, routed straight to a tool ("create a folder called projects", "delete temp.txt"),
+        grants exactly that tool's capability for this task. Keyword scoping alone missed such sentences and denied
+        them; planner and agent steps still get only the keyword scope."""
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1):
+            return
+        try:
+            from jarvis.security.policy.scope import TOOL_CAPABILITY_REQUIREMENTS, get_task_scope_manager
+            scope = get_task_scope_manager().get_scope(task.request_id)
+            if scope is None:
+                return
+            tools = [decision.intent] + [s.tool for s in (decision.subcommands or [])]
+            for tool in tools:
+                required = TOOL_CAPABILITY_REQUIREMENTS.get(tool or "")
+                if required:
+                    scope.granted_capabilities.add(required)
+        except Exception:
+            pass
 
     def _bare_media_control(self, decision, text: str, task):
         """A bare "pause" / "resume" with no JARVIS task to pause or resume is about the music or video playing."""

@@ -131,6 +131,10 @@ class CapabilityRetriever:
                                   "turn", "set", "show", "open", "tell", "say", "check", "see", "look", "give", "take", "ask",
                                   "use", "try", "feel", "know", "think", "okay", "ok", "yes", "right", "good", "much", "many"})
 
+    # verbs and status words shared by many capabilities: alone they never decide which one is meant
+    _WEAK_ANCHORS = frozenset({"stop", "start", "run", "status", "check", "find", "get", "make", "play", "close", "send", "file",
+                               "files", "page", "app", "apps", "phone", "screen", "audio", "list", "search", "open"})
+
     def anchored(self, cap: CapabilityDefinition, query: str) -> bool:
         """True when the request names something distinctive of this capability (a keyword word or its id word).
         A request with no such word ("i'm feeling tired") must not trigger the action on scoring alone."""
@@ -142,12 +146,33 @@ class CapabilityRetriever:
             self._anchor_cache[cap.id] = cached
         anchors, raw_anchors = cached
         q_words = [w for w in re.findall(r"[a-z]+", query.lower()) if w not in STOPWORDS]
-        if {_stem_and_normalize(w) for w in q_words} & anchors:
-            return True
+        hit = {_stem_and_normalize(w) for w in q_words} & anchors
+        if hit:
+            # the shared word must be distinctive: "stop", "status" or "audio" alone are anchors of many capabilities
+            # and prove nothing ("stop the jarvis project" is not dictation, "check the pnr status page" is not git)
+            df = self._anchor_df()
+            weak = {_stem_and_normalize(w) for w in self._WEAK_ANCHORS}
+            if re.match(r"(?:android|phone)", cap.id) and _PHONE_MENTION.search(query.lower()):
+                return True   # the phone family: naming the phone is what distinguishes it
+            own = {_stem_and_normalize(w) for w in re.findall(r"[a-z]+", cap.id.replace(".", " ").replace("_", " ").lower())}
+            # the capability's own name word ("screenshot" for take_screenshot) is distinctive even if others mention it
+            return any((df.get(w, 0) <= 8 or w in own) and w not in weak for w in hit) or len(hit) >= 2
         # a misspelt keyword ("set vloum to 20"): an unknown word one or two slips from a keyword
         unknown = [w for w in q_words if len(w) >= 4 and w not in _english_words()]
         return any(w[0] == a[0] and _slip_distance(w, a) <= (2 if min(len(w), len(a)) >= 5 else 1)
                    for w in unknown for a in raw_anchors)
+
+    def _anchor_df(self) -> Dict[str, int]:
+        """In how many capabilities' anchor sets each anchor word occurs."""
+        if getattr(self, "_df_anchor", None) is None:
+            counts: Dict[str, int] = defaultdict(int)
+            for cap in self.capabilities:
+                words = [w for w in re.findall(r"[a-z]+", " ".join(list(cap.keywords) + [cap.id.replace(".", " ").replace("_", " ")]).lower())
+                         if w not in STOPWORDS and w not in self._GENERIC_ANCHORS]
+                for w in {_stem_and_normalize(x) for x in words}:
+                    counts[w] += 1
+            self._df_anchor = dict(counts)
+        return self._df_anchor
 
     def _build_index(self) -> None:
         self._anchor_cache: Dict[str, set] = {}

@@ -730,7 +730,11 @@ def match_dictation(t: str, request_id: str) -> Optional[RouteDecision]:
     if m:
         on = m.group("a").split()[0] in ("start", "begin", "enable", "activate", "enter") or m.group("a").endswith("on")
         mode = {"mode": "code"} if m.group("code") and on else {}
-        return _decision(request_id, t, "dictation_mode_control", {"action": "start" if on else "stop", **mode})
+        action = "start" if on else ("pause" if m.group("a") == "pause" else "stop")   # pause keeps the session, stop ends it
+        return _decision(request_id, t, "dictation_mode_control", {"action": action, **mode})
+    m = re.fullmatch(r"(?:turn|switch|put)\s+(?:the\s+|voice\s+)?(?:dictation|voice\s+typing|typing)(?:\s+mode)?\s+(?P<s>on|off)(?:\s+now)?", t)
+    if m:
+        return _decision(request_id, t, "dictation_mode_control", {"action": "start" if m.group("s") == "on" else "stop"})
     if re.fullmatch(r"(?:continue|resume|keep|carry\s+on)\s+(?:typing|dictating|dictation|writing)(?:\s+(?:now|again|here))?", t):
         return _decision(request_id, t, "dictation_mode_control", {"action": "resume"})
     m = _DICTATION_START.match(t)
@@ -1086,11 +1090,37 @@ def match_files(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
 _SHORTCUT_KEYS = {"a": "ctrl_a", "c": "ctrl_c", "v": "ctrl_v", "x": "ctrl_x", "z": "ctrl_z", "y": "ctrl_y", "f": "ctrl_f", "s": "ctrl_s"}
 
 
+_TIMES = r"(?:\s+(?P<n>once|twice|thrice|two\s+times|three\s+times|four\s+times|five\s+times|\d+\s+times))?"
+_SINGLE_KEYS = {"tab": "tab", "enter": "enter", "return": "enter", "escape": "escape", "esc": "escape", "page down": "page_down",
+                "pagedown": "page_down", "page up": "page_up", "pageup": "page_up", "home": "home", "end": "end", "up": "up",
+                "down": "down", "left": "left", "right": "right", "up arrow": "up", "down arrow": "down", "left arrow": "left",
+                "right arrow": "right", "arrow up": "up", "arrow down": "down", "arrow left": "left", "arrow right": "right"}
+
+
+def _times(n: str | None) -> int:
+    if not n:
+        return 1
+    words = {"once": 1, "twice": 2, "thrice": 3, "two times": 2, "three times": 3, "four times": 4, "five times": 5}
+    return words.get(n, None) or int(re.match(r"\d+", n).group())
+
+
 def match_keys(t: str, request_id: str) -> Optional[RouteDecision]:
-    """'press ctrl s', 'hit control+z', 'press alt tab': keyboard shortcuts, not clicks on something called 'ctrl s'."""
-    m = re.fullmatch(r"(?:press|hit|use|do)\s+(?:the\s+)?(?P<mod>ctrl|control|alt|shift|win|windows)\s*[+\- ]\s*(?P<key>[a-z0-9]+|tab|enter|esc|escape)(?:\s+keys?)?", t)
+    """'press ctrl s', 'hit control+z', 'press alt tab': keyboard shortcuts, not clicks on something called 'ctrl s'.
+    'press the tab key twice', 'hit escape', 'press page down': a single key, as many times as said."""
+    m = re.fullmatch(r"(?:press|hit|tap|push)\s+(?:the\s+)?(?P<k>" + "|".join(sorted((re.escape(k) for k in _SINGLE_KEYS), key=len, reverse=True))
+                     + r")(?:\s+(?:key|button))?" + _TIMES + r"(?:\s+(?:on\s+(?:the\s+)?(?:keyboard|pc|laptop)))?", t)
+    if m and not re.search(r"\b(?:phone|mobile)\b", t):
+        n = _times(m.group("n"))
+        return _decision(request_id, t, "keyboard_shortcut", {"key": _SINGLE_KEYS[m.group("k")], **({"times": n} if n > 1 else {})})
+    m = re.fullmatch(r"(?:press|hit|use|do)\s+(?:the\s+)?(?P<mod>ctrl|control|alt|shift|win|windows)\s*[+\- ]\s*(?P<key>[a-z0-9]+|tab|enter|esc|escape)(?:\s+keys?)?"
+                     + _TIMES, t)
     if not m:
         return None
+    n = _times(m.groupdict().get("n"))
+    if n > 1:
+        mod, key = m.group("mod"), m.group("key")
+        k = _SHORTCUT_KEYS.get(key, f"{'ctrl' if mod == 'control' else mod}_{key}") if mod in ("ctrl", "control") else f"{mod}_{key}"
+        return _decision(request_id, t, "keyboard_shortcut", {"key": k, "times": n})
     mod, key = m.group("mod"), m.group("key")
     if mod == "alt" and key == "tab":
         return _decision(request_id, t, "switch_window", {})

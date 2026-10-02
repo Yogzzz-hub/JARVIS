@@ -275,6 +275,19 @@ def canonicalize(text: str) -> str:
         return "next track"
     if re.fullmatch(r"(?:hey|hi|hello|hiya|yo)\s+(?:there|buddy|mate|friend)", t):
         return "hello"
+    if re.fullmatch(r"am\s+i\s+(?:on|connected\s+to)\s+(?:the\s+)?(?:charger|charging|power|ac)|is\s+(?:the\s+)?charger\s+(?:connected|plugged\s+in|on)", t):
+        return "is the laptop charging"
+    if re.fullmatch(r"minimi[sz]e\s+(?:all|every|everything)(?:\s+(?:of\s+)?(?:my\s+|the\s+)?(?:open\s+)?windows)?", t):
+        return "show the desktop"
+    if re.fullmatch(r"(?:speed\s+up|quicken)\s+(?:your\s+)?(?:speech|voice|talking|speaking)|(?:speak|talk)\s+(?:a\s+bit\s+|a\s+little\s+)?quicker", t):
+        return "talk faster"
+    if re.fullmatch(r"(?:slow\s+down)\s+(?:your\s+)?(?:speech|voice|talking|speaking)", t):
+        return "speak slower"
+    if re.fullmatch(r"go\s+back(?:\s+(?:one|a|1)\s+page|\s+to\s+the\s+(?:previous|last)\s+page)?", t):
+        return "go back a page"
+    m = re.fullmatch(r"enter\s+(?P<x>(?!(?:full\s*screen|the\s+room|sleep|safe\s+mode|key|button|it|that)\b).{3,80})", t)
+    if m and not re.search(r"\b(?:password|passcode|pin|otp|cvv|card)\b", m.group("x")):
+        return f"type {m.group('x')}"
 
     # a bare website: "open zomato.com", "visit github.com"
     m = re.match(r"^(?:open|visit|load|go\s+to|show)\s+(?:the\s+)?(?:site\s+|website\s+)?(?P<d>[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|in|org|net|io|"
