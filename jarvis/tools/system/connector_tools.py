@@ -510,6 +510,9 @@ class MemosCreateTool(Tool):
     def run(self, arguments: MemosCreateInput) -> dict:
         arguments = _coerce_args(MemosCreateInput, arguments)
         content = arguments.content.strip()
+        from jarvis.core.semantics.policy import SECRET_REFUSAL, contains_secret
+        if contains_secret(content):
+            return {"success": False, "message": SECRET_REFUSAL, "data": {"stored": False, "refused": "secret"}}
         # If user says "make a note about this", append active reference context if available
         if ("about this" in content.lower() or content == "note this") and self.working_memory:
             ref = getattr(self.working_memory, "active_resource", None)

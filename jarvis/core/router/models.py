@@ -42,6 +42,7 @@ class ReasonCode(StrEnum):
     CONTROL_COMMAND = "CONTROL_COMMAND"
     QUESTION_NOT_COMMAND = "QUESTION_NOT_COMMAND"
     COMPOUND_COMMAND = "COMPOUND_COMMAND"
+    POLICY_BLOCKED = "POLICY_BLOCKED"          # refused by safety / domain policy (not ambiguity, not confirmation)
 
 class SubCommand(Contract):
     intent: str

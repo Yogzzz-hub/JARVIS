@@ -55,6 +55,9 @@ class QuickNoteTool(Tool):
     def run(self, arguments: CaptureNoteInput) -> dict[str, Any]:
         if isinstance(arguments, dict):
             arguments = CaptureNoteInput(**arguments)
+        from jarvis.core.semantics.policy import SECRET_REFUSAL, contains_secret
+        if contains_secret(arguments.content):
+            return {"message": SECRET_REFUSAL, "data": {"stored": False, "refused": "secret"}}
         NOTES_DIR.mkdir(parents=True, exist_ok=True)
         now = datetime.datetime.now().astimezone()
         timestamp_str = now.strftime("%Y%m%d_%H%M%S")

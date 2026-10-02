@@ -231,15 +231,18 @@ def parse_folder_path(val: str) -> FolderRef:
         return FolderRef(cleaned)
 
     from jarvis.security.paths import canonicalize_path
-    for k, v in FOLDER_ALIASES.items():
-        if lowered == k or lowered.endswith(f" {k}") or lowered.startswith(f"{k} "):
-            return FolderRef(str(canonicalize_path(k)))
-
-    if lowered in FOLDER_ALIASES:
-        return FolderRef(str(canonicalize_path(lowered)))
-
-    resolved = canonicalize_path(cleaned)
-    return FolderRef(str(resolved))
+    from jarvis.core.semantics.resources import ROOT, parse_path_ref
+    # typed: "temp_test.txt from my desktop" is the FILE temp_test.txt inside Desktop, never the Desktop folder itself
+    ref = parse_path_ref(cleaned)
+    if ref.kind == ROOT:
+        k = ref.name.lower()
+        return FolderRef(str(canonicalize_path(k)) if k in FOLDER_ALIASES else cleaned)
+    if ref.parent:
+        return FolderRef(str(canonicalize_path(f"{ref.parent}/{ref.name}")))
+    resolved = canonicalize_path(ref.name)
+    # a name that exists in the owner's folders is resolved; one that does not stays a name for the tool to look up
+    # (never a made-up path in a default folder)
+    return FolderRef(str(resolved) if resolved.exists() or re.search(r"[\\/]", ref.name) else ref.name)
 
 
 def parse_slot_value(slot_name: str, raw_value: Any) -> Any:

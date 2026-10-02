@@ -117,6 +117,29 @@ class ExecutionEngine:
                 except asyncio.TimeoutError:
                     pass
 
+        # 0. Destructive scope guard: resolve and validate the exact target before policy / confirmation, and bind the
+        #    arguments to it - a wrong or missing target is never offered for a "yes"
+        from jarvis.security.destructive import check_destructive_target
+        target_check = check_destructive_target(definition.name, arg_dict) if not dry_run_policy else None
+        if target_check is not None:
+            if target_check.status != "READY":
+                return ToolResult(
+                    success=False,
+                    error=target_check.message,
+                    data={"state": "NEEDS_CLARIFICATION" if target_check.status in ("NOT_FOUND", "AMBIGUOUS") else "BLOCKED_BY_POLICY",
+                          "target_check": target_check.status},
+                    duration_ms=(time.perf_counter_ns() - t0) / 1e6,
+                    tool_name=definition.name,
+                    method_used=definition.execution_method,
+                )
+            arg_dict = target_check.args
+            if hasattr(definition, "input_model") and hasattr(arguments, "model_dump"):
+                try:   # the tool runs on exactly the target that was resolved, validated and (if needed) confirmed
+                    fields = set(getattr(definition.input_model, "model_fields", {}) or {})
+                    arguments = definition.input_model.model_validate({k: v for k, v in arg_dict.items() if k in fields})
+                except Exception:
+                    pass
+
         # 1. Policy Evaluation
         policy_decision = self.policy_evaluator.evaluate_node(
             definition,

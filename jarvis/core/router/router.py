@@ -178,7 +178,7 @@ class SmartRouter:
         # planner or any model, so they can never reach an unrelated (e.g. install / delete) capability.
         early = self._domain_first(request)
         if early is not None:   # "git status of jarvis" is about the jarvis repo, not about JARVIS itself
-            return self._check_frame_safety(self._plausible(request, early), request.text or "")
+            return self._check_frame_safety(self._semantic_policy(request, self._plausible(request, early)), request.text or "")
         from jarvis.core.router.introspection import match_introspection
         own = match_introspection(request.text or "", request.request_id)
         if own is not None:
@@ -229,6 +229,7 @@ class SmartRouter:
             texts.pop(next(iter(texts)))
         said = self._discourse(request)
         if said is not None:
+            said = self._semantic_policy(request, said)
             self._record(said)
             return said
         decision = self._domain_first(request) or await self._route(request)
@@ -241,7 +242,36 @@ class SmartRouter:
             decision = await self._qualified(request, decision)
         decision = self._plausible(request, decision)
         decision = self._broad_scope(request, decision)
-        return self._check_frame_safety(decision, request.text or "")
+        return self._check_frame_safety(self._semantic_policy(request, decision), request.text or "")
+
+    _CONSEQUENTIAL_EFFECTS = frozenset({"delete_file", "move_file", "rename_file", "batch_rename", "uninstall_software",
+                                        "empty_recycle_bin", "install_software", "update_software", "system_power_control",
+                                        "close_app", "send_whatsapp_message", "send_whatsapp_bulk", "reply_whatsapp_message",
+                                        "reply_whatsapp_all", "gmail_create_draft", "localsend_file", "localsend_text",
+                                        "android_push_file", "calendar_create_event", "powershell_command", "system_op"})
+
+    def _semantic_policy(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """The request's domain and risk decide what may run, whatever tool the words matched (Blind-11: a payment became
+        a WhatsApp message, a PIN became a stored fact, "format my C drive ... fresh" opened an app called "fresh").
+        A must-never request is refused on every lane, the planner included; a question about it is answered."""
+        if decision.lane in (RouteLane.REJECT, RouteLane.CONTROL) or decision.reason_code == ReasonCode.QUESTION_NOT_COMMAND:
+            return decision
+        from jarvis.core.semantics.policy import check
+        if decision.subcommands:
+            tools = [s.tool for s in decision.subcommands]
+        elif decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1):
+            tools = [decision.intent]
+        else:
+            tools = [None]   # a clarification, an answer or the planner: whatever it would become
+        verdict = check(tools, request.text or "", self._CONSEQUENTIAL_EFFECTS)
+        if verdict is None:
+            return decision
+        if verdict["kind"] == "chat":
+            return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.7,
+                                 source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.SIMPLE,
+                                 normalized_text=decision.normalized_text, reason_code=ReasonCode.QUESTION_NOT_COMMAND)
+        return self._decision(request, RouteLane.REJECT, None, {"refused": verdict["reason"]}, verdict["question"],
+                              ReasonCode.POLICY_BLOCKED)
 
     _DEFINITION_Q = re.compile(
         r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:what(?:'s|\s+is|\s+are)\s+(?:a|an|the\s+point\s+of|meant\s+by)\b|which\s+.{1,40}\s+(?:is|are)\s+"
