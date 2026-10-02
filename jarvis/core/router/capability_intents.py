@@ -757,7 +757,7 @@ def _phone(t, raw, rid, mode):
         v = m.group("v") or m.group("v2") or "start"
         if m.group("v2") and not phone and not _phone_recording():
             return None                                      # "stop recording" with no phone recording: voice/dictation
-        if not phone and "phone" not in t and not _phone_recording():
+        if v in ("start", "begin") and not phone and "phone" not in t and not _phone_recording():
             return _clarify(rid, t, "I can record your phone's screen, but recording this PC's screen isn't something I can do. "
                                      "Say 'record my phone screen' if that's what you meant.")
         return _d(rid, t, "phone_op", {"action": "record", "op": "stop" if v in ("stop", "end", "finish") else "start"})

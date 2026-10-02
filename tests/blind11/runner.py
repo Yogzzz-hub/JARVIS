@@ -42,6 +42,7 @@ _SITE_SETUP = re.compile(r"\b(?:open|go\s+to|load|visit)\s+(?:the\s+)?(?P<page>[
 CHAT_INTENTS = {None, "", "chat", "general_chat", "ollama_chat", "quick_answer", "wake_greeting"}
 REAL_FILE_TOOLS = {"create_folder", "copy_file", "move_file", "rename_file", "delete_file", "compress_files", "read_file_metadata",
                    "list_directory"}
+CHAT_TOOLS = {"ollama_chat", "general_chat", "chat", "quick_answer"}
 REAL_BROWSER_TOOLS = {"browser_navigate", "browser_click", "browser_type", "browser_snapshot", "browser_open_url"}
 
 
@@ -186,6 +187,28 @@ def score_case(case: dict, out: dict, confirmation_seen: bool | None = None) -> 
     r["exact_semantic"] = exact
     r["intent_ok"] = outcome_ok and (cap_ok is not False)
     return r
+
+
+def auto_confirm_gate(case: dict, exec_spec: dict, last_turn: bool, pending: list, executed: list,
+                      earlier_confirmations: int) -> tuple[bool, dict]:
+    """May the harness say "yes" for the owner? Only to let an already-correct, sandboxed action really run so its
+    postcondition can be checked. A confirmation never rescues a wrong reading: the pending action is scored against
+    the oracle first, and any mismatch (tool, target, slots, scope, negation, forbidden action) is refused here."""
+    pend = [(t, a) for t, a, _how in pending]
+    pre = score_case(case, {"kind": "action", "calls": pend, "compound": len(pend) > 1}) if pend else None
+    checks = {
+        "1_oracle_expects_this_action": bool(case.get("should_act")) and case.get("outcome") == "action" and last_turn,
+        "2_tool_target_slots_already_match": bool(pre and pre["exact_semantic"] and pre["cap_ok"] and pre["slots_ok"]
+                                                  and not pre["forbidden_values_hit"]),
+        "3_oracle_requires_confirmation": case.get("confirmation") == "required",
+        "4_entirely_sandboxed": bool(pend) and (exec_spec or {}).get("kind") in ("file", "browser") and bool((exec_spec or {}).get("post"))
+                                and all(t in (REAL_FILE_TOOLS | REAL_BROWSER_TOOLS) for t, _a in pend),
+        "5_no_forbidden_capability": not (pre and pre["forbidden_cap_hit"])
+                                    and not any(t in (case.get("forbidden_capabilities") or []) for t, _a, *_ in executed),
+        "6_exactly_one_pending_confirmation": len(pend) == 1 and earlier_confirmations == 0,
+    }
+    ok = all(checks.values())
+    return ok, {"approved": ok, "checks": checks, "refused": [k for k, v in checks.items() if not v]}
 
 
 # ------------------------------------------------------------------------------------------------ run A
@@ -398,8 +421,10 @@ async def run_b(cases: list[dict], with_browser: bool = True) -> list[dict]:
             dec = decisions[-1] if decisions else None
             decisions.clear()
             last = i == len(c.get("context") or [])
-            approve = confirm and last and c.get("confirmation") == "required" and exec_spec.get("post") \
-                and pend_calls and all(t in (REAL_FILE_TOOLS | REAL_BROWSER_TOOLS) for t, _a, _h in pend_calls)
+            approve, gate = False, None
+            if confirm:
+                approve, gate = auto_confirm_gate(c, exec_spec, last, pend_calls, list(calls),
+                                                  sum(1 for t in turn_rows if t.get("confirm")))
             approved = None
             if approve:
                 # the owner says "yes" so the sandboxed action really runs and its postcondition can be checked;
@@ -417,11 +442,13 @@ async def run_b(cases: list[dict], with_browser: bool = True) -> list[dict]:
             turn_rows.append({"text": text, "state": state, "message": message,
                               "calls": (list(approved["calls"]) if approved else list(calls) + pend_calls),
                               "confirm": confirm, "approved_by_harness": approved is not None, "approved": approved,
+                              "auto_confirm_gate": gate,
                               "total_ms": total_ms, "metrics": metrics,
                               "decision": outcome_of_decision(dec) if dec is not None else None})
         final = turn_rows[-1]
         # outcome from what the service actually did
-        executed = [(t, a) for t, a, how in final["calls"]]
+        # an answer from the assistant (chat model, web answer) is a reply, not an action on the owner's things
+        executed = [(t, a) for t, a, how in final["calls"] if t not in CHAT_TOOLS]
         dec_out = final["decision"] or {"kind": "chat", "calls": [], "compound": False}
         if executed:
             out = {"kind": "control" if dec_out["kind"] == "control" else "action", "calls": executed,
@@ -439,8 +466,9 @@ async def run_b(cases: list[dict], with_browser: bool = True) -> list[dict]:
         ex = {"status": "not_applicable"}
         real_tools = [t for t, a, how in final["calls"] if how == "real"]
         if exec_spec.get("kind") == "file":
-            if real_tools:
-                ex = {"status": "checked", "checks": []}
+            if real_tools or not c.get("should_act"):
+                # an action that ran, or a case that must change nothing: the sandbox state is checked either way
+                ex = {"status": "checked" if real_tools else "checked_unchanged", "checks": []}
                 for chk in exec_spec.get("post", []):
                     if "exists" in chk:
                         ok = (home / chk["exists"]).exists()

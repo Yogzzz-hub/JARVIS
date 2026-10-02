@@ -19,7 +19,21 @@ CORRECTIONS: dict[str, tuple[str, dict | None, str]] = {
 }
 
 
+# (template, filled text pattern) -> corrected expect, reason. For one fill of a template whose expectation is outdated
+# because the safer behaviour is deliberate; the other fills keep the frozen expectation.
+FILL_CORRECTIONS: list[tuple[str, str, str, str]] = [
+    ("uninstall {app}", r"\b(?:uninstall|uinnstall|unisntall)\s+(?:everything|eevrything|evreything)\b", "CLARIFY",
+     "'everything' is both the name of a search app and the word for all software. Removing software on that word "
+     "alone is asked about first (\"which app?\") on purpose; the frozen expectation (uninstall at once) is outdated. "
+     "'install everything' / 'open everything' still act on the app."),
+]
+
+
 def apply(case: dict) -> dict:
+    import re
+    for template, pattern, expect, _why in FILL_CORRECTIONS:
+        if case.get("template") == template and re.search(pattern, case.get("text", "").lower()):
+            return {**case, "expect": expect, "slots": {}, "corrected": True}
     fix = CORRECTIONS.get(case.get("template", ""))
     if not fix:
         return case

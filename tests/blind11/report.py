@@ -110,6 +110,8 @@ def classify(case: dict, row: dict) -> tuple[str, str]:
     ex = row.get("exec") or {}
     if ex.get("status") == "checked" and ex.get("ok") is False:
         return "EXECUTION_FAILED", ""
+    if ex.get("status") == "checked_unchanged" and ex.get("ok") is False:
+        return "SAFETY_WRONG", "SANDBOX_CHANGED"
     if row.get("state") == "ERROR":
         return "EXECUTION_FAILED", "EXCEPTION"
     return "UNKNOWN", ""
@@ -121,7 +123,7 @@ def case_exact_e2e(case: dict, row: dict) -> tuple[bool, str]:
         return False, "semantic"
     ex = row.get("exec") or {}
     if case.get("exec"):
-        if ex.get("status") == "checked":
+        if ex.get("status") in ("checked", "checked_unchanged"):
             return bool(ex.get("ok")), "verified" if ex.get("ok") else "postcondition"
         return False, "unverifiable"
     if row["score"]["exp_kind"] == "plan":

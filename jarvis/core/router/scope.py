@@ -149,7 +149,8 @@ def check_interaction(intent: str, slots: dict, text: str) -> Optional[dict]:
                            "yourself.", "payment")
         if _MASS_DELETE.search(targets) or _MASS_DELETE.search(low):
             return _verdict("That button deletes things in bulk - I won't press it for you. Press it yourself if you're sure.")
-        if targets and _VAGUE_TARGET.match(targets):
+        typing_here = str((slots or {}).get("action") or "") in ("type", "fill", "write") or bool(typed)
+        if targets and _VAGUE_TARGET.match(targets) and not typing_here:   # "type hello in this field": the focused one
             return _verdict("Which one should I click? Tell me its label or what it looks like.")
     if intent in ("send_whatsapp_message", "reply_whatsapp_message", "send_whatsapp_bulk", "localsend_text", "gmail_create_draft",
                   "reply_whatsapp_all", "deliver_op") \
