@@ -1111,7 +1111,7 @@ class CommandService:
             app = ""
             if tool == "open_app" and len(steps) == 1:
                 app = str(data.get("requested") or args.get("name") or "")
-            co.record(text, tool, args, app=app)
+            co.record(text, tool, args, app=app, pending=bool(data.get("confirmation_required")))
 
     def _log_action(self, task, state, message, tool_result) -> None:
         """Remember what was actually done, for follow-ups ("who did you send that to?") and the chat model."""

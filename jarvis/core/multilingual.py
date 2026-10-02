@@ -27,7 +27,7 @@ REPLY_LANGUAGE: ContextVar[str] = ContextVar("reply_language", default=ENGLISH)
 _STATE = Path(__file__).resolve().parents[2] / "data" / "language.json"
 
 # Verbs and particles that only occur in Thanglish commands (added to the WhatsApp detector's Tamil lexicon).
-_COMMAND_WORDS = frozenset("""paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
+_COMMAND_WORDS = frozenset("""ellaa ellam ellame ellathaiyum ellathayum paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
 anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thora thorakku thiranthu edu eduthu edunga
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
 sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu
@@ -152,6 +152,8 @@ def to_english_command(text: str) -> str:
         return text
     body = re.sub(_P_END + "$", "", t).strip()
     body = re.sub(r"(?:^|\s+)konjam\b\s*", " ", body).strip()
+    # "ellaa files um", "ellam photos yum": all of them
+    body = re.sub(r"\b(?:ellaa|ella|ellam|ellame|ellathaiyum|ellathayum|motham)\s+(\w+)(?:\s+(?:um|yum|vum))?\b", r"all \1", body)
     # the object marker after the thing named first: "volume ah 48 ku vai", "chrome ah open pannu"
     body = re.sub(r"^(\S+(?:\s+\S+)?)\s+(?:ah|aa|ai|a)\s+(?=\S)", r"\1 ", body)
 
@@ -227,7 +229,15 @@ def to_english_command(text: str) -> str:
         if re.fullmatch(pat, body):
             return eng
 
+    # a channel said first: "whatsapp la priya ku hi anuppu" (also "whatsap", "wa")
+    channel = re.match(r"^(?:whats?\s*app?|whatsap|watsapp|wa)\s+(?:la|le|il|lla|vazhiya|mela|moolama)\s+", body)
+    if channel:
+        body = body[channel.end():]
     # messages: "amma ku late aagum nu message anuppu", "arun kitta naan varala nu sollu"
+    m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku|kitta)\s+(?P<msg>(?:\S+\s+){0,5}?\S+)\s+(?:" + _SEND + ")", body)
+    if m and not re.search(r"\b(?:nu|apdinu|endru|nnu)\b", m.group("msg")):
+        # "priya ku hi anuppu": a short message without the quotative "nu"
+        return f"send a message to {keep(m.group('who').strip())} saying {keep(m.group('msg').strip())}"
     m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku|kitta)\s+(?P<msg>.+?)\s+(?:nu|apdinu|endru|nnu)\s+"
                      r"(?:(?:whatsapp\s+)?(?:message|msg|text)\s+)?(?:" + _SEND + "|" + _TELL + ")", body)
     if m:

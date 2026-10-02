@@ -243,7 +243,7 @@ class SmartRouter:
             said = self._semantic_policy(request, said)
             self._record(said)
             return said
-        decision = self._domain_first(request) or await self._route(request)
+        decision = self._domain_first(request) or self._typed_removal(request) or await self._route(request)
         decision = await self._tell_me(request, decision)
         decision = self._sanity(decision, request.text or "")
         decision = await self._last_clause(request, decision)
@@ -254,6 +254,8 @@ class SmartRouter:
         decision = self._plausible(request, decision)
         decision = self._broad_scope(request, decision)
         decision = self._constraints(request, decision, prohibited)
+        decision = self._coordinate(request, decision)
+        decision = self._typed_slots(decision)
         return self._check_frame_safety(self._semantic_policy(request, decision), request.text or "")
 
     _PROHIBITED_EFFECT = {
@@ -330,6 +332,81 @@ class SmartRouter:
                                   f"I can't leave out {', '.join(excluded)} with that in one go - tell me what exactly to do.",
                                   ReasonCode.MISSING_REQUIRED_SLOT)
         return decision.model_copy(update={"slots": slots})
+
+    _REMOVE_VERB = r"(?:delete|remove|erase|trash|bin|discard|throw\s+(?:away|out)|get\s+rid\s+of|dump|junk|toss|scrap|clear\s+out)"
+
+    def _typed_removal(self, request: CommandRequest) -> RouteDecision | None:
+        """A removal whose object is a FILE or FOLDER (typed, see semantics.resources) is a file delete, whatever verb
+        says it: "get rid of old_log.log in my downloads", "bin the old screenshot", "I don't need setup.exe anymore".
+        Apps, history, messages ... are not files and go to their own matchers. The delete is still scope-checked,
+        resolved and confirmed downstream."""
+        from jarvis.core.semantics.constraints import extract_exclusions
+        from jarvis.core.semantics.resources import FILE, FOLDER, ROOT, parse_path_ref
+        t = " ".join((request.text or "").lower().split()).strip(" .!?")
+        t = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*|please\s+|can\s+you\s+|could\s+you\s+)+", "", t)
+        positive, _excluded = extract_exclusions(t)
+        m = re.match(rf"^{self._REMOVE_VERB}\s+(?P<x>.+)$", positive) \
+            or re.match(r"^(?:i\s+)?(?:don'?t|do\s+not|no\s+longer)\s+need\s+(?P<x>.+?)(?:\s+any\s*more|\s+now)?$", positive) \
+            or re.match(r"^(?P<x>.+?)\s+(?:is|are)\s+(?:not\s+needed|no\s+longer\s+needed|useless|junk)(?:\s+any\s*more)?$", positive)
+        if not m:
+            return None
+        obj = re.sub(r"\s+(?:from|off)\s+(?:my|this|the)\s+(?:pc|laptop|computer|system|machine)$", "", m.group("x")).strip()
+        if not re.search(r"\.[a-z0-9]{1,5}\b", obj) and re.search(r"\b(?:app|application|program|software|browser\s+history|history|cookies|cache|messages?|chats?|"
+                     r"e-?mails?|contacts?|reminders?|notes?|tabs?|bookmarks?|passwords?|attachments?|rows?|columns?|lines?|"
+                     r"paragraphs?|words?|sentences?|text|formatting|highlights?|filters?|watermark|background|border|links?|"
+                     r"items?|from\s+(?:the|this|my)\s+(?:cart|list|email|mail|message|document|doc|slide|sheet|page))\b", obj):
+            return None
+        ref = parse_path_ref(obj)
+        if ref.kind == ROOT:
+            return self._decision(request, RouteLane.REJECT, None, {"refused": "root_target"},
+                                  f"I won't delete your whole {ref.name} - tell me the file or folder inside it.",
+                                  ReasonCode.POLICY_BLOCKED)
+        if ref.kind not in (FILE, FOLDER) or (ref.kind == FOLDER and not ref.parent and not re.search(r"\bfolder\b", obj)):
+            return None
+        return self._decision(request, RouteLane.LANE_0, "delete_file", {"path": ref.slot})
+
+    @staticmethod
+    def _typed_slots(decision: RouteDecision) -> RouteDecision:
+        """Typed slot values: an event's duration is a number of minutes, not words left inside its time."""
+        if decision.intent != "calendar_create_event" or not isinstance((decision.slots or {}).get("when"), str):
+            return decision
+        from jarvis.core.semantics.constraints import normalize_event_time
+        when, minutes = normalize_event_time(decision.slots["when"])
+        slots = {**decision.slots, "when": when}
+        if minutes:
+            slots["duration_minutes"] = minutes
+        return decision.model_copy(update={"slots": slots})
+
+    _LISTABLE = {"install_software": "name", "uninstall_software": "name", "update_software": "name", "open_app": "name",
+                 "close_app": "name"}
+
+    def _coordinate(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """Coordinated objects are separate actions: "install vscode and git" is two installs, "send Priya hi and Karthik
+        bye" two messages - never one install of "vscode and git" or one message "hi and Karthik bye"."""
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or decision.subcommands or not decision.intent:
+            return decision
+        slots = dict(decision.slots or {})
+        steps: list[SubCommand] = []
+        key = self._LISTABLE.get(decision.intent)
+        if key and isinstance(slots.get(key), str):
+            parts = [p.strip() for p in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*", slots[key]) if p.strip()]
+            if 2 <= len(parts) <= 5 and all(len(p.split()) <= 3 for p in parts) \
+                    and not any(re.search(r"\b(?:then|also|after|everything|all|it|them|that)\b", p, re.I) for p in parts):
+                steps = [SubCommand(intent=decision.intent, tool=decision.intent, arguments={**slots, key: p}) for p in parts]
+        if decision.intent == "send_whatsapp_message" and isinstance(slots.get("message"), str):
+            from jarvis.core.router.capability_intents import _person
+            m = re.match(r"^(?P<m1>.+?)\s+and\s+(?:to\s+)?(?P<who>[A-Za-z][\w'-]{1,20})\s+(?P<m2>\S.*)$", slots["message"])
+            if m and m.group("who")[:1].isupper() and _person(m.group("who"), request.text or "") \
+                    and len(m.group("m1").split()) <= 6:
+                steps = [SubCommand(intent="send_whatsapp_message", tool="send_whatsapp_message",
+                                    arguments={**slots, "message": m.group("m1").strip()}),
+                         SubCommand(intent="send_whatsapp_message", tool="send_whatsapp_message",
+                                    arguments={**slots, "recipient": m.group("who"), "message": m.group("m2").strip()})]
+        if not steps:
+            return decision
+        return decision.model_copy(update={"intent": "compound", "slots": {"steps": [s.tool for s in steps]},
+                                           "complexity": ComplexityLevel.COMPOUND, "subcommands": steps,
+                                           "reason_code": ReasonCode.COMPOUND_COMMAND})
 
     _CONSEQUENTIAL_EFFECTS = frozenset({"delete_file", "move_file", "rename_file", "batch_rename", "uninstall_software",
                                         "empty_recycle_bin", "install_software", "update_software", "system_power_control",
@@ -729,6 +806,12 @@ class SmartRouter:
         understood, the command after a leading remark is. Only an action found that way is taken."""
         weak = decision.lane in (RouteLane.LANE_2, RouteLane.CLARIFY) and decision.reason_code != ReasonCode.QUESTION_NOT_COMMAND \
             and not (decision.slots or {}).get("deliberate_plan")   # a branch / parallel request planned on purpose
+        # a whole-sentence match found only by capability retrieval (scoring words, no pattern) is weak too: "i'm done for
+        # the night, power the system off" scored as system info; the command after the remark is the request
+        retrieved = decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and "capability_retrieval_ms" in (decision.breakdown_ms or {}) \
+            and not decision.subcommands
+        only_retrieved = retrieved and not weak
+        weak = weak or retrieved
         if not weak or _IN_CLAUSE.get():
             return decision
         m = self._REMARK_THEN_COMMAND.match(clean_for_matching(request.text or "").strip())
@@ -746,7 +829,8 @@ class SmartRouter:
                 and first.intent not in ("chat", "general_chat", "ollama_chat", "quick_answer", "search_web"):
             return decision   # "close chrome, then lock the pc": the first part is a step too, never dropped
         if inner.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and inner.intent and not inner.subcommands \
-                and inner.intent not in self._SEND_INTENTS and not (inner.slots or {}).get("pronoun"):
+                and inner.intent not in self._SEND_INTENTS and not (inner.slots or {}).get("pronoun") \
+                and not (only_retrieved and ("capability_retrieval_ms" in (inner.breakdown_ms or {}) or inner.intent == decision.intent)):
             return inner
         return decision
 

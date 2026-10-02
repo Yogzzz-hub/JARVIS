@@ -67,8 +67,6 @@ def canonicalize(text: str) -> str:
     if m and m.group("p") not in ("me", "it", "this", "that", "them"):
         i = raw.lower().find(m.group("m"))
         return f"draft an email to {m.group('p')} saying {raw[i:i + len(m.group('m'))] if i >= 0 else m.group('m')}"
-    if _CONTENT.match(t):
-        return raw
     # "tell me where temp_test.txt is", "where did i save my resume pdf": locating one of the owner's files is a file search;
     # "where is chennai" stays a question (only a file-like object - extension or file word - is searched for)
     m = re.match(r"^(?:(?:can\s+you\s+)?(?:tell|show)\s+me\s+|do\s+you\s+know\s+|any\s+idea\s+)?where\s+"
@@ -79,6 +77,22 @@ def canonicalize(text: str) -> str:
         from jarvis.core.semantics.resources import FILE, FOLDER, parse_path_ref
         if obj and parse_path_ref(obj).kind in (FILE, FOLDER) and len(obj.split()) <= 6:
             return f"find {obj}"
+    # "write back to vignesh telling him the notes are in the drive", "get back to priya saying ok": a reply
+    m = re.match(r"^(?:write|get|text|message|reply|respond|answer)\s+back\s+to\s+(?P<p>[a-z][\w'-]{1,20})\s+(?:telling|saying|to\s+say|"
+                 r"that|and\s+(?:tell|say))\s+(?:(?:him|her|them)\s+)?(?:that\s+)?(?P<m>\S.*)$", t)
+    if m:
+        i = raw.lower().find(m.group("m"))
+        j = raw.lower().find(m.group("p"))
+        who = raw[j:j + len(m.group("p"))] if j >= 0 else m.group("p")
+        return f"reply to {who} saying {raw[i:i + len(m.group('m'))] if i >= 0 else m.group('m')}"
+    # "kavya's been waiting on my reply since morning": the owner owes a reply - draft it (sending is still confirmed)
+    m = re.match(r"^(?P<p>[a-z][\w-]{1,20})(?:'s|\s+has|\s+is|\s+have)\s+(?:been\s+)?waiting\s+(?:on|for)\s+(?:my\s+|a\s+)?"
+                 r"(?:reply|response|answer|message)\b", t)
+    if m and m.group("p") not in ("he", "she", "it", "who", "everyone", "someone", "that", "this", "there"):
+        j = raw.lower().find(m.group("p"))
+        return f"reply to {raw[j:j + len(m.group('p'))] if j >= 0 else m.group('p')}"
+    if _CONTENT.match(t):
+        return raw
     # speech recognition often hears "open" as "on": "on calculator on chrome", "on notepad"
     m = re.match(r"^on\s+(?P<rest>[a-z][\w .+-]*)$", t)
     if m and (_known_app(re.split(r"\s+(?:on|in)\s+", m.group("rest"))[0].strip())

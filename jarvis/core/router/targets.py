@@ -106,7 +106,8 @@ _SENTENCE_SLOTS = {"save_workspace": "name", "launch_workspace": "name", "create
 
 _CHANGE_VERB = re.compile(r"^(?:(?:please|now|then|and|also|just|jarvis|hey\s+jarvis|can\s+you|could\s+you)[\s,]+)*"
                           r"(?P<v>create|schedule|book|draft|compose|attach|upload|paste|insert|install|uninstall|delete|remove|"
-                          r"rename|move|copy|save|store|submit|post|publish|reply|forward)\b(?!\s+(?:on|along|ahead|me\b))", re.I)
+                          r"rename|move|copy|save|store|submit|post|publish|reply|forward|make\s+(?:it|that|this)\s+(?!louder|quieter|"
+                          r"brighter|dimmer|bigger|smaller|full)|extend|shorten|reschedule|postpone)\b(?!\s+(?:on|along|ahead|me\b))", re.I)
 
 
 _READER = re.compile(r"^(?:get|read|list|check|find|search|show|recall|describe|summari[sz]e|diagnose|system_info|top_|connected|"
@@ -133,7 +134,8 @@ _GIVE = r"send|push|put|share|transfer|copy|move|throw|toss|chuck|fling|sling|dr
 _CONSEQUENTIAL_VERBS = {
     "close_window": r"close|closing|quit|exit|shut|kill|terminate|end|dismiss|stop|x\s+out|get\s+rid\s+of",
     "close_app": r"close|closing|quit|exit|shut|kill|terminate|end|dismiss|stop|x\s+out|get\s+rid\s+of",
-    "delete_file": r"delete|remove|erase|trash|bin|get\s+rid\s+of|wipe|clear|discard|destroy|scrap",
+    "delete_file": r"delete|remove|erase|trash|bin|get\s+rid\s+of|wipe|clear|discard|destroy|scrap|throw\s+(?:away|out)|toss|junk|"
+                   r"dump|(?:don'?t|do\s+not|no\s+longer)\s+need|not\s+needed",
     "empty_recycle_bin": r"(?:empty|clear|purge|clean|wipe|delete|flush)\b.*\b(?:recycle|bin|trash)",
     "move_file": r"move|put|drop|relocate|transfer|shift|file\s+(?:it|this|that)|organi[sz]e",
     "rename_file": r"rename|re-name|call|name|retitle|change\s+(?:the\s+|its\s+|it'?s\s+)?(?:file\s*)?name|(?:give|set)\s+"

@@ -170,3 +170,48 @@ def analyse(text: str) -> Constraints:
     t, proh = prohibitions(t)
     t, exc = extract_exclusions(t)
     return Constraints(t, exc, proh, sup)
+
+
+_WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_DUR_NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "ten": 10, "fifteen": 15, "twenty": 20,
+            "thirty": 30, "forty": 40, "forty five": 45, "fortyfive": 45, "ninety": 90, "half": 0.5, "half an": 0.5}
+
+
+def _edit1(a: str, b: str) -> int:
+    """Small Levenshtein distance (enough for spoken / typed weekday slips)."""
+    if abs(len(a) - len(b)) > 2:
+        return 3
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def normalize_event_time(when: str) -> tuple[str, int | None]:
+    """'on friday at 11 for 30 minutes' -> ('on friday at 11', 30); 'at 3 pm wenesday' -> ('at 3 pm wednesday', None)."""
+    w = " ".join((when or "").split())
+    minutes = None
+    m = re.search(r"\s*,?\s*\bfor\s+(?P<n>\d+(?:\.\d+)?|an?|one|two|three|four|five|six|ten|fifteen|twenty|thirty|forty(?:\s+five)?|"
+                  r"ninety|half(?:\s+an)?)\s*(?P<u>minutes?|mins?|hours?|hrs?|h)\b(?:\s+long)?", w, re.I)
+    if m:
+        n = m.group("n").lower()
+        val = float(n) if re.match(r"\d", n) else float(_DUR_NUM.get(n, 0))
+        unit = m.group("u").lower()
+        minutes = int(round(val * 60)) if unit.startswith(("h", "hr")) else int(round(val))
+        w = (w[:m.start()] + w[m.end():]).strip(" ,")
+    else:
+        m = re.search(r"\s*,?\s*\bfor\s+half\s+an\s+hour\b", w, re.I)
+        if m:
+            minutes, w = 30, (w[:m.start()] + w[m.end():]).strip(" ,")
+
+    def fix(mm):
+        word = mm.group(0)
+        if word.lower() in _WEEKDAYS:
+            return word
+        best = min(_WEEKDAYS, key=lambda d: _edit1(word.lower(), d))
+        return best if _edit1(word.lower(), best) <= 2 and word[:2].lower() == best[:2] else word
+    w = re.sub(r"\b[a-z]{5,10}day\b|\b(?:wenesday|wensday|wednsday|thrusday|thurday|tusday|teusday|saterday|satuday|fryday)\b", fix, w, flags=re.I)
+    return w, (minutes if minutes and minutes > 0 else None)

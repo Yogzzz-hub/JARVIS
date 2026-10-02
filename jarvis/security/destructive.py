@@ -44,6 +44,12 @@ def check_destructive_target(tool: str, args: dict[str, Any]) -> Optional[Target
     if not raw:
         return TargetCheck("NOT_FOUND", args, "Which file or folder exactly? Tell me its name.")
     ref = parse_path_ref(raw)
+    p0 = Path(os.path.expanduser(raw))
+    if p0.is_absolute() and not p0.exists():
+        # an absolute path that does not exist: its last part is the name, its folder (if a known one) the parent
+        from jarvis.core.semantics.resources import PathRef, _known, _item
+        parent = _known(p0.parent.name)
+        ref = _item(p0.name, parent, raw) if parent else _item(p0.name, None, raw)
     if ref.kind == ROOT:
         return TargetCheck("BLOCKED_BY_POLICY", args, f"I won't {tool.split('_')[0]} your whole {ref.name} - tell me the file or "
                                                       "folder inside it.")

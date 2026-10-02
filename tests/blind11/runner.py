@@ -115,8 +115,14 @@ def value_matches(actual, acceptable: list) -> bool:
     return False
 
 
+# arguments that carry a negative constraint: a forbidden value there is the constraint being honoured, not used
+# (harness correction after Blind-11: "except Arun" passed as exclude=['Arun'] had been counted as using Arun)
+_CONSTRAINT_ARGS = {"exclude", "except", "excluded", "qualifiers", "request", "prohibited"}
+
+
 def all_arg_text(calls) -> str:
-    return " | ".join(norm(v) for _, args in calls for v in (args or {}).values() if v not in (None, "", [], {}))
+    return " | ".join(norm(v) for _, args in calls for k, v in (args or {}).items()
+                      if v not in (None, "", [], {}) and k not in _CONSTRAINT_ARGS)
 
 
 def score_case(case: dict, out: dict, confirmation_seen: bool | None = None) -> dict:
@@ -428,7 +434,9 @@ async def run_b(cases: list[dict], with_browser: bool = True) -> list[dict]:
             if router_confirm and dec_now.intent:
                 pend_calls = [(dec_now.intent, dict(dec_now.slots or {}), "pending")]
             if confirm and pending.get("tool") is not None:
-                pend_calls = [(pending["tool"].definition.name, dict(pending.get("arguments") or {}), "pending")]
+                args0 = pending.get("arguments")   # bound to the resolved target by the executor before it asked
+                args0 = args0.model_dump() if hasattr(args0, "model_dump") else dict(args0 or {})
+                pend_calls = [(pending["tool"].definition.name, args0, "pending")]
             elif confirm and pending.get("graph") is not None:
                 pend_calls = [(n.tool, dict(n.arguments or {}), "pending") for n in getattr(pending["graph"], "nodes", []) if getattr(n, "tool", None)]
             dec = decisions[-1] if decisions else None

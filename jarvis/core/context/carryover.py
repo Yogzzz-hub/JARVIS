@@ -78,6 +78,7 @@ class Turn:
     slots: dict[str, Any]
     at: float = field(default_factory=time.monotonic)
     wall: float = field(default_factory=time.time)
+    pending: bool = False          # waiting for the owner's yes - not done yet
 
     def target(self) -> tuple[str, str] | None:
         for key in _TARGET_KEYS:
@@ -93,10 +94,10 @@ class CarryOver:
         self.apps: list[str] = []          # apps opened in this conversation, oldest first, closed ones removed
 
     # ---------------------------------------------------------------- recording
-    def record(self, text: str, tool: str, slots: dict[str, Any] | None, app: str = "") -> None:
+    def record(self, text: str, tool: str, slots: dict[str, Any] | None, app: str = "", pending: bool = False) -> None:
         if not text or not tool or tool in ("clarify", "recent_actions", "command_history"):
             return
-        self.turns.append(Turn(" ".join(text.split()), tool, dict(slots or {})))
+        self.turns.append(Turn(" ".join(text.split()), tool, dict(slots or {}), pending=pending))
         del self.turns[:-8]
         name = (app or (slots or {}).get("name") or "").strip()
         if tool == "open_app" and name:
@@ -114,10 +115,12 @@ class CarryOver:
     def rewrite(self, text: str) -> str | None:
         """The complete command a follow-up stands for, or None when it is not a follow-up this can resolve."""
         t = _clean(text)
+        self._raw = " ".join((text or "").split())
         if not t or len(t.split()) > 10:
             return None
         last = self.last()
-        for step in (self._additive, self._ordinal, self._resend, self._pronoun, self._number, self._relative, self._new_target):
+        for step in (self._event_change, self._additive, self._ordinal, self._resend, self._person, self._pronoun, self._number,
+                     self._relative, self._new_target):
             out = step(t, last)
             if out:
                 return out
@@ -216,6 +219,46 @@ class CarryOver:
             if re.match(r"^(?:open|show|launch|run|view)\s+(?:me\s+)?(?:it|that|this|(?:the|that|this)\s+(?:file|pdf|document|doc|image|photo|picture|spreadsheet|sheet|video|one))(?:\s+file)?(?:\s+up)?$", t):
                 return f"open {value}"
         return None
+
+    _PERSON_TOOLS = ("read_whatsapp_messages", "summarize_whatsapp_messages", "send_whatsapp_message", "reply_whatsapp_message",
+                     "contact_info", "android_dial", "phone_call", "gmail_list_recent", "gmail_create_draft", "whatsapp_summary")
+    _PERSON_KEYS = ("recipient", "contact", "sender", "person", "to", "from", "who", "name")
+
+    def _person(self, t: str, last: Turn | None) -> str | None:
+        """Typed reference: 'reply to her saying congratulations' right after 'show me messages from Deepa' -> Deepa.
+        Only a person pronoun, only to the person of the immediately preceding person-typed turn (the active thread) -
+        never an older one, never by recency across types. The send is still confirmed with the name spelled out."""
+        if last is None or last.tool not in self._PERSON_TOOLS:
+            return None
+        who = next((str(last.slots[k]).strip() for k in self._PERSON_KEYS
+                    if isinstance(last.slots.get(k), str) and str(last.slots[k]).strip()
+                    and not re.fullmatch(r"(?:all|everyone|me|unread|any|someone|group)", str(last.slots[k]).strip(), re.I)), "")
+        if not who:
+            return None
+        pron = r"(?:him|her|them|avan(?:ukku|uku|ku)?|aval(?:ukku|uku|ku)?|avanga(?:ukku|lukku|ku)?|avaru(?:kku)?)"
+        m = re.match(rf"^(?P<v>(?:reply|respond|write\s+back|answer)\s+to|message|text|whatsapp|send|ping|tell|call|ring|dial|"
+                     rf"email|mail|remind)\s+{pron}\b(?P<rest>.*)$", t)
+        if not m:
+            return None
+        rest = m.group("rest")
+        i = self._raw.lower().rfind(rest.strip().lower()) if rest.strip() else -1
+        if i >= 0:
+            rest = (" " if rest.startswith(" ") else "") + self._raw[i:i + len(rest.strip())]   # the message as said
+        return f"{m.group('v')} {who.title() if who.islower() else who}{rest}"
+
+    @staticmethod
+    def _event_change(t: str, last: Turn | None) -> str | None:
+        """'make it an hour long instead' while the event just proposed still waits for a yes -> the same event with the
+        new length. Never after it was created (there is no calendar update tool, so that would duplicate it)."""
+        if last is None or last.tool != "calendar_create_event" or not last.pending:
+            return None
+        m = re.match(r"^(?:no\s*,?\s+|actually\s*,?\s+)?(?:make|change|set)\s+(?:it|that|the\s+(?:event|meeting|call))\s+(?:to\s+)?"
+                     r"(?P<d>(?:an?|one|two|three|half\s+an|\d+(?:\.\d+)?)\s*(?:hours?|hrs?|minutes?|mins?))(?:\s+long)?(?:\s+instead)?$", t)
+        if not m:
+            return None
+        base = re.sub(r"\s+for\s+(?:an?|one|two|three|half\s+an|\d+(?:\.\d+)?)\s*(?:hours?|hrs?|minutes?|mins?)\b", "", last.text)
+        base = re.sub(r"\s+to\s+my\s+calendar$", "", base)
+        return f"{base} for {m.group('d')}"
 
     @staticmethod
     def _number(t: str, last: Turn | None) -> str | None:

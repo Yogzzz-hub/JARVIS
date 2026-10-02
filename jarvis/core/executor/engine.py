@@ -134,11 +134,18 @@ class ExecutionEngine:
                 )
             arg_dict = target_check.args
             if hasattr(definition, "input_model") and hasattr(arguments, "model_dump"):
-                try:   # the tool runs on exactly the target that was resolved, validated and (if needed) confirmed
-                    fields = set(getattr(definition.input_model, "model_fields", {}) or {})
-                    arguments = definition.input_model.model_validate({k: v for k, v in arg_dict.items() if k in fields})
+                # the tool runs on exactly the target that was resolved, validated and (if needed) confirmed; the
+                # caller's own argument object is updated too, so a pending confirmation holds the bound target
+                fields = set(getattr(definition.input_model, "model_fields", {}) or {})
+                try:
+                    for k, v in arg_dict.items():
+                        if k in fields and getattr(arguments, k, None) != v:
+                            setattr(arguments, k, v)
                 except Exception:
-                    pass
+                    try:
+                        arguments = definition.input_model.model_validate({k: v for k, v in arg_dict.items() if k in fields})
+                    except Exception:
+                        pass
 
         # 1. Policy Evaluation
         policy_decision = self.policy_evaluator.evaluate_node(
