@@ -42,6 +42,10 @@ _SITE_SETUP = re.compile(r"\b(?:open|go\s+to|load|visit)\s+(?:the\s+)?(?P<page>[
 CHAT_INTENTS = {None, "", "chat", "general_chat", "ollama_chat", "quick_answer", "wake_greeting"}
 REAL_FILE_TOOLS = {"create_folder", "copy_file", "move_file", "rename_file", "delete_file", "compress_files", "read_file_metadata",
                    "list_directory"}
+# Draft tools: in production they return a draft plus a send step that the policy confirms (EXTERNAL_EFFECT). A recorder
+# standing in for them returns no send step, so their confirmation is counted from the tool itself (harness correction
+# after Blind-11, see docs/BLIND11_ORACLE_ERRATA.md).
+DRAFT_THEN_CONFIRM = {"reply_whatsapp_message", "reply_whatsapp_all"}
 CHAT_TOOLS = {"ollama_chat", "general_chat", "chat", "quick_answer"}
 REAL_BROWSER_TOOLS = {"browser_navigate", "browser_click", "browser_type", "browser_snapshot", "browser_open_url"}
 
@@ -64,6 +68,10 @@ def outcome_of_decision(d) -> dict:
         calls = [(s.tool, dict(s.arguments or {})) for s in d.subcommands]
     if lane == RouteLane.REJECT:
         kind = "refuse"
+    elif lane == RouteLane.CLARIFY and getattr(d, "state", "") == "NEEDS_CONFIRMATION" and d.intent:
+        # the action and its target are decided; the router asks the owner's yes itself (NEEDS_CONFIRMATION is not
+        # an ambiguity)
+        kind, calls = "action", [(d.intent, {k: v for k, v in (d.slots or {}).items() if k != "qualifiers"})]
     elif lane == RouteLane.CLARIFY:
         kind = "clarify"
     elif lane == RouteLane.CONTROL:
@@ -78,7 +86,7 @@ def outcome_of_decision(d) -> dict:
             kind, calls = "action", [(d.intent, {k: v for k, v in (d.slots or {}).items() if k != "qualifiers"})]
     else:   # LANE_2
         kind = "chat" if (d.reason_code == ReasonCode.QUESTION_NOT_COMMAND or not d.needs_planner) else "plan"
-    return {"kind": kind, "calls": calls, "lane": lane.value, "intent": d.intent,
+    return {"kind": kind, "calls": calls, "lane": lane.value, "intent": d.intent, "state": getattr(d, "state", ""),
             "clarification": d.clarification or "", "compound": bool(d.subcommands)}
 
 
@@ -412,8 +420,13 @@ async def run_b(cases: list[dict], with_browser: bool = True) -> list[dict]:
                 state, message, metrics = "ERROR", f"{type(e).__name__}: {e}", {}
             total_ms = (time.perf_counter() - t0) * 1000
             pending = getattr(h.service, "_pending_execution", None) or {}
-            confirm = state == "WAITING_CONFIRMATION"
+            dec_now = decisions[-1] if decisions else None
+            router_confirm = dec_now is not None and getattr(dec_now, "state", "") == "NEEDS_CONFIRMATION"
+            confirm = state == "WAITING_CONFIRMATION" or router_confirm \
+                or any(t in DRAFT_THEN_CONFIRM and how == "recorded" for t, _a, how in calls)
             pend_calls = []
+            if router_confirm and dec_now.intent:
+                pend_calls = [(dec_now.intent, dict(dec_now.slots or {}), "pending")]
             if confirm and pending.get("tool") is not None:
                 pend_calls = [(pending["tool"].definition.name, dict(pending.get("arguments") or {}), "pending")]
             elif confirm and pending.get("graph") is not None:

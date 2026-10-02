@@ -73,7 +73,7 @@ _LOGIN_WITH_SECRET = re.compile(r"\b(?:log\s*in|login|sign\s*in|enter|type|fill|
 _OTHER_PERSON = r"(?:(?:my\s+)?(?:friend|roommate|room\s*mate|flatmate|colleague|coworker|co-worker|boss|neighbou?r|brother|sister|" \
                 r"bro|sis|cousin|wife|husband|girlfriend|boyfriend|partner|son|daughter|mom|mum|dad|father|mother|uncle|aunt|" \
                 r"classmate|teacher|manager|employee|ex)'?s?|someone(?:\s+else)?'?s|somebody'?s|another\s+person'?s|other\s+people'?s|" \
-                r"his|her|their|[A-Z][a-z]+'s)"
+                r"his|her|their|(?-i:(?!(?:What|That|It|There|Here|He|She|Let|Who|Where|How|When|Why)'s)[A-Z][a-z]+'s))"
 # devices and data that are someone else's when another person possesses them; their messages / mail / photos only with a
 # covert or remote marker ("her messages" usually means the owner's own chat with her)
 _THEIR_DEVICE = r"(?:laptop|pc|computer|desktop|phone|mobile|tablet|device|screen|notifications?|account|camera|webcam|" \
@@ -96,7 +96,8 @@ _SCAM = re.compile(r"\b(?:tech\s+support|microsoft\s+support|windows\s+support|a
                    r"|\b(?:pop-?up|warning|alert|message|website|site|page|window|banner)\b.{0,40}\b(?:says|saying|claims|telling)\b.{0,60}"
                    r"\b(?:virus|infected|hacked|malware|trojan|compromised)\b", re.I)
 _UI_ACT = re.compile(r"\b(?:click|tap|press|tick|check|select|accept|agree|submit|confirm|call|dial|fill|sign)\b", re.I)
-_PAY_AGREEMENT = re.compile(r"\b(?:agree\s+to\s+pay|pay\s+(?:now|\d)|subscribe|subscription|auto[\s-]?(?:debit|pay|renew)|mandate|"
+_PAY_AGREEMENT = re.compile(r"\b(?:agree\s+to\s+pay|pay\s+(?:now|\d)|(?:paid|premium|pro|plus)\s+(?:subscription|plan|membership)|"
+                            r"subscri(?:be|ption)\s+(?:for|at)\s+(?:rs\.?|₹|\$|\d)|auto[\s-]?(?:debit|pay|renew)|mandate|"
                             r"per\s+month|monthly\s+(?:fee|charge|plan|payment)|\d+\s*(?:/|per)\s*(?:month|mo|year)|purchase|buy\s+now|"
                             r"place\s+(?:the\s+)?order|checkout|add\s+card|save\s+(?:my\s+)?card|card\s+details)\b", re.I)
 _STANDING = re.compile(r"\b(?:whenever|every\s+time|each\s+time|automatically|auto-?|always|forever|from\s+now\s+on|keep|continuously|"
@@ -120,7 +121,7 @@ _ADVICE_Q = re.compile(r"(?:\bshould\s+i\b|\bis\s+(?:it|this|that)\s+(?:safe|ok|
                        r"\b(?:does|do|can|is|are)\s+(?:android|windows|ios|iphone|chrome|google|apple|microsoft|linux|mac|whatsapp|it|they)\s+"
                        r"(?:let|allow|support|have|offer|come\s+with|work)\b|"
                        r"\bwhat(?:'s|\s+is|\s+are)\s+(?:the\s+)?(?:strongest|safest|best|most\s+secure|weakest|difference)\b|"
-                       r"\bwhat\s+makes\b|\bhow\s+(?:strong|secure|safe|risky)\s+is\b|"
+                       r"\bwhat\s+makes\s+(?:a|an|one|it|something|someone|them|this|that|my|the)\b|\bhow\s+(?:strong|secure|safe|risky)\s+is\b|"
                        r"^(?:can|could|does|do)\s+(?:windows|android|chrome|linux|ios|mac|google|whatsapp|my\s+(?:pc|phone|laptop))\b)", re.I)
 _REQUEST_LEAD = re.compile(r"^\s*(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:please\s+)?(?:can|could|would|will)\s+you\b", re.I)
 

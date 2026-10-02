@@ -67,7 +67,7 @@ async def test_questions_and_compose_requests_run_no_tool(text):
     ("lock my phone", "android_key", {"key": "sleep"}),
     ("mute the call", "phone_op", {"action": "key", "key": "mute"}),
     ("screenshot eduda", "take_screenshot", {}),
-    ("next paatu", "media_control", {"action": "next"}),
+    ("next paatu", "media_control", {}),
     ("what's my ip address", "network_info", {}),
 ])
 async def test_specific_targets_keep_their_tool(text, intent, slots):
@@ -75,6 +75,12 @@ async def test_specific_targets_keep_their_tool(text, intent, slots):
     assert d.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and d.intent == intent, (text, d.lane, d.intent, d.slots)
     for k, v in slots.items():
         assert d.slots.get(k) == v, (text, d.slots)
+
+
+@pytest.mark.asyncio
+async def test_tanglish_next_song_is_the_next_track():
+    d = await _route("next paatu")
+    assert d.intent == "media_control" and str(d.slots.get("action")).startswith("next")
 
 
 @pytest.mark.asyncio

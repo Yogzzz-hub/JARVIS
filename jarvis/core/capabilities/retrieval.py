@@ -140,13 +140,25 @@ class CapabilityRetriever:
         A request with no such word ("i'm feeling tired") must not trigger the action on scoring alone."""
         cached = self._anchor_cache.get(cap.id)
         if cached is None:
-            words = [w for w in re.findall(r"[a-z]+", " ".join(list(cap.keywords) + [cap.id.replace(".", " ").replace("_", " ")]).lower())
+            # anchors: single-word keywords and the capability's own id words. The words of a multi-word keyword are not
+            # anchors on their own ("total" of "total silence" must not make "read me the cart total" a mute)
+            single = [k for k in cap.keywords if len(re.findall(r"[a-z]+", k.lower())) == 1]
+            words = [w for w in re.findall(r"[a-z]+", " ".join(single + [cap.id.replace(".", " ").replace("_", " ")]).lower())
                      if w not in STOPWORDS and w not in self._GENERIC_ANCHORS]
-            cached = ({_stem_and_normalize(w) for w in words} - self._GENERIC_ANCHORS, {w for w in words if len(w) >= 4})
+            phrases = [[_stem_and_normalize(w) for w in re.findall(r"[a-z]+", k.lower()) if w not in STOPWORDS]
+                       for k in cap.keywords if len(re.findall(r"[a-z]+", k.lower())) > 1]
+            all_words = [w for w in re.findall(r"[a-z]+", " ".join(cap.keywords).lower()) if w not in STOPWORDS]
+            cached = ({_stem_and_normalize(w) for w in words} - self._GENERIC_ANCHORS, {w for w in all_words + words if len(w) >= 4},
+                      [p for p in phrases if p])
             self._anchor_cache[cap.id] = cached
-        anchors, raw_anchors = cached
+        anchors, raw_anchors, phrases = cached
         q_words = [w for w in re.findall(r"[a-z]+", query.lower()) if w not in STOPWORDS]
-        hit = {_stem_and_normalize(w) for w in q_words} & anchors
+        q_stems = {_stem_and_normalize(w) for w in q_words}
+        hit = q_stems & anchors
+        for ph in phrases:   # a multi-word keyword counts when at least two of its words (or all, if fewer) are said
+            got = q_stems & set(ph)
+            if len(got) >= min(2, len(set(ph))):
+                hit |= got
         if hit:
             # the shared word must be distinctive: "stop", "status" or "audio" alone are anchors of many capabilities
             # and prove nothing ("stop the jarvis project" is not dictation, "check the pnr status page" is not git)

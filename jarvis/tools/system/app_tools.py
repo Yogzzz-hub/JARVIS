@@ -339,6 +339,7 @@ class InstallSoftwareTool(Tool):
         output_model=InstallSoftwareOutput,
         read_only=False,
         risk=RiskLevel.REVERSIBLE,
+        requires_confirmation=True,   # downloads and runs a third-party installer: always asked first
         timeout_s=600.0,
         tags=("system", "install", "software", "winget"),
         execution_method=ExecutionMethod.CLI,

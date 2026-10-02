@@ -27,7 +27,7 @@ REPLY_LANGUAGE: ContextVar[str] = ContextVar("reply_language", default=ENGLISH)
 _STATE = Path(__file__).resolve().parents[2] / "data" / "language.json"
 
 # Verbs and particles that only occur in Thanglish commands (added to the WhatsApp detector's Tamil lexicon).
-_COMMAND_WORDS = frozenset("""pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
+_COMMAND_WORDS = frozenset("""paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
 anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thora thorakku thiranthu edu eduthu edunga
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
 sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu

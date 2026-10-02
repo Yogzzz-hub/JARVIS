@@ -1,3 +1,4 @@
+import os
 import re
 from contextvars import ContextVar
 from time import perf_counter_ns
@@ -219,6 +220,16 @@ class SmartRouter:
                         r"(sound|volume|brightness|screen\s+brightness|display\s+brightness)\b", r"the \1", dashed, flags=re.I)
         if dashed != request.text and dashed.strip():
             request = request.model_copy(update={"text": dashed})
+        # one constraint representation for the request: a corrected value is superseded before any matcher sees it
+        # ("message Ramesh I'll be late - no, message Rajesh"), a prohibited clause is kept as a constraint and not routed
+        # ("don't pay anything, just read me the cart total")
+        from jarvis.core.semantics.constraints import apply_correction, prohibitions
+        corrected, superseded = apply_correction(request.text or "")
+        if superseded and corrected.strip():
+            request = request.model_copy(update={"text": corrected})
+        positive, prohibited = prohibitions(request.text or "")
+        if prohibited:
+            request = request.model_copy(update={"text": canonicalize(positive) or positive})
         if not re.search(r"\b(?:phone|mobile|android)\b", request.text or "", re.I) and _ACT_HERE.match(request.text or ""):
             here = _ON_THIS_PC.sub("", request.text or "")
             if here != request.text and len(here.split()) >= 2:
@@ -242,7 +253,83 @@ class SmartRouter:
             decision = await self._qualified(request, decision)
         decision = self._plausible(request, decision)
         decision = self._broad_scope(request, decision)
+        decision = self._constraints(request, decision, prohibited)
         return self._check_frame_safety(self._semantic_policy(request, decision), request.text or "")
+
+    _PROHIBITED_EFFECT = {
+        "pay": "payment", "buy": "payment", "purchase": "payment", "order": "payment", "checkout": "payment",
+        "delete": "destroy", "remove": "destroy", "erase": "destroy", "trash": "destroy", "uninstall": "destroy", "wipe": "destroy",
+        "send": "message", "message": "message", "text": "message", "reply": "message", "forward": "message", "share": "message",
+        "email": "message", "post": "message", "open": "open", "launch": "open", "start": "open", "close": "close", "quit": "close",
+        "kill": "close", "install": "install", "call": "call", "dial": "call", "ring": "call", "click": "ui", "tap": "ui",
+        "press": "ui", "submit": "ui", "type": "type", "shut": "power", "restart": "power", "reboot": "power", "lock": "power",
+    }
+    _EFFECT_TOOLS = {
+        "payment": {"browser_click", "ui_op", "screen_click", "web_task", "computer_task", "desktop_ui_click", "browser_autofill"},
+        "destroy": {"delete_file", "uninstall_software", "empty_recycle_bin", "batch_rename", "powershell_command"},
+        "message": {"send_whatsapp_message", "send_whatsapp_bulk", "reply_whatsapp_message", "reply_whatsapp_all", "gmail_create_draft",
+                    "localsend_text", "localsend_file", "deliver_op"},
+        "open": {"open_app", "open_website", "open_file", "android_open_app"}, "close": {"close_app"},
+        "install": {"install_software", "android_install_apk"}, "call": {"android_dial", "phone_op"},
+        "ui": {"browser_click", "ui_op", "screen_click", "desktop_ui_click"}, "type": {"dictate_text", "type_text", "browser_type"},
+        "power": {"system_power_control", "system_op"},
+    }
+    _CONTENT_KEYS = ("message", "text", "instruction", "query", "fact", "content", "summary", "request")
+    _EXCLUSION_KEYS = ("target", "except", "exclude", "keep", "app")
+
+    def _constraints(self, request: CommandRequest, decision: RouteDecision, prohibited: list[str]) -> RouteDecision:
+        """Negative constraints survive routing: a prohibited effect never runs, and an exclusion ("except Arun", "not the
+        13th one") is carried into the tool or the target - never left inside a message, never silently dropped."""
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent:
+            return decision
+        tools = [s.tool for s in decision.subcommands] or [decision.intent]
+        targets = " ".join(str(v) for s in (decision.subcommands or []) for v in (s.arguments or {}).values()) \
+            + " " + " ".join(str(v) for v in (decision.slots or {}).values())
+        for p in prohibited:
+            verb = (re.match(r"[a-z]+", p.lower()) or [""])[0]
+            effect = self._PROHIBITED_EFFECT.get(verb)
+            obj = re.sub(r"^\S+\s+(?:(?:the|my|a|an)\s+)?", "", p.lower(), count=1).strip()
+            generic = not obj or re.fullmatch(r"(?:it|that|this|them|anything|everything|any\s+\w+|yet|now|it\s+yet)", obj)
+            # "don't open spotify, open chrome": only Spotify is prohibited; "don't pay anything": any payment is
+            if effect and set(tools) & self._EFFECT_TOOLS.get(effect, set()) and (generic or obj in targets.lower()):
+                return self._decision(request, RouteLane.REJECT, None, {"prohibited": p},
+                                      f"You asked me not to {p}, so I won't.", ReasonCode.NEGATED_ACTION)
+        from jarvis.core.semantics.constraints import extract_exclusions
+        positive, excluded = extract_exclusions(request.text or "")
+        if not excluded:
+            return decision
+        slots = dict(decision.slots or {})
+        reflected = any(x.lower() in str(slots.get(k) or "").lower() for k in self._EXCLUSION_KEYS for x in excluded)
+        for k in self._CONTENT_KEYS:   # "I'm busy, except Arun" is not the message to everyone
+            v = slots.get(k)
+            if isinstance(v, str) and any(x.lower() in v.lower() for x in excluded):
+                slots[k] = extract_exclusions(v)[0].rstrip(" ,;")
+        if decision.intent == "reply_whatsapp_all":
+            slots["exclude"] = excluded
+            return decision.model_copy(update={"slots": slots})
+        if decision.intent == "delete_file" and slots.get("path"):
+            from jarvis.core.semantics.resources import parse_path_ref, resolve_target
+            ref = parse_path_ref(re.sub(r"[\\/]+", "/", str(slots["path"])).split("/")[-1] if os.path.isabs(str(slots["path"])) else str(slots["path"]))
+            res = resolve_target(ref, exclude=excluded)
+            if res.status == "found":
+                slots["path"] = str(res.path)
+            elif res.status == "ambiguous":
+                return self._decision(request, RouteLane.CLARIFY, "delete_file", {}, "Which one exactly? I found: "
+                                      + ", ".join(c.name for c in res.candidates[:4]), ReasonCode.MISSING_REQUIRED_SLOT)
+            return decision.model_copy(update={"slots": slots})
+        if decision.intent in ("show_desktop", "minimize_all", "minimize_all_windows") or (decision.intent == "window_op"
+                                                                                           and slots.get("action") in ("minimize_all", "show_desktop")):
+            # "minimise everything except vs code": keep that one, minimise the rest
+            return decision.model_copy(update={"intent": "window_op", "slots": {"action": "isolate", "target": excluded[0]}})
+        _TIME = r"(?:morning|evening|night|day|days|week|weeks|weekday|weekdays|weekend|month|hour|hours|minute|minutes|time|times|year|" \
+                r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+        universal = re.search(rf"\b(?:everything|every\s*one|everybody|all|every|each|whole)\b(?!\s+(?:the\s+)?{_TIME}\b)", positive, re.I)
+        if universal and not reflected:
+            # a set-wide action that cannot leave the excluded one out must not run without it
+            return self._decision(request, RouteLane.CLARIFY, decision.intent, {},
+                                  f"I can't leave out {', '.join(excluded)} with that in one go - tell me what exactly to do.",
+                                  ReasonCode.MISSING_REQUIRED_SLOT)
+        return decision.model_copy(update={"slots": slots})
 
     _CONSEQUENTIAL_EFFECTS = frozenset({"delete_file", "move_file", "rename_file", "batch_rename", "uninstall_software",
                                         "empty_recycle_bin", "install_software", "update_software", "system_power_control",

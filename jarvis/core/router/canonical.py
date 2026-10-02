@@ -69,6 +69,16 @@ def canonicalize(text: str) -> str:
         return f"draft an email to {m.group('p')} saying {raw[i:i + len(m.group('m'))] if i >= 0 else m.group('m')}"
     if _CONTENT.match(t):
         return raw
+    # "tell me where temp_test.txt is", "where did i save my resume pdf": locating one of the owner's files is a file search;
+    # "where is chennai" stays a question (only a file-like object - extension or file word - is searched for)
+    m = re.match(r"^(?:(?:can\s+you\s+)?(?:tell|show)\s+me\s+|do\s+you\s+know\s+|any\s+idea\s+)?where\s+"
+                 r"(?:(?:is|are)\s+(?P<a>.+?)|(?P<b>.+?)\s+(?:is|are)|did\s+i\s+(?:save|put|keep|download|store)\s+(?P<c>.+?))"
+                 r"(?:\s+(?:saved|stored|kept|located))?$", t)
+    if m:
+        obj = (m.group("a") or m.group("b") or m.group("c") or "").strip()
+        from jarvis.core.semantics.resources import FILE, FOLDER, parse_path_ref
+        if obj and parse_path_ref(obj).kind in (FILE, FOLDER) and len(obj.split()) <= 6:
+            return f"find {obj}"
     # speech recognition often hears "open" as "on": "on calculator on chrome", "on notepad"
     m = re.match(r"^on\s+(?P<rest>[a-z][\w .+-]*)$", t)
     if m and (_known_app(re.split(r"\s+(?:on|in)\s+", m.group("rest"))[0].strip())

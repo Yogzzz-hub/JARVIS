@@ -417,8 +417,10 @@ def match_software(t: str, request_id: str) -> Optional[RouteDecision]:
     g = re.match(rf"^(?:get\s+rid\s+of|remove|delete|uninstall)\s+(?:the\s+)?{_APP}(?:\s+(?:app|application|software|program))?\s+(?:from|off)\s+(?:my|this|the)\s+"
                  rf"(?:pc|laptop|computer|system|machine)$", t)
     if g and not m:
-        return _decision(request_id, t, "uninstall_software", {"name": g.group("app").strip()}, lane=RouteLane.CLARIFY,
-                         clarification=f"Uninstall {g.group('app').strip()}? Say yes to confirm.")
+        d = _decision(request_id, t, "uninstall_software", {"name": g.group("app").strip()}, lane=RouteLane.CLARIFY,
+                      clarification=f"Uninstall {g.group('app').strip()}? Say yes to confirm.")
+        d.decision_state = "NEEDS_CONFIRMATION"   # the action and its target are known; only the owner's yes is missing
+        return d
     u = re.match(rf"^(?:update|upgrade)\s+(?:the\s+)?(?!(?:my|all|every|everything|status|notes?|to-?do|list|calendar|reminders?|profile|"
                  rf"password|contacts?|drivers?|windows|the\s+system)\b){_APP}(?:\s+(?:app|application|software|to\s+the\s+latest(?:\s+version)?))?{_ON_PC}$", t)
     if u and not m:

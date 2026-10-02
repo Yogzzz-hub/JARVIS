@@ -75,3 +75,22 @@ class RouteDecision(BaseModel):
     constraints: list[dict[str, Any]] = Field(default_factory=list)
     breakdown_ms: dict[str, float] = Field(default_factory=dict)
     context_trace: dict[str, Any] | None = None
+    # What the decision is waiting for - kept apart so a confirmation is never mistaken for an ambiguity:
+    # NEEDS_CLARIFICATION (what / which?), NEEDS_CONFIRMATION (this exact action - yes?), NEEDS_AUTHORIZATION (a person
+    # must act, e.g. a sign-in), BLOCKED_BY_POLICY (refused), READY_TO_EXECUTE. None = derived (see ``state``).
+    decision_state: str | None = None
+
+    @property
+    def state(self) -> str:
+        if self.decision_state:
+            return self.decision_state
+        lane = getattr(self.lane, "value", self.lane)
+        if lane == "REJECT":
+            return "BLOCKED_BY_POLICY" if (self.slots or {}).get("refused") or self.reason_code == "POLICY_BLOCKED" else "NEGATED"
+        if lane == "CLARIFY":
+            return "NEEDS_CLARIFICATION"
+        if lane == "CONTROL":
+            return "CONTROL"
+        if lane == "LANE_2":
+            return "PLAN" if self.needs_planner else "ANSWER"
+        return "READY_TO_EXECUTE" if self.intent else "NEEDS_CLARIFICATION"

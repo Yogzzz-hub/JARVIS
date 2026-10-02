@@ -655,6 +655,7 @@ class ReplyWhatsAppAllInput(Contract):
     hours: float = Field(default=12.0, gt=0, le=168, description="Only people who messaged within this many hours")
     include_groups: bool = Field(default=False, description="Also reply in group chats (off by default)")
     max_people: int = Field(default=10, ge=1, le=25, description="Maximum number of chats to reply to")
+    exclude: list[str] = Field(default_factory=list, description="People not to reply to ('everyone except Arun' -> ['Arun'])")
 
 
 class ReplyWhatsAppAllOutput(Contract):
@@ -708,6 +709,9 @@ class ReplyWhatsAppAllTool(Tool):
             ai.remember_instruction(message)
 
         people = await asyncio.to_thread(inbox.recent_direct_senders, arguments.hours * 3600, arguments.max_people, True, include_groups)
+        if arguments.exclude:   # "everyone except Arun": the excluded people get nothing
+            skip = [x.lower().strip() for x in arguments.exclude if x.strip()]
+            people = [m for m in people if not any(x in (m.sender_display_name or m.sender_id or "").lower() for x in skip)]
         all_recent = await asyncio.to_thread(inbox.recent_direct_senders, arguments.hours * 3600, 50, True, True)
         skipped_groups = 0 if include_groups else sum(1 for m in all_recent if not inbox.is_direct_chat(m.chat_id))
         if not people:
