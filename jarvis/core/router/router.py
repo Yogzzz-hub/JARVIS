@@ -376,6 +376,10 @@ class SmartRouter:
             return decision
         strong = decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) and bool(decision.intent)
         qwords = set(re.findall(r"[a-z']+", quals["qualifier"].lower()))
+        body = str((decision.slots or {}).get("message") or (decision.slots or {}).get("text") or "").lower()
+        if strong and body and (decision.intent in self._SEND_INTENTS or decision.intent in ("dictate_text", "set_reminder")) \
+                and " ".join(qwords) and all(w in body.split() for w in qwords):
+            return decision   # "send kavya on the way": the words are the message, not a condition on sending it
 
         def leaked(v) -> bool:  # "use the result I opened earlier rather than repeating the search" -> query "than repeating..."
             w = re.findall(r"[a-z']+", v.lower()) if isinstance(v, str) else []

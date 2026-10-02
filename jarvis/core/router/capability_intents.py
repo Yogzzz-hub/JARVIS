@@ -382,11 +382,15 @@ def _messages(t, raw, rid, mode):
     # "send farhan can we talk tonight": one person, then the words to send (replies have their own route)
     m = re.match(r"^(?P<v>send|message|msg|text|ping)\s+(?!(?:whats\s*app|message|msg|text|sms|e-?mail|mail|a|an|the|my|this|that|"
                  r"it|them|him|her|to|me|us|file|photo|pic|picture|video|link|location)\b)(?P<who>[a-z][\w'-]{1,20})\s+(?:a\s+(?:message|text|msg)\s+)?"
-                 r"(?:saying\s+|that\s+|with\s+)?(?P<msg>(?!to\b|on\b|in\b|via\b|the\b|my\b|this\b|that\b|it\b|a\s+file)\S.{2,})$", t)
+                 r"(?:saying\s+|that\s+|with\s+)?(?P<msg>(?!to\b|(?:on|in|via|over|through)\s+(?:whats\s*app|telegram|sms|signal|instagram|e-?mail|"
+                 r"(?:my\s+|the\s+|his\s+|her\s+)?(?:phone|mobile|pc|laptop|computer))\b|via\b|the\b|my\b|this\b|that\b|it\b|a\s+file)\S.{2,})$", t)
     if m and _person(m.group("who"), raw) and not re.search(r"\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|txt|csv|zip|mp4)\b|"
                                                              r"\b(?:file|screenshot|photo|document|folder)\b|"
                                                              r"\bto\s+(?:my\s+|the\s+)?(?:phone|mobile|pc|laptop|computer|desktop)\b|"
-                                                             r"^(?:who|which|whom|that)\b", m.group("msg")):
+                                                             r"^(?:who|which|whom|that)\b|"
+                                                             r"^(?:(?:in|after)\s+(?:\d+|an?|half\s+an?)\s+(?:secs?|seconds?|mins?|minutes?|hrs?|hours?|days?)|"
+                                                             r"(?:at|by|around|before)\s+(?:\d{1,2}(?::\d\d)?\s*(?:am|pm)?|noon|midnight)(?:\s+(?:today|tomorrow|tonight))?)$",
+                                                             m.group("msg")):
         msg = _raw(raw, m.group("msg")).strip()
         return _d(rid, t, "send_whatsapp_message", {"recipient": _raw(raw, m.group("who")).title(), "message": msg})
     m = re.match(rf"^(?:show|read|get|check|open|pull up)\s+(?:me\s+)?(?:my\s+|the\s+)?(?:recent|latest|last|new|unread|today'?s)?\s*"

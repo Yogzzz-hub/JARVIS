@@ -49,6 +49,40 @@ VOLUME_30 = ("set volume to 30", "volume_set", {"percent": 30})
     ([("find report.pdf", "find_file", {"query": "report.pdf"})], "open it", "open report.pdf"),
     ([("send ravi i'm late", "send_whatsapp_message", {"recipient": "ravi", "message": "i'm late"})], "also to meena",
      "send meena i'm late"),
+    # spoken noise around the follow-up: wake word, fillers, courtesy, swapped letters
+    ([VOLUME_30], "jarvis, um make it 60 please", "set volume to 60"),
+    ([VOLUME_30], "mmm 60", "set volume to 60"),
+    ([OPEN_CALC], "okay colse it now", "close calculator"),
+    # more shapes of the same ideas
+    ([VOLUME_30], "bump it up to 70", "set volume to 70"),
+    ([VOLUME_30], "70 would be better", "set volume to 70"),
+    ([VOLUME_30], "too loud", "decrease the volume"),
+    ([VOLUME_30], "max it", "set volume to 100"),
+    ([("remind me to stretch at 4 pm", "set_reminder", {"text": "stretch at 4 pm"})], "move it to 5:30 pm",
+     "remind me to stretch at 5:30 pm"),
+    ([("play lofi", "play_youtube", {"query": "lofi"})], "louder", "increase the volume"),
+    ([OPEN_CALC], "slack too", "open slack"),
+    ([OPEN_CALC], "do slack too", "open slack"),
+    ([OPEN_CALC], "not calculator, slack", "open slack"),
+    ([OPEN_CALC], "slack, not calculator", "open slack"),
+    ([OPEN_CALC], "my bad, slack", "open slack"),
+    ([OPEN_CALC], "no no, open slack", "open slack"),
+    ([OPEN_CALC], "now open slack", "open slack"),
+    ([OPEN_CALC], "get rid of it", "close calculator"),
+    ([OPEN_CALC], "move it to the right", "snap calculator to the right"),
+    ([OPEN_CALC], "make it bigger", "maximize calculator"),
+    ([OPEN_CALC], "go back to it", "switch to calculator"),
+    ([("open chrome", "open_app", {"name": "chrome"}), OPEN_CALC], "go to the first one", "switch to chrome"),
+    ([("send ravi i'm late", "send_whatsapp_message", {"recipient": "ravi", "message": "i'm late"})], "send the same to meena",
+     "send meena i'm late"),
+    ([("send ravi i'm late", "send_whatsapp_message", {"recipient": "ravi", "message": "i'm late"})], "wrong person, meena",
+     "send meena i'm late"),
+    ([("search for cheap flights", "search_web", {"query": "cheap flights"})], "now how to pack light",
+     "search for how to pack light"),
+    ([("search for cheap flights", "search_web", {"query": "cheap flights"})], "now search cheap hotels",
+     "search for cheap hotels"),
+    ([("what's the weather in delhi", "chat", {"query": "what's the weather in delhi"})], "and what about mumbai",
+     "what's the weather in mumbai"),
 ])
 def test_follow_up_becomes_the_full_command(history, said, full):
     assert _co(*history).rewrite(said) == full
@@ -67,6 +101,12 @@ def test_follow_up_becomes_the_full_command(history, said, full):
     ([("call 9876543210", "android_dial", {"number": "9876543210"})], "make it 9876543211"),   # a new call is said in full
     ([("search for cats", "search_web", {"query": "cats"}), ], "close the first one"),          # results, not apps
     ([("open chrome", "open_app", {"name": "chrome"}), OPEN_CALC], "open the second one"),
+    ([OPEN_CALC], "remove it"),
+    ([OPEN_CALC], "share it with ravi"),
+    ([OPEN_CALC], "no, don't close it"),
+    ([OPEN_CALC], "ok"),
+    ([OPEN_CALC], "move it to downloads"),        # a folder, not a screen side
+    ([("what's the weather in delhi", "chat", {"query": "what's the weather in delhi"})], "pune?"),   # too bare to guess
     ([], "make it 60"),                         # nothing to refer to: unchanged, so the router asks
     ([], "close it"),
 ])

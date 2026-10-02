@@ -115,14 +115,79 @@ Two new sets were written and frozen (`FROZEN.sha256`) before the fixes they mea
 | Blind-7 | 94.00% | 94.03%, 0 criticals |
 | Blind-8 | 85.59% | 86.64%, 0 criticals |
 
-## 5. Checks
+## 5. Context-2: follow-ups measured on unseen conversations
+
+The context suite above was the set the carry-over was built against, so its 97% says nothing about unseen follow-ups.
+Context-2 (`tests/context2`) was written and frozen afterwards to measure that honestly:
+
+- **Size:** 92 conversation templates, 2 fills each.
+- **Surface forms:** the final follow-up turn is said six ways: plain, "jarvis, …", "um …", "… please", "okay …"
+  and with a typo. That makes 991 scored follow-up turns.
+- **Split:** templates are split by hash into **dev** (441) and **holdout** (550).
+- **Rules:** fixes used only dev failures and two fresh probe lists written for this purpose. The runner never prints
+  holdout failures. The holdout was run three times, and only its score was read.
+
+| | Dev | Holdout (unseen) |
+|---|---:|---:|
+| Before any work on it | 54.6% | **54.7%** |
+| After cleaning up spoken noise and adding more follow-up shapes | 98.9% | 81.3% |
+| After the first fresh probe (more number verbs, pronoun phrasings and corrections) | 98.9% | 88.0% |
+| After the second fresh probe (stacked corrections, connectors, time changes) | 98.9% | **91.6%** |
+
+By surface form, the final holdout run gave 93% for each of the plain, wake, filler, please and okay forms. The typo
+form scored 78% (39 of 50).
+
+**Honest notes**
+
+- **The goal of 95% on unseen follow-ups is not met.** The final number is **91.6%**.
+- **There is a gap between dev (98.9%) and holdout.** That gap is wording the fixes have not seen.
+- **The holdout is not fully independent.** I wrote it and the fixes, and its score was read three times. Each
+  reading leaks a little, so 91.6% may be slightly optimistic. A set written by someone else, or taken from real use,
+  would be the true test.
+- **The remaining dev failure is the judge, not the behaviour.** "same with file explorer" closes "explorer", which
+  is the same app.
+
+**What was generalised**
+
+- **Spoken noise is cleaned before the follow-up is read.** That covers the wake word, "um / hmm / okay", "please /
+  now" tails and swapped-letter typos.
+- **Number changes** accept more verbs (bump / drop / push / move / raise … to N), times ("move it to 5:30 pm"),
+  "N would be better" and "N instead".
+- **Relative changes** cover "too loud / too bright", "max it", and "louder" while music plays.
+- **New target or correction** now also covers:
+  - "X too", "do X too", "and then X", "repeat that for X";
+  - "not A, B" and "B, not A";
+  - "I wanted X", "my bad, X", "wrong one / person, X";
+  - "no no, open X" (a correction before a full command);
+  - "now open X".
+- **Pronoun phrasings** now include "get rid of it", "make it bigger", "move it to the right", "go back to it", "open
+  the pdf" (after a find) and "search X there".
+- **Ordinals** gained "go to / switch to the first one".
+- **Messages:**
+  - "send the same to X", "no, send it to X" and "wrong person, X" work right after a message. The recipient is
+    said, only the message comes from context, and confirmation is still asked.
+  - "send kavya on the way" / "in a meeting" now reach the send step (with confirmation as usual). Before, they
+    were read as a condition or a channel and never routed.
+- **Searches:** right after a web search, "search X" stays a web search. On its own, bare "search X" still means
+  files. "search again for X" and bare "skip" were also fixed.
+
+**Still never resolved from context**
+
+- "it" for delete, uninstall, send, share or remove;
+- a new number for a call or a send;
+- "move it to downloads";
+- "no, don't …";
+- a bare "pune?".
+
+## 6. Checks
 
 | Check | Previous round | Now |
 |---|---|---|
-| `pytest jarvis/tests tests` | 2,629 passed, 21 failed | **2,691 passed**, the same 21 failed (they fail on earlier code too). One more, `test_gateway_and_websocket`, timed out once while the benchmarks ran alongside. It passes on its own and with its file. |
+| `pytest jarvis/tests tests` | 2,629 passed, 21 failed | **2,724 passed**, the same 21 failed (they fail on earlier code too), 0 new |
 | Phase-500 (16,502) | 16,389, 0 criticals | 16,389, 0 criticals, 0 new failures |
 | Phase command suite: dev / blind 1–6 / torture failures | 40 / 16·4·3·3·0·0 | 40 / 16·4·**0**·3·0·0, 0 new |
 | Generalisation fixtures | 41 | 41: 2 new ("Open Paint" expected the MS Paint / Paint.NET question, removed on purpose), 2 fixed |
 | Universal Operator | 99.95%, 1 wrong capability | 99.95%, 1 wrong capability (the same one), 0 negated executed |
 | AGI-520 | dev 93.66%, holdout 69.86% (spent) | dev **96.15%**, holdout 72.69%, 0 critical |
-| New tests (`test_context_carryover.py`) | - | 63 passed |
+| Blind-7 / Blind-8 (spent) | 94.00% / 85.59% | 94.03% / **87.09%**, 0 criticals |
+| New tests (`test_context_carryover.py`) | - | 95 passed |

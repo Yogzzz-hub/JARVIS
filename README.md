@@ -1293,6 +1293,9 @@ model. With Ollama running, anything it doesn't recognise goes to the model or a
 `python -m tests.context.runner` plays 34 multi-turn conversations through the full command service. Before the
 carry-over it handled 39% of the follow-up turns; after, 97%. That figure is not blind, because the suite was the one
 the carry-over was built against. See [docs/CONTEXT_AND_FOLLOWUPS.md](docs/CONTEXT_AND_FOLLOWUPS.md).
+`python -m tests.context2.runner` measures follow-ups on 991 unseen turns. Each follow-up is said six ways: plain,
+with the wake word, with a filler, with "please", with "okay" and with a typo. Fixes use only the dev half. The holdout
+half went from 54.7% to **91.6%**; the goal of 95% is not met yet.
 
 ---
 

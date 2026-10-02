@@ -268,6 +268,11 @@ def canonicalize(text: str) -> str:
     m = re.match(r"^(?:go|jump|switch(?:\s+over)?|move|take\s+me)\s+(?:back\s+)?to\s+(?:the\s+|my\s+)?(?P<x>[a-z][\w .+-]{1,30}?)\s+(?:window|app)$", t)
     if m and _app_like(m.group("x"), strong=True) and not re.match(r"(?:previous|last|other|next|old|first)\b", m.group("x")):
         return f"switch to {m.group('x').strip()}"
+    m = re.match(r"^(?P<v>search|look|google)\s+(?:it\s+)?again\s+(?P<rest>(?:for|up)\s+.+)$", t)
+    if m:
+        return f"{m.group('v')} {m.group('rest')}"     # "search again for X": the same search verb, a new query
+    if re.fullmatch(r"skip(?:\s+(?:it|that|this|this\s+one|this\s+song|this\s+track))?|skip\s+(?:to\s+)?(?:the\s+)?next(?:\s+one)?", t):
+        return "next track"
     if re.fullmatch(r"(?:hey|hi|hello|hiya|yo)\s+(?:there|buddy|mate|friend)", t):
         return "hello"
 
