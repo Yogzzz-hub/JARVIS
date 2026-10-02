@@ -222,7 +222,8 @@ def test_routes(router, text, intent):
 
 @pytest.mark.parametrize("text", ["book a flight to delhi", "order a pizza", "turn on the kitchen lights"])
 def test_real_world_actions_are_still_out_of_reach(router, text):
-    assert asyncio.run(router.route(text)).lane == RouteLane.CLARIFY
+    # never acted on: asked about, or refused outright when it is a purchase / booking (payment policy)
+    assert asyncio.run(router.route(text)).lane in (RouteLane.CLARIFY, RouteLane.REJECT)
 
 
 def test_exit_full_screen_never_closes_an_app(router):
@@ -281,7 +282,7 @@ def test_unseen_unsafe_requests_are_refused(router, text):
 @pytest.mark.parametrize("text", ["buy this phone on amazon now", "find an emergency walk-in clinic near my location",
                                   "check my credit score report on experian", "transform this pdf into a solid gold bar"])
 def test_real_world_and_impossible_requests_ask_instead_of_acting(router, text):
-    assert asyncio.run(router.route(text)).lane == RouteLane.CLARIFY, text
+    assert asyncio.run(router.route(text)).lane in (RouteLane.CLARIFY, RouteLane.REJECT), text
 
 
 def test_repair_never_touches_file_names_or_reply_content():

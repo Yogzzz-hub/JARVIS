@@ -200,7 +200,8 @@ def test_destructive_security_requests_are_refused(router, text):
 
 def test_private_ids_are_never_sent(router):
     d = asyncio.run(router.route("send my aadhaar details to ravi"))
-    assert d.lane == RouteLane.CLARIFY and d.intent != "send_whatsapp_message"
+    # never sent: asked about (older behaviour) or refused by the identity-data policy
+    assert d.lane in (RouteLane.CLARIFY, RouteLane.REJECT) and d.intent != "send_whatsapp_message"
 
 
 def test_courtesy_tail_strip_skips_messages_and_notes():
