@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 
 _DELIM = r"(?:\s*(?:,|;|—|–|\.\.\.|…)\s*|\s+-\s+)"
-_MARKER = r"(?:no+\s*,?\s*wait|wait\s*,?\s*no+|no+|actually|sorry|i\s+mean|i\s+meant|rather|make\s+(?:that|it)|scratch\s+that|correction|oops|nah|not\s+that\s+one|change\s+(?:that|it)\s+to)"
+_MARKER = r"(?:no+\s*,?\s*wait|wait\s*,?\s*no+|no+|illa(?:\s+illa)?|illa\s+venam|venam|vendam|vendaam|actually|sorry|i\s+mean|i\s+meant|rather|make\s+(?:that|it)|scratch\s+that|correction|oops|nah|not\s+that\s+one|change\s+(?:that|it)\s+to)"
 _CORRECTION = re.compile(rf"{_DELIM}(?:{_MARKER})(?:\s*,?\s*(?:{_MARKER}))*\s*,?\s+(?P<b>.+)$", re.I)
 _LOOSE = re.compile(r"\s+(?:no\s+wait|scratch\s+that|i\s+mean|make\s+that)\s*,?\s+(?P<b>.+)$", re.I)
 
@@ -61,6 +61,40 @@ def _replace_last(pattern: str, a: str, new: str) -> str | None:
     return a[:m.start()] + new + a[m.end():]
 
 
+_CATEGORIES = [
+    ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
+    ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today", "tomorrow", "tonight", "yesterday"],
+    ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "last", "next", "previous"],
+    ["male", "female", "man", "woman", "boy", "girl"],
+    ["red", "blue", "green", "yellow", "black", "white", "orange", "purple", "pink", "grey", "gray", "dark", "light"],
+    ["small", "medium", "large", "big", "tiny", "huge"],
+    ["english", "tamil", "hindi", "thanglish", "tanglish", "telugu", "malayalam", "kannada", "french", "spanish", "german"],
+    ["pc", "laptop", "computer", "phone", "mobile", "tablet"],
+    ["wifi", "bluetooth", "hotspot", "data", "mobile data", "location", "nfc"],
+]
+_CANCEL = re.compile(r"^(?:just\s+)?(?:leave\s+it(?:\s+(?:as\s+it\s+is|alone|be))?|forget\s+(?:it|that|about\s+it)|never\s*mind|"
+                     r"cancel\s+(?:that|it)|don'?t\s+(?:do\s+)?(?:it|that|anything)|skip\s+(?:it|that)|nothing|no\s+need|"
+                     r"don'?t\s+\w+.*\bforget\s+it)\b", re.I)
+CANCELLED = "__cancelled__"
+
+
+def _category(word: str) -> list[str] | None:
+    w = word.lower()
+    return next((c for c in _CATEGORIES if w in c), None)
+
+
+def _replace_same_category(a: str, word: str) -> str | None:
+    """'copy the march invoice ... - no, the april one' -> march replaced by april (same category, last occurrence)."""
+    cat = _category(word)
+    if not cat:
+        return None
+    hits = [m for m in re.finditer(r"[a-z]+", a, re.I) if m.group(0).lower() in cat and m.group(0).lower() != word.lower()]
+    if not hits:
+        return None
+    m = hits[-1]
+    return a[:m.start()] + word + a[m.end():]
+
+
 def apply_correction(text: str) -> tuple[str, list[tuple[str, str]]]:
     """'X - no, Y' / 'X, actually Y' / 'X... no wait, Y' -> X with the corrected part replaced by Y (typed alignment).
     Returns the corrected text and the (old, new) pairs; unchanged text when nothing is corrected."""
@@ -70,11 +104,57 @@ def apply_correction(text: str) -> tuple[str, list[tuple[str, str]]]:
         return text, []
     a = t[:m.start()].strip(" ,;.-—–")
     b_full = m.group("b").strip()
-    if len(a.split()) < 2 or not b_full:
+    if not a or not b_full:
         return text, []
+    if _CANCEL.match(b_full) and (not _MSG_LEAD.match(a)
+                                  or re.search(r"\b(?:forget\s+(?:it|that)|never\s*mind|cancel\s+(?:that|it))\s*[.!]?$", b_full, re.I)):
+        return CANCELLED, [(a, "")]          # "dark mode on... wait no, leave it as it is": nothing is to be done
+    aw0, bw0 = a.split(), b_full.split()
+    dropping = re.match(r"^(?:skip|drop|without|leave\s+out|not|no)\b", b_full, re.I)
+    try:
+        from jarvis.core.multilingual import _COMMAND_WORDS as _TVERBS
+    except Exception:
+        _TVERBS = frozenset()
+    final_verb = aw0[-1].lower().strip("'\"") in _TVERBS
+    if final_verb and not dropping and (len(bw0) >= 2 and aw0[-1].lower().strip("'\"") == bw0[-1].lower().strip("'\"") or
+                                         (len(bw0) >= 3 and aw0[-1].lower() in [w.lower().strip("'\"") for w in bw0[1:]] and len(aw0) <= 4)):
+        # verb-final restatement (Tanglish): "Arun ku anuppu, illa venam, Vignesh ku anuppu 'ready'" -> the second command
+        return b_full, [(a, b_full)]
     b, tail = _strip_tail(b_full)
     if not b:
         return text, []
+    # quoted text replaces quoted text: "type 'meeting at 4'... no, 'meeting at 5'"
+    qa = list(re.finditer(r"(['\"])(?P<q>[^'\"]+)\1", a))
+    qb = re.fullmatch(r"(['\"])?(?P<q>[^'\"]+)\1?", b_full.strip(" .")) if re.search(r"['\"]", b_full) else None
+    if qa and qb:
+        last = qa[-1]
+        return a[:last.start("q")] + qb.group("q") + a[last.end("q"):], [(last.group("q"), qb.group("q"))]
+    if len(a.split()) < 2:
+        if len(b.split()) == 1 and len(a.split()) == 1:
+            return b + tail, [(a, b)]        # "undo - no wait, redo"
+        return text, []
+    # a step is dropped: "mute and lock - actually skip the lock"
+    sm = re.match(r"^(?:skip|drop|without|leave\s+out|not|no|don'?t\s+\w+)\s+(?:the\s+)?(?P<x>[\w ]{2,30})$", b, re.I)
+    if sm:
+        x = re.escape(sm.group("x").strip())
+        out = re.sub(rf"\s*(?:,|\band\b|\bthen\b)\s*(?:\w+\s+)?{x}\b|\b{x}\s*(?:,|\band\b|\bthen\b)\s*", " ", a, count=1, flags=re.I)
+        if out != a:
+            return " ".join(out.split()) + tail, [(sm.group("x"), "")]
+    # "the april one", "keep the male one", "just the third": a word of the same kind replaces its sibling
+    cm = re.match(r"^(?:keep\s+|use\s+|just\s+|only\s+)?(?:the\s+|a\s+)?(?P<w>[a-z]+)(?:\s+(?:one|ones|item|instead))?$", b, re.I)
+    if cm and _category(cm.group("w")):
+        out = _replace_same_category(a, cm.group("w"))
+        if out:
+            return out + tail, [(a, cm.group("w"))]
+    # "just 2", "50 minutes": a number (with its unit) replaces the number of the same unit
+    nm = re.match(rf"^(?:just|only)?\s*(?P<n>{_NUMBER})\s*(?P<u>minutes?|mins?|hours?|hrs?|seconds?|secs?|percent|photos?|files?|items?|pages?|times?)?$", b, re.I)
+    if nm and re.search(r"\d|" + _NUMWORD, nm.group("n"), re.I):
+        unit = nm.group("u")
+        bare = rf"(?:\d+(?:\.\d+)?|{_NUMWORD})"
+        pat = rf"\b{bare}(?=\s*{unit[:3]})" if unit else rf"\b{_NUMBER}(?=\W*$|\s)"
+        out = _replace_last(pat, a, nm.group("n").strip())
+        if out:
+            return out + tail, [(a, b)]
     message = bool(_MSG_LEAD.match(a))
     bw, aw = b.split(), a.split()
     # 1. the same command again with a new object: "message Ramesh ... - no, message Rajesh"
@@ -161,8 +241,66 @@ def prohibitions(text: str) -> tuple[str, list[str]]:
     # "don't delete temp_test.txt, just tell me where it is": 'it' is the thing named in the prohibited clause
     obj = re.sub(r"^\S+\s+(?:(?:it|that|this|the|my)\s+)?", "", prohibited, count=1).strip()
     if obj and len(obj.split()) <= 5 and not re.fullmatch(r"(?:it|that|this|anything|everything|something)", obj, re.I):
-        rest = re.sub(r"\b(?:it|that)\b", obj, rest, count=1, flags=re.I)
-    return rest, [prohibited]
+        if re.match(r"(?:call|ring|dial|text|message|email|mail|ping|tell|ask|remind|invite)\b", prohibited, re.I) and len(obj.split()) <= 2:
+            rest = re.sub(r"\b(?:him|her|them)\b", obj, rest, count=1, flags=re.I)   # "don't call Arun, just text him"
+        else:
+            rest = re.sub(r"\b(?:it|that)\b", obj, rest, count=1, flags=re.I)
+    return _carry_domain(prohibited, rest), [prohibited]
+
+
+_CONTRAST_LEAD = re.compile(r"^\s*not\s+(?P<x>[^,;]{2,40}?)\s*[,;]\s*(?:(?:i|we)\s+(?:said|meant|want(?:ed)?|asked\s+for)\s+|but\s+|rather\s+|just\s+)?"
+                            r"(?P<y>\S.*)$", re.I)
+_CONTRAST_TAIL = re.compile(r"(?P<sep>\s*,\s*(?:(?:and|but)\s+)?(?:just\s+)?|\s+(?:but|just)\s+)not\s+(?:on\s+|in\s+|to\s+|with\s+|from\s+)?"
+                            r"(?:the\s+|that\s+|this\s+|my\s+|a\s+)?(?P<x>[^,;.]{1,40}?)(?:\s+one)?\s*(?=$|[,;.])", re.I)
+
+
+def contrast(text: str) -> tuple[str, list[str]]:
+    """A rejected alternative said next to the chosen one is not part of the command:
+    'click cancel, not ok' -> ('click cancel', ['ok']); 'not thanglish, plain english' -> ('plain english', ['thanglish']);
+    'play something, just not on youtube' -> ('play something', ['youtube']). Never inside a message being sent."""
+    t = " ".join((text or "").split())
+    m = _CONTRAST_LEAD.match(t)
+    if m and len(m.group("y").split()) >= 1 and not re.match(r"(?:now|yet|really|sure|bad|much|that)\b", m.group("x"), re.I):
+        return m.group("y").strip(), [m.group("x").strip()]
+    if _MSG_LEAD.match(t):
+        return text, []
+    m = _CONTRAST_TAIL.search(t)
+    if m and len(t[:m.start()].split()) >= 2 and not re.search(r"\b(?:do|does|did|is|are|was|were|i'?m|it'?s|why|will|can|could)\s*$",
+                                                               t[:m.start()], re.I):
+        return " ".join((t[:m.start()] + " " + t[m.end():].lstrip(" ,")).split()).strip(" ,"), [m.group("x").strip()]
+    return text, []
+
+
+_PROHIBIT_TAIL = re.compile(r"^(?P<rest>.+?)\s*,?\s+(?:but\s+|and\s+)?(?:don'?t|do\s+not|never)\s+(?P<p>[^,;]+?)\s*[.!]?$", re.I)
+_TANGLISH_NOT = re.compile(r"^(?P<p>.+?)\s+(?:pannadha|pannaadha|pannadhe|pannatha|pannaadheenga|venam|vendam|vendaam|vendaa|koodadhu)\s*,\s*"
+                           r"(?P<rest>\S.*)$", re.I)
+
+
+_APP_DOMAIN = re.compile(r"\b(?P<app>whats\s*app|gmail|e-?mail|telegram|instagram|youtube|spotify|chrome|browser)\b", re.I)
+
+
+def _carry_domain(prohibited: str, rest: str) -> str:
+    """'don't open whatsapp, just tell me the unread': the unread are WhatsApp's - the app named in the prohibited clause is
+    the domain of the positive one when that one names none."""
+    m = _APP_DOMAIN.search(prohibited)
+    if m and not _APP_DOMAIN.search(rest) and re.search(r"\b(?:unread|new|messages?|mails?|chats?|latest|newest|any(?:one|body))\b", rest, re.I):
+        return f"{rest} on {m.group('app')}"
+    return rest
+
+
+def trailing_prohibition(text: str) -> tuple[str, list[str]]:
+    """'open chrome and youtube, but don't play anything' -> ('open chrome and youtube', ['play anything']);
+    Tanglish 'shutdown venam, sleep la podu' -> ('sleep la podu', ['shutdown'])."""
+    t = " ".join((text or "").split())
+    m = _TANGLISH_NOT.match(t)
+    if m:
+        return _carry_domain(m.group("p"), m.group("rest")), [m.group("p")]
+    if _MSG_LEAD.match(t):
+        return text, []
+    m = _PROHIBIT_TAIL.match(t)
+    if m and re.match(rf"^{_VERBS}\b", m.group("rest"), re.I) and len(m.group("rest").split()) >= 2:
+        return m.group("rest").strip(" ,"), [m.group("p").strip()]
+    return text, []
 
 
 def analyse(text: str) -> Constraints:

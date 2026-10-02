@@ -155,6 +155,12 @@ class RiskSignals:
         return None
 
 
+# said about a command, not to JARVIS: reported speech, "not a command", "I wasn't talking to you"
+_NOT_ADDRESSED = re.compile(r"^\s*(?:i\s+(?:said|told|was\s+(?:telling|talking\s+to|saying\s+to))\s+['\"].+['\"]\s+to\s+(?!you\b)|"
+                            r"(?:that\s+was\s+|this\s+is\s+)?not\s+a\s+command\b|i\s+(?:wasn'?t|was\s+not|am\s+not)\s+talking\s+to\s+you|"
+                            r"(?:just\s+)?kidding\b|ignore\s+(?:that|what\s+i\s+(?:just\s+)?said))", re.I)
+
+
 def positive_clauses(text: str) -> list[str]:
     """The clauses of a request that ask for something: "don't pay anything, just read me the cart total" -> the second."""
     parts = [p for p in _CLAUSE_SPLIT.split(text or "") if p and p.strip()]
@@ -221,6 +227,8 @@ def check(tools: Iterable[Optional[str]], text: str, consequential: Iterable[str
     ``tools`` are every capability the decision would run (the intent, or each subcommand; [None] for a chat / planner
     hand-off). ``consequential`` are the ones whose effect is outward or destructive (used for "without asking")."""
     tools = list(tools)
+    if _NOT_ADDRESSED.search(text or "") and [t for t in tools if acts(t)]:
+        return {"kind": "chat", "reason": "not_addressed", "question": ""}
     s = read_signals(text)
     acting = [t for t in tools if acts(t)]
     if acting and all(t in NOTE_LIKE for t in acting) and not (s.secret_value or s.memory_of_secret):

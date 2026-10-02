@@ -140,3 +140,50 @@ def test_event_change_only_while_the_event_waits_for_a_yes():
     c = CarryOver()
     c.record("add yoga tomorrow at 6 to my calendar", "calendar_create_event", {"summary": "yoga"}, pending=False)
     assert c.rewrite("make it 90 minutes") != "add yoga tomorrow at 6 for 90 minutes"
+
+
+# ------------------------------------------------------------------------------------------------ contrast, trailing, Tanglish
+from jarvis.core.semantics.constraints import CANCELLED, contrast, trailing_prohibition  # noqa: E402
+
+
+@pytest.mark.parametrize("text,chosen,rejected", [
+    ("press save, not discard", "press save", ["discard"]),
+    ("not hindi, reply in tamil", "reply in tamil", ["hindi"]),
+    ("show this week's events, not next week's", "show this week's events", ["next week's"]),
+])
+def test_contrast_removes_the_rejected_alternative(text, chosen, rejected):
+    assert contrast(text) == (chosen, rejected)
+
+
+def test_contrast_never_touches_message_content_or_ordinary_not():
+    assert contrast("tell her it's fine, not a problem") == ("tell her it's fine, not a problem", [])
+    assert contrast("why not") == ("why not", [])
+
+
+@pytest.mark.parametrize("text,positive,prohibited", [
+    ("open spotify and play lofi, but don't shuffle", "open spotify and play lofi", ["shuffle"]),
+    ("restart venam, lock pannu", "lock pannu", ["restart"]),
+])
+def test_trailing_and_tanglish_prohibitions(text, positive, prohibited):
+    assert trailing_prohibition(text) == (positive, prohibited)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("brightness forty... no wait, never mind", CANCELLED),
+    ("open teams and slack - actually skip slack", "open teams"),
+    ("download the second file, sorry, the fourth", "download the fourth file"),
+    ("timer 10 minutes, no, just 5 minutes", "timer 5 minutes"),
+    ("brightness 20 vai, illa illa 70", "brightness 70 vai"),
+])
+def test_wider_corrections(text, expected):
+    assert apply_correction(text)[0] == expected
+
+
+@pytest.mark.asyncio
+async def test_rejected_or_prohibited_alternatives_never_run():
+    d = await _route("tap accept, not decline")
+    assert "decline" not in str(d.slots).lower()
+    d = await _route("don't message Pooja, just call her")
+    assert d.intent != "send_whatsapp_message"
+    d = await _route("I said 'shut down the pc' to my brother, not to you")
+    assert d.intent is None and d.lane != RouteLane.LANE_0

@@ -223,13 +223,28 @@ class SmartRouter:
         # one constraint representation for the request: a corrected value is superseded before any matcher sees it
         # ("message Ramesh I'll be late - no, message Rajesh"), a prohibited clause is kept as a constraint and not routed
         # ("don't pay anything, just read me the cart total")
-        from jarvis.core.semantics.constraints import apply_correction, prohibitions
+        from jarvis.core.semantics.constraints import CANCELLED, apply_correction, contrast, prohibitions, trailing_prohibition
+
+        def renorm(text: str) -> str:   # a rewritten request is read like a new one (Thanglish, canonical shapes)
+            try:
+                from jarvis.core.multilingual import to_english_command
+                text = to_english_command(text) or text
+            except Exception:
+                pass
+            return canonicalize(text) or text
         corrected, superseded = apply_correction(request.text or "")
-        if superseded and corrected.strip():
-            request = request.model_copy(update={"text": corrected})
+        if corrected == CANCELLED:
+            request = request.model_copy(update={"text": "forget it"})   # corrected to nothing: dismiss, never act
+        elif superseded and corrected.strip():
+            request = request.model_copy(update={"text": renorm(corrected)})
         positive, prohibited = prohibitions(request.text or "")
+        if not prohibited:
+            positive, prohibited = trailing_prohibition(request.text or "")
         if prohibited:
-            request = request.model_copy(update={"text": canonicalize(positive) or positive})
+            request = request.model_copy(update={"text": renorm(positive)})
+        chosen, rejected = contrast(request.text or "")
+        if rejected and chosen.strip():
+            request = request.model_copy(update={"text": renorm(chosen)})
         if not re.search(r"\b(?:phone|mobile|android)\b", request.text or "", re.I) and _ACT_HERE.match(request.text or ""):
             here = _ON_THIS_PC.sub("", request.text or "")
             if here != request.text and len(here.split()) >= 2:
@@ -253,7 +268,7 @@ class SmartRouter:
             decision = await self._qualified(request, decision)
         decision = self._plausible(request, decision)
         decision = self._broad_scope(request, decision)
-        decision = self._constraints(request, decision, prohibited)
+        decision = self._constraints(request, decision, prohibited, rejected)
         decision = self._coordinate(request, decision)
         decision = self._typed_slots(decision)
         return self._check_frame_safety(self._semantic_policy(request, decision), request.text or "")
@@ -279,7 +294,8 @@ class SmartRouter:
     _CONTENT_KEYS = ("message", "text", "instruction", "query", "fact", "content", "summary", "request")
     _EXCLUSION_KEYS = ("target", "except", "exclude", "keep", "app")
 
-    def _constraints(self, request: CommandRequest, decision: RouteDecision, prohibited: list[str]) -> RouteDecision:
+    def _constraints(self, request: CommandRequest, decision: RouteDecision, prohibited: list[str],
+                     rejected: list[str] | None = None) -> RouteDecision:
         """Negative constraints survive routing: a prohibited effect never runs, and an exclusion ("except Arun", "not the
         13th one") is carried into the tool or the target - never left inside a message, never silently dropped."""
         if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent:
@@ -298,6 +314,7 @@ class SmartRouter:
                                       f"You asked me not to {p}, so I won't.", ReasonCode.NEGATED_ACTION)
         from jarvis.core.semantics.constraints import extract_exclusions
         positive, excluded = extract_exclusions(request.text or "")
+        excluded = excluded + [x for x in (rejected or []) if x not in excluded]
         if not excluded:
             return decision
         slots = dict(decision.slots or {})

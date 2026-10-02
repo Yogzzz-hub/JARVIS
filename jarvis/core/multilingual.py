@@ -27,7 +27,7 @@ REPLY_LANGUAGE: ContextVar[str] = ContextVar("reply_language", default=ENGLISH)
 _STATE = Path(__file__).resolve().parents[2] / "data" / "language.json"
 
 # Verbs and particles that only occur in Thanglish commands (added to the WhatsApp detector's Tamil lexicon).
-_COMMAND_WORDS = frozenset("""ellaa ellam ellame ellathaiyum ellathayum paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
+_COMMAND_WORDS = frozenset("""mattum matum ellaa ellam ellame ellathaiyum ellathayum paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
 anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thora thorakku thiranthu edu eduthu edunga
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
 sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu
@@ -150,6 +150,8 @@ def to_english_command(text: str) -> str:
     t = raw.lower()
     if not t or not (set(_WORD.findall(t)) & _LEXICON):
         return text
+    if re.search(r"\b(?:venam|vendam|vendaam|vendaa|pannadha|pannaadha|pannatha|koodadhu|illa\s+illa|illa\s+venam)\b\s*,|,\s*(?:illa|illa\s+illa)\b", t):
+        return text   # two clauses with a Tanglish 'not / no': the constraint layer splits them first, then each is translated
     body = re.sub(_P_END + "$", "", t).strip()
     body = re.sub(r"(?:^|\s+)konjam\b\s*", " ", body).strip()
     # "ellaa files um", "ellam photos yum": all of them
@@ -229,11 +231,27 @@ def to_english_command(text: str) -> str:
         if re.fullmatch(pat, body):
             return eng
 
+    # "unread mattum sollu" - just tell me X
+    m = re.fullmatch(r"(?P<x>.+?)\s+(?:mattum|matum)\s+(?:sollu|sollunga|sollungo|kaattu|kattu|kaatu|paaru)(?P<on>\s+on\s+\S+)?", body)
+    if m:
+        x = m.group("x").strip()
+        if re.fullmatch(r"(?:unread|pudhu|new)(?:\s+(?:messages?|msgs?))?", x):
+            x = "unread messages"
+        return f"show me {x}{m.group('on') or ''}"
+    # a mode: "sleep la podu" (put it to sleep), "silent mode la vai", "dark mode la podu"
+    m = re.fullmatch(r"(?P<x>sleep|hibernate|silent|airplane|flight|dark|light|focus|do\s+not\s+disturb|dnd)(?:\s+mode)?\s+"
+                     r"(?:la|le|lla|ku|kku)\s+(?:podu|potu|vai|vei|pannu|panu|maathu|mathu)", body)
+    if m:
+        x = m.group("x")
+        return "put the pc to sleep" if x == "sleep" else ("hibernate the pc" if x == "hibernate" else f"turn on {x} mode")
     # a channel said first: "whatsapp la priya ku hi anuppu" (also "whatsap", "wa")
     channel = re.match(r"^(?:whats?\s*app?|whatsap|watsapp|wa)\s+(?:la|le|il|lla|vazhiya|mela|moolama)\s+", body)
     if channel:
         body = body[channel.end():]
     # messages: "amma ku late aagum nu message anuppu", "arun kitta naan varala nu sollu"
+    m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku|kitta)\s+(?:" + _SEND + r")\s+['\"]?(?P<msg>[^'\"]+?)['\"]?", body)
+    if m:   # "vignesh ku anuppu 'ready'": the verb before the quoted message
+        return f"send a message to {keep(m.group('who').strip())} saying {keep(m.group('msg').strip())}"
     m = re.fullmatch(r"(?P<who>[a-z][a-z .]{0,30}?)\s*(?:ku|kku|ukku|kitta)\s+(?P<msg>(?:\S+\s+){0,5}?\S+)\s+(?:" + _SEND + ")", body)
     if m and not re.search(r"\b(?:nu|apdinu|endru|nnu)\b", m.group("msg")):
         # "priya ku hi anuppu": a short message without the quotative "nu"
