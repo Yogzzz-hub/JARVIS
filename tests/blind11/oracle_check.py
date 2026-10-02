@@ -43,6 +43,22 @@ def registry_schema() -> dict[str, set[str]]:
     return out
 
 
+def runtime_capabilities() -> dict[str, set[str]]:
+    """Router-level capabilities that are not registry tools (control lane, runtime handlers, volume keys, compound),
+    from the catalogue the generator was given - each kept only if the router really emits that name."""
+    import re
+    catalogue = json.loads((Path(__file__).with_name("generation") / "capabilities.json").read_text())
+    source = "\n".join(p.read_text(errors="ignore") for d in ("jarvis/core/router", "jarvis/core/commands")
+                       for p in (ROOT / d).glob("*.py"))
+    out = {}
+    for entry in catalogue.get("runtime_and_control", []):
+        name = entry["tool"]
+        bare = name.split(":", 1)[-1]
+        if name == "compound" or re.search(rf"[\"']{re.escape(bare)}[\"']", source):
+            out[name] = set((entry.get("args") or {}).keys())
+    return out
+
+
 def check(cases: list[dict], schema: dict[str, set[str]]) -> list[str]:
     errors: list[str] = []
     ids = Counter(c.get("id") for c in cases)
@@ -64,7 +80,7 @@ def check(cases: list[dict], schema: dict[str, set[str]]) -> list[str]:
             errors.append(f"{cid}: should_act {c.get('should_act')} disagrees with outcome {c.get('outcome')}")
         for cap in (c.get("capabilities") or []) + (c.get("forbidden_capabilities") or []) + \
                 [s for step in (c.get("steps") or []) for s in (step if isinstance(step, list) else [step])]:
-            if cap not in schema and not str(cap).startswith("CONTROL:"):
+            if cap not in schema:
                 errors.append(f"{cid}: unknown capability {cap}")
         for tool, args in (c.get("slots") or {}).items():
             if tool not in schema:
@@ -96,7 +112,8 @@ def main() -> int:
     ap.add_argument("--cases", default=str(CASES))
     a = ap.parse_args()
     cases = load_cases(Path(a.cases))
-    errors = check(cases, registry_schema())
+    schema = {**registry_schema(), **runtime_capabilities()}
+    errors = check(cases, schema)
     for e in errors:
         print("ERROR", e)
     print(f"{len(cases)} cases, {len(errors)} structural errors")

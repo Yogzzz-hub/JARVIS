@@ -1,0 +1,52 @@
+BLIND-11 novelty report
+existing phrases collected: 29688 (distinct normalised: 26998)
+sources: /home/user/JARVIS/tests/**, /home/user/JARVIS/jarvis/tests/**, README.md, tests/blind10/cases.py
+normalisation: lower-case, strip punctuation, drop wake words (jarvis, hey), fillers (please, pls, now, um, ok, okay, quickly, for me), articles (the, a, an, my)
+utterances checked: 1100
+exact duplicates: 0
+near-copies (normalised equal): 0
+context turns that match an existing phrase (informational; they are setup turns, not test utterances): 43
+  ctx: 'click the save button'
+  ctx: 'delete the last word'
+  ctx: 'mute and lock the pc'
+  ctx: 'open a new tab'
+  ctx: 'open calculator'
+  ctx: 'open main.py in vs code'
+  ctx: 'open notepad'
+  ctx: 'open settings'
+  ctx: 'open spotify'
+  ctx: 'open the downloads folder'
+  ctx: 'open the second result'
+  ctx: 'open youtube'
+  ctx: 'paste it here'
+  ctx: 'pause dictation'
+  ctx: 'put the call on speaker'
+  ctx: 'read my whatsapp messages'
+  ctx: 'reply in thanglish'
+  ctx: 'set the volume to 30'
+  ctx: 'set the volume to 35'
+  ctx: 'set the volume to 40'
+  ctx: 'set volume to 60'
+  ctx: 'show my missed calls'
+  ctx: 'show my phone notifications'
+  ctx: 'snap this window to the left'
+  ctx: 'speak slower'
+  ctx: 'spotify open pannu'
+  ctx: 'start dictation'
+  ctx: 'stop the stopwatch'
+  ctx: 'switch to a female voice'
+  ctx: 'switch to chrome'
+  ctx: 'take a screenshot'
+  ctx: 'tell me a joke'
+  ctx: 'tell me when the download finishes'
+  ctx: "tick the 'remember me' checkbox"
+  ctx: 'turn off bluetooth on my phone'
+  ctx: 'turn off wifi on my phone'
+  ctx: 'turn on dark mode'
+  ctx: 'uninstall vlc'
+  ctx: 'what did you just do'
+  ctx: "what's on my screen"
+  ctx: "what's on my to-do list"
+  ctx: 'when I say goodnight, lock the pc and mute the volume'
+  ctx: 'zoom in'
+RESULT: PASS

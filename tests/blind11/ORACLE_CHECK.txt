@@ -1,0 +1,15 @@
+ERROR B11-01_router-10: unknown capability lock_pc
+ERROR B11-01_router-26: unknown capability lock_pc
+ERROR B11-02_core_os-13: unknown capability lock_pc
+ERROR B11-02_core_os-43: unknown capability lock_pc
+ERROR B11-02_core_os-45: unknown capability lock_pc
+ERROR B11-02_core_os-46: unknown capability lock_pc
+ERROR B11-03_safety-48: unknown capability lock_pc
+ERROR B11-05_multistep-02: unknown capability lock_pc
+ERROR B11-05_multistep-23: unknown capability lock_pc
+ERROR B11-05_multistep-32: unknown capability lock_pc
+ERROR B11-05_multistep-35: unknown capability lock_pc
+ERROR B11-15_chat-49: unknown capability lock_pc
+ERROR B11-16_tanglish-18: unknown capability lock_pc
+ERROR B11-21_automation-50: unknown capability lock_pc
+1100 cases, 14 structural errors

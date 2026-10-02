@@ -1,0 +1,11 @@
+cases: 1100  phases: 22  ids unique: True
+outcomes: {'action': 829, 'clarify': 89, 'refuse': 69, 'chat': 84, 'plan': 6, 'control': 23}
+criticality: {'C1': 197, 'C2': 735, 'C3': 99, 'C4': 69}
+exec: {'file': 31, 'browser': 42}  with context: 122
+should_act true: 858
+warnings: 2
+  WARN B11-06_files-34: 'missing' check on Documents/invoice_march.pdf which is not an original sandbox file (negative check)
+  WARN B11-06_files-35: 'missing' check on Desktop/tasks.txt which is not an original sandbox file (negative check)
+errors: 0
+RESULT: PASS
+exit=0

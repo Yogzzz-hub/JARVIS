@@ -1,0 +1,67 @@
+{
+ "recorded_at": "2026-10-02T22:13:32Z",
+ "candidate_commit": "54991db7837414697d5b03f6046c951ac6357234",
+ "tag": "jarvis-blind11-candidate",
+ "tag_target": "54991db7837414697d5b03f6046c951ac6357234",
+ "tag_pushed": false,
+ "tag_note": "The tag exists in this checkout only: this environment's git proxy refuses tag pushes (git push and the GitHub API both rejected). The candidate commit itself is on origin/claude/serene-carson-h3m083 and origin/main.",
+ "jarvis_code_diff_vs_candidate_lines": 0,
+ "git_status_porcelain": [
+  "M tests/blind11/oracle_check.py",
+  "?? tests/blind11/MANIFEST.json",
+  "?? tests/blind11/ORACLE_CHECK.txt",
+  "?? tests/blind11/cases.jsonl",
+  "?? tests/blind11/errata.json",
+  "?? tests/blind11/generation/"
+ ],
+ "dataset_sha256": "eacfa96ceb02e26a2a44602f737608e02ea18faa972ba709f17fab2f42216643",
+ "dataset_prelock_sha256": "eacfa96ceb02e26a2a44602f737608e02ea18faa972ba709f17fab2f42216643",
+ "case_count": 1100,
+ "phases": 22,
+ "fifty_per_phase": true,
+ "oracle_check": "1100 cases, 14 structural errors - all 14 are the non-existent name 'lock_pc'; see docs/BLIND11_ORACLE_ERRATA.md (3 errata cases)",
+ "runtime": {
+  "python": "3.12.3",
+  "platform": "Linux-6.18.44-fc-v51-x86_64-with-glibc2.39",
+  "playwright": "1.56.0",
+  "chromium": "chromium-1194 (/opt/pw-browsers, headless)"
+ },
+ "models": {
+  "ollama": "NOT AVAILABLE - not installed; ollama.com and registry.ollama.ai return 403 through this environment's network policy",
+  "llm_used": "none (model-off). Run A routes with DisabledProvider; Run B's command service is told the model is unreachable.",
+  "embedding_model": "none"
+ },
+ "dependencies": {
+  "run_A": {
+   "available": [
+    "SmartRouter and the full deterministic routing pipeline (no model)"
+   ],
+   "unavailable": [
+    "LLM router fallback (Ollama)"
+   ]
+  },
+  "run_B": {
+   "available": [
+    "CommandService: router, TaskScope policy, policy evaluator, confirmation manager, executor, verifier, working memory",
+    "real file tools on a sandbox home (create/copy/move/rename/delete/compress/metadata) with real postconditions",
+    "real browser tools (Playwright Chromium, headless) on a local test site with DOM/URL/download postconditions"
+   ],
+   "unavailable_recorded_as_DEPENDENCY_UNAVAILABLE": [
+    "Ollama chat / planner / composer model",
+    "Windows desktop (UI Automation, windows, apps, volume, power)",
+    "Android phone (ADB)",
+    "Google account (Gmail, Calendar)",
+    "WhatsApp session",
+    "microphone / speaker",
+    "web search"
+   ],
+   "note": "Unavailable tools are replaced by recorders: the routed tool and its arguments are scored, but no postcondition can be verified for them."
+  }
+ },
+ "rules": [
+  "No JARVIS change after this record. Failures are not patched, thresholds/phrases/tool mappings/expected answers/safety policy are not changed, runs are not restarted with modified code.",
+  "Run A and Run B results are kept separate (tests/blind11/results/run_a.json, run_b.json).",
+  "The harness confirms for the owner only through runner.auto_confirm_gate (six conditions); a confirmation never rescues a wrong reading.",
+  "The full report is written before any individual failure is inspected."
+ ]
+}
