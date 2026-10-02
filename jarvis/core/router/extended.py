@@ -1344,6 +1344,8 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     if m:
         site = m.group("site")
         query = m.group("q").strip(" .")
+        # "look up X for me", "search X now": courtesy and urgency are not search words
+        query = re.sub(r"(?:\s+(?:for\s+me|right\s+now|now|please|pls|real\s+quick|quickly|jarvis))+$", "", query) or query
         if site == "youtube" and not re.search(r"\bsearch\b", t):
             return None  # "play X on youtube" is handled by play_youtube
         template = SITE_SEARCH[site]

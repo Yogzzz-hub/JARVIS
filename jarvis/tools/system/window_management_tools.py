@@ -403,6 +403,7 @@ class SwitchWindowTool(Tool):
 
 class SystemSettingsInput(Contract):
     page: str = Field(default="settings", description="Page: settings, sound, display, network, wifi, bluetooth, apps, task_manager, system_info, device_manager")
+    want: str = Field(default="", description="What the owner wants to change there (e.g. 'on' / 'off'); the reply says it is left to them")
 
 
 class SystemSettingsOutput(Contract):
@@ -459,6 +460,11 @@ class SystemSettingsTool(Tool):
         uri = SETTINGS_URI_MAP.get(page_clean, f"ms-settings:{page_clean}")
         try:
             os.startfile(uri)
+            if arguments.want:
+                label = {"wifi": "Wi-Fi", "bluetooth": "Bluetooth"}.get(page_clean, page_clean.replace("_", " "))
+                return {"status": "SUCCESS", "page": page_clean,
+                        "message": f"{label} settings are open - switch it {arguments.want} there. Windows doesn't let me "
+                                   f"flip that switch myself."}
             return {"status": "SUCCESS", "page": page_clean, "message": f"Opened Windows Settings ({page_clean})."}
         except Exception as e:
             return {"status": "FAILED", "page": page_clean, "message": f"Failed to open settings: {e}"}

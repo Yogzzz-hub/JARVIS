@@ -177,6 +177,18 @@ class ResponseFormatter:
                     return "Documents folder is open."
                 from jarvis.tools.system.app_resolver import CANONICAL_NAMES
                 display_name = CANONICAL_NAMES.get(norm_app) or (app_name if any(c.isupper() for c in app_name[1:]) else app_name.capitalize())
+                # Never claim more than happened: when the words asked for name more than what opened ("calculator on
+                # chrome" -> only Chrome), say what opened and what didn't
+                import re as _re
+                filler = {"the", "a", "an", "my", "app", "application", "program", "please", "now", "on", "in", "up", "for",
+                          "me", "window", "browser", "software"}
+                asked = [w for w in _re.findall(r"[a-z0-9]+", str(data.get("requested") or "").lower()) if w not in filler]
+                got = set(_re.findall(r"[a-z0-9]+", display_name.lower() + " " + str(data.get("target") or "").lower()))
+                missing = [w for w in asked if w not in got and not any(w in g or g in w for g in got if len(g) > 2)]
+                from jarvis.tools.system.app_resolver import ALIASES as _AL, SYNONYMS as _SY, WEB_SERVICES as _WS
+                missing = [w for w in missing if w in _AL or w in _SY or w in _WS or w in CANONICAL_NAMES]   # a second app
+                if asked and missing:
+                    return f"I opened {display_name}, but not {' '.join(missing)} - I couldn't find that as part of it."
                 return f"{display_name} is open."
 
             case "close_app":

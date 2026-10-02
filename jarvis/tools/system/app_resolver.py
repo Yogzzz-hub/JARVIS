@@ -141,6 +141,26 @@ CANONICAL_NAMES = {
 }
 
 
+def opened_name(target) -> str:
+    """The display name of what a launch target really opens: the app behind its executable or shortcut, or the site."""
+    path = str(getattr(target, "path", "") or "")
+    if not path:
+        return ""
+    if path.startswith(("http://", "https://")):
+        from urllib.parse import urlparse
+        host = urlparse(path).netloc.removeprefix("www.")
+        for key, url in WEB_SERVICES.items():
+            if urlparse(url).netloc.removeprefix("www.") == host and "search" not in path:
+                return key.capitalize()
+        return host or path
+    from pathlib import PureWindowsPath
+    stem = PureWindowsPath(path).stem   # a Windows path, whatever this process runs on
+    for key, (exe, _procs) in ALIASES.items():
+        if PureWindowsPath(str(exe)).stem.casefold() == stem.casefold() and key in CANONICAL_NAMES:
+            return CANONICAL_NAMES[key]
+    return CANONICAL_NAMES.get(stem.casefold(), "") or (stem if path.endswith(".lnk") else stem.capitalize())
+
+
 def get_canonical_name(name_or_key: str, path: str = "") -> str:
     key = normalize(name_or_key)
     if key in CANONICAL_NAMES:

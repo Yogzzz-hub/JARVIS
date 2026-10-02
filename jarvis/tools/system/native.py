@@ -24,6 +24,7 @@ class AppOutput(Contract):
     process_names: tuple[str, ...]
     associated: bool = False
     canonical_name: str = ""
+    requested: str = ""
 class DirectoryInput(Contract):
     path: str = Field(min_length=1, max_length=4096)
     limit: int = Field(default=100, ge=1, le=1000)
@@ -469,9 +470,11 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     def open_app(args):
         target = resolver.resolve(args.name)
         pid = launcher(target)
-        from jarvis.tools.system.app_resolver import get_canonical_name
-        canonical = getattr(target, "canonical_name", "") or get_canonical_name(args.name, getattr(target, "path", ""))
-        return dict(name=canonical, canonical_name=canonical, target=target.path, pid=pid, process_names=target.process_names, associated=getattr(target, "associated", False))
+        from jarvis.tools.system.app_resolver import get_canonical_name, opened_name
+        # The reply names what was really launched (from the target), never just the words that were asked for
+        canonical = getattr(target, "canonical_name", "") or opened_name(target) or get_canonical_name(args.name, getattr(target, "path", ""))
+        return dict(name=canonical, canonical_name=canonical, target=target.path, pid=pid, process_names=target.process_names,
+                    associated=getattr(target, "associated", False), requested=args.name)
 
     def list_directory(args):
         from jarvis.security.paths import canonicalize_path

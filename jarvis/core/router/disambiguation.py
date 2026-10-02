@@ -17,7 +17,6 @@ AMBIGUOUS_APPS = {
     "reader": ("Adobe Acrobat Reader", "Foxit Reader", "Kindle"),
     "editor": ("Notepad", "Visual Studio Code", "Notepad++"),
     "workbench": ("MySQL Workbench", "Azure Data Studio"),
-    "paint": ("MS Paint", "Paint.NET"),
     "notes": ("OneNote", "Sticky Notes", "Memos"),
     "music": ("Spotify", "YouTube Music", "Groove Music"),
     "messenger": ("WhatsApp", "Telegram", "Facebook Messenger"),

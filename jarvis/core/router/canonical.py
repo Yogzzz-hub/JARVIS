@@ -69,6 +69,11 @@ def canonicalize(text: str) -> str:
         return f"draft an email to {m.group('p')} saying {raw[i:i + len(m.group('m'))] if i >= 0 else m.group('m')}"
     if _CONTENT.match(t):
         return raw
+    # speech recognition often hears "open" as "on": "on calculator on chrome", "on notepad"
+    m = re.match(r"^on\s+(?P<rest>[a-z][\w .+-]*)$", t)
+    if m and (_known_app(re.split(r"\s+(?:on|in)\s+", m.group("rest"))[0].strip())
+              or re.search(r"\s(?:on|in)\s+(?:chrome|edge|firefox|brave|(?:the\s+|my\s+)?browser)$", t)):
+        return "open " + m.group("rest")
     # "announce it / let me know when nisha messages me": a watch
     m = re.match(r"^(?:announce(?:\s+it)?|let\s+me\s+know|alert\s+me|ping\s+me|tell\s+me|notify\s+me)\s+(?P<c>(?:when|whenever|if|as\s+soon\s+as)\s+.+)$", t)
     if m and not t.startswith("tell me when") and not t.startswith("notify me when"):
@@ -158,7 +163,8 @@ def canonicalize(text: str) -> str:
         return "is the laptop charging"
     if re.fullmatch(r"how\s+much\s+(?:storage|disk\s+space|space|disk)\s+(?:do\s+i\s+have\s+)?(?:left|free|remaining)(?:\s+on\s+(?:my\s+)?(?:pc|laptop|computer|disk|drive))?", t):
         return "how much disk space is left"
-    if re.fullmatch(r"how\s+much\s+(?:charge|battery|juice)\s+(?:does|has)\s+(?:my\s+)?(?:phone|mobile)(?:\s+(?:have|got|left))?(?:\s+left)?", t):
+    if re.fullmatch(r"how\s+much\s+(?:charge|battery|juice)\s+(?:does|has)\s+(?:my\s+)?(?:phone|mobile)(?:\s+(?:have|got|left))?(?:\s+left)?", t) \
+            or re.fullmatch(r"how\s+much\s+(?:charge|battery|juice)\s+(?:is\s+)?(?:left\s+)?(?:on|in)\s+(?:my\s+|the\s+)?(?:phone|mobile)", t):
         return "phone battery level"
     # task control phrasings
     if re.fullmatch(r"(?:pause|hold|freeze)\s+(?:what|whatever)\s+you'?r?e?\s*(?:are\s+)?doing", t):
@@ -239,6 +245,31 @@ def canonicalize(text: str) -> str:
         if re.search(r"calendar|schedule|agenda", x):
             return "what's on my calendar today"
         return f"tell me {x}" if x.startswith("the") else f"what's {x}"
+
+    # alarms are reminders that wake you: "wake me up at 6", "set an alarm for 7 am" (not the phone's own alarm app)
+    m = re.match(r"^(?:wake\s+me(?:\s+up)?|set\s+(?:an?\s+|my\s+)?alarm|alarm)\s+(?:for\s+|at\s+|by\s+)?(?P<w>(?:\d{1,2}(?::\d{2})?\s*"
+                 r"(?:a\.?m\.?|p\.?m\.?)?|noon|midnight)(?:\s+(?:today|tomorrow|tonight))?|in\s+\d+\s+(?:minutes?|mins?|hours?))$", t)
+    if m and not re.search(r"\b(?:phone|mobile)\b", t):
+        w = m.group("w")
+        return f"remind me {w} to wake up" if w.startswith("in ") else f"remind me at {w} to wake up"
+    # questions about reminders and scheduled jobs are look-ups, never new ones
+    if re.fullmatch(r"(?:what|which)\s+reminders\s+(?:do\s+i\s+have|have\s+i\s+(?:got|set)|are\s+(?:there|set|pending))(?:\s+(?:today|tomorrow))?"
+                    r"|(?:do\s+i\s+have|have\s+i\s+got|are\s+there)\s+any\s+reminders(?:\s+(?:set|today|tomorrow|pending))?"
+                    r"|what\s+are\s+my\s+reminders|any\s+reminders(?:\s+(?:today|tomorrow|set))?", t):
+        return "show my reminders"
+    if re.fullmatch(r"(?:show|list|what\s+are)\s+(?:me\s+)?(?:the\s+|my\s+|all\s+)?(?:scheduled|planned|pending)\s+(?:jobs|tasks|commands|actions)"
+                    r"|what'?s\s+scheduled|(?:scheduled|planned)\s+(?:jobs|tasks|commands)", t):
+        return "list my scheduled tasks"
+    # "after 20 minutes pause the music": a delay, same as "in 20 minutes"
+    m = re.match(r"^after\s+(?P<d>\d+\s+(?:seconds?|secs?|minutes?|mins?|hours?|hrs?))\s*,?\s+(?P<c>[a-z].+)$", t)
+    if m:
+        return f"in {m.group('d')} {m.group('c')}"
+    # "go to the paint window": the window, not a website
+    m = re.match(r"^(?:go|jump|switch(?:\s+over)?|move|take\s+me)\s+(?:back\s+)?to\s+(?:the\s+|my\s+)?(?P<x>[a-z][\w .+-]{1,30}?)\s+(?:window|app)$", t)
+    if m and _app_like(m.group("x"), strong=True) and not re.match(r"(?:previous|last|other|next|old|first)\b", m.group("x")):
+        return f"switch to {m.group('x').strip()}"
+    if re.fullmatch(r"(?:hey|hi|hello|hiya|yo)\s+(?:there|buddy|mate|friend)", t):
+        return "hello"
 
     # a bare website: "open zomato.com", "visit github.com"
     m = re.match(r"^(?:open|visit|load|go\s+to|show)\s+(?:the\s+)?(?:site\s+|website\s+)?(?P<d>[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|in|org|net|io|"

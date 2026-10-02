@@ -149,6 +149,22 @@ sentence after the first). While JARVIS talks you can simply talk over it - no w
   mic-quality line (room noise, signal-to-noise, how much is being filtered).
 - Details and measurements: [docs/GENERALISATION_AND_VOICE.md](docs/GENERALISATION_AND_VOICE.md).
 
+**Follow-ups and context.** You don't have to repeat yourself. JARVIS remembers the last few commands it ran in this
+conversation:
+- "set volume to 30" → "make it 60" → "actually 40"
+- "open chrome" → "open calculator too" → "close the first one" / "close both"
+- "open notepad" → "do the same for calculator" / "now paint" / "no, word" / "close it"
+- "send ravi I'm late" → "also to meena" (still asks you to confirm)
+- "what's the weather in chennai" → "and in pune?"
+- "open youtube" → "play lofi on it"; "find report.pdf" → "open it"
+
+The follow-up becomes the full command and goes through the same checks and confirmations. "delete it", "send it" and
+"uninstall it" are never guessed from context, and context older than 15 minutes is ignored.
+
+**Apps inside a browser.** "open calculator on chrome", "open google maps in edge" open the web version in that
+browser. If only part of a request could be opened, the reply says so instead of claiming all of it.
+Details and measurements: [docs/CONTEXT_AND_FOLLOWUPS.md](docs/CONTEXT_AND_FOLLOWUPS.md).
+
 **Control words.** These work at any time:
 - "stop" / "cancel" stop the current task;
 - "stop talking" / "be quiet" stop speech;
@@ -1266,12 +1282,17 @@ chat; 500 to 1,341 each) with no AI model. The templates and the generator were 
 before any fix. About a quarter of the templates form a holdout that is never used to choose a fix. Results, including
 the first blind holdout run, are in [docs/PHASE500_REPORT.md](docs/PHASE500_REPORT.md).
 
-### Unseen-command sets (Blind-7, Blind-8)
+### Unseen-command sets (Blind-7, Blind-8, Blind-9) and the context suite
 
 `python -m tests.blind7.runner` and `python -m tests.blind8.runner [--fails]` score commands written with new wording
 and new names, frozen before the fixes they measure. On their first runs the router was at 80% and 86% without an AI
 model. With Ollama running, anything it doesn't recognise goes to the model or a question, never to a wrong action
 (0 criticals on both). See [docs/GENERALISATION_AND_VOICE.md](docs/GENERALISATION_AND_VOICE.md).
+
+`python -m tests.blind9.runner` (2,338 commands, more compound ones) scored 87.7% on its first run, 0 criticals.
+`python -m tests.context.runner` plays 34 multi-turn conversations through the full command service. Before the
+carry-over it handled 39% of the follow-up turns; after, 97%. That figure is not blind, because the suite was the one
+the carry-over was built against. See [docs/CONTEXT_AND_FOLLOWUPS.md](docs/CONTEXT_AND_FOLLOWUPS.md).
 
 ---
 
@@ -1300,6 +1321,7 @@ model. With Ollama running, anything it doesn't recognise goes to the model or a
 | AGI-520 | Task-scoped capability grants, pause/resume/stop-all, file / system / workflow tools, conditional watches, IDE and phone actions, capability parser; 520-capability suite with a frozen holdout ([report](docs/AGI_520_CAPABILITIES.md)) |
 | Phase-500 | 16,502-command suite (500+ per phase/area) with a frozen holdout; timed and triggered commands, clipboard history, app restart / running / theme, window isolate, phone call keys, dry runs; swapped-letter repair; safety fixes for questions, reopen, reported speech, borrowed authority and rule overrides ([report](docs/PHASE500_REPORT.md)) |
 | Generalisation + voice | Construction canonicaliser (synonym verbs, subject-first, modal requests, elided verbs), WhatsApp-message watches, noise suppression with automatic gain, two-chunk wake confirmation, flicker-free live transcript, voice overlay with mic quality; Blind-7 / Blind-8 unseen-command sets ([report](docs/GENERALISATION_AND_VOICE.md)) |
+| Context + follow-ups | Conversation carry-over (new number, new target, pronoun, ordinal, correction), apps inside a browser, honest open-app replies, zip tool, alarms, reminder questions, delayed commands; Blind-9 unseen set and multi-turn context suite ([report](docs/CONTEXT_AND_FOLLOWUPS.md)) |
 
 ---
 

@@ -220,6 +220,10 @@ class SmartRouter:
             here = _ON_THIS_PC.sub("", request.text or "")
             if here != request.text and len(here.split()) >= 2:
                 request = request.model_copy(update={"text": here})
+        texts = self.__dict__.setdefault("routed_texts", {})
+        texts[request.request_id] = request.text or ""
+        while len(texts) > 64:
+            texts.pop(next(iter(texts)))
         said = self._discourse(request)
         if said is not None:
             self._record(said)
@@ -234,6 +238,44 @@ class SmartRouter:
             decision = await self._qualified(request, decision)
         decision = self._plausible(request, decision)
         return self._check_frame_safety(decision, request.text or "")
+
+    @staticmethod
+    def _file_subject(text: str) -> str:
+        """The name words of a typed file search, without the verb, determiners and type words."""
+        t = text.lower().strip(" .?!")
+        m = re.search(r"\b[a-z0-9][\w-]*\.[a-z][a-z0-9]{1,4}\b", t)
+        if m:
+            return m.group(0)
+        t = re.sub(r"^(?:please\s+)?(?:find|search\s+for|search|look\s+for|locate|where\s+is|where's|show(?:\s+me)?|get|open)\s+", "", t)
+        words = [w for w in t.split() if w not in (
+            "my", "the", "a", "an", "all", "any", "some", "that", "this", "those", "these", "me", "for", "file", "files",
+            "document", "documents", "doc", "docs", "pdf", "pdfs", "excel", "spreadsheet", "spreadsheets", "sheet", "sheets",
+            "word", "image", "images", "photo", "photos", "picture", "pictures", "pic", "pics", "video", "videos", "ppt",
+            "powerpoint", "presentation", "presentations", "slides", "zip", "archive", "audio", "song", "songs", "csv",
+            "text", "txt", "png", "jpg", "jpeg", "docx", "xlsx", "pptx", "mp3", "mp4")]
+        if any(w in ("from", "in", "on", "since", "before", "after", "last", "this", "today", "yesterday", "older", "newer",
+                     "bigger", "larger", "smaller", "modified", "created", "edited", "recent", "latest", "new", "old",
+                     "than", "between", "except", "not", "without", "under", "over") for w in words):
+            return ""   # a time, size or place constraint, not a name: leave it to the constraint search
+        return " ".join(words) if words and len(words) <= 4 else ""
+
+    def _carried_over(self, text: str) -> str | None:
+        """A short follow-up ("make it 60", "do the same for paint", "close the first one") as the full command it
+        stands for, built from the last commands this conversation ran. Not while JARVIS is waiting for an answer."""
+        from jarvis.core.context.carryover import carryover_of
+        co = carryover_of(self.working_memory)
+        if co is None or not co.turns:
+            return None
+        last = co.turns[-1]
+        for getter in ("get_pending_clarification", "get_pending_confirmation"):
+            pending = getattr(self.working_memory, getter, lambda: None)()
+            if pending is not None and getattr(pending, "created_at", 0) >= last.wall:
+                return None
+        try:
+            full = co.rewrite(text)
+        except Exception:
+            return None
+        return full if full and full.lower() != " ".join(text.lower().split()) else None
 
     def _plausible(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         """The matched tool must act on a real target: a control is not an app, a question about a document's content
@@ -1260,6 +1302,13 @@ class SmartRouter:
                 find_slots["query"] = " ".join(frame.include_constraints)
             elif frame.entities:
                 find_slots["query"] = " ".join(frame.entities)
+            elif frame.file_types and not (frame.folders or frame.temporal_constraints or frame.size_constraints) \
+                    and self._file_subject(frame.clean_query or routing_text):
+                # "find my resume pdf": "resume" is what to look for, "pdf" only narrows the type
+                find_slots["query"] = self._file_subject(frame.clean_query or routing_text)
+            elif re.search(r"\b[a-z0-9][\w-]*\.[a-z][a-z0-9]{1,4}\b", routing_text.lower()) and frame.file_types:
+                # "find report.pdf": the file name is the query, its extension only the type
+                find_slots["query"] = re.search(r"\b[a-z0-9][\w-]*\.[a-z][a-z0-9]{1,4}\b", routing_text.lower()).group(0)
             elif frame.file_types or frame.folders or frame.temporal_constraints or frame.size_constraints:
                 # Pure constraint search without target filename (e.g. "Find PDFs from last Tuesday", "Show files bigger than 20MB")
                 find_slots["query"] = "*"

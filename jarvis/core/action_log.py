@@ -110,7 +110,7 @@ FOLLOWUP = re.compile(
     rf"(?:\s+(?:it|that|this|the\s+message|the\s+msg|a\s+message))?(?:\s+(?:to|sent\s+to))?"
     rf"|^(?:to\s+whom|who)\s+{_U}\s+(?:have\s+|has\s+)?(?:just\s+)?(?:sen[dt]|messaged|texted)(?:\s+(?:it|that))?(?:\s+to)?"
     rf"|^who\s+(?:was|is)\s+(?:it|that|the\s+message)\s+(?:sent\s+)?(?:to|for)"
-    rf"|^what\s+(?:did|have)\s+{_U}\s+(?:actually\s+|really\s+|even\s+)?(?:just\s+)?(?:send|sent|write|wrote|type|typed|say|said|reply|replied|do|done|open|opened)"
+    rf"|^what\s+(?:did|have)\s+{_U}\s+(?:actually\s+|really\s+|even\s+)?(?:just\s+)?(?:send|sent|write|wrote|type|typed|say|said|reply|replied|do|done|open|opened|close|closed|set|change|changed|play|played|turn|turned|search|searched|make|made|put)"
     rf"|^what\s+(?:was|is)\s+(?:the|that|your|my)\s+(?:message|msg|reply|last\s+(?:message|reply|action|command))"
     rf"|^what\s+(?:just\s+)?happened|^what\s+was\s+that"
     rf"|^(?:did|has|was)\s+(?:it|that|the\s+message|the\s+msg|my\s+message|that\s+(?:message|msg|text|mail|email|reply))\s+"

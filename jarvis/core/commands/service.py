@@ -364,7 +364,15 @@ class CommandService:
         self.writer.enqueue("requests", task.request_id, request.model_dump())
         self.tasks.transition(task, State.UNDERSTANDING)
         try:
+            carried = getattr(self.router, "_carried_over", lambda _t: None)(request.text or "")
+            if carried:
+                # "make it 60" after "set volume to 30", "do the same for paint", "close the first one": the full
+                # command goes through routing, policy and confirmation exactly as if it had been said.
+                logging.getLogger("jarvis.commands").info("carried over: %r -> %r", request.text, carried,
+                                                          extra={"request_id": task.request_id})
+                request = request.model_copy(update={"text": carried})
             decision = await self.router.route(request)
+            decision = self._bare_media_control(decision, request.text or "", task)
             self._last_decisions[task.request_id] = decision
             try:
                 task.intent = decision.intent or ""
@@ -1024,6 +1032,39 @@ class CommandService:
             raise
         return self._finalize(task, state, message, tool_result, verification, clock, current, is_voice=is_voice, predicted_ms=locals().get("predicted_ms", 400.0))
 
+    def _bare_media_control(self, decision, text: str, task):
+        """A bare "pause" / "resume" with no JARVIS task to pause or resume is about the music or video playing."""
+        if decision.intent not in ("pause_task", "resume_task") or not self.registry.contains("media_control"):
+            return decision
+        if not re.fullmatch(r"\W*(?:pause|resume|unpause|continue\s+playing|play)\W*", text.lower()):
+            return decision
+        others = self.tasks.active_tasks(exclude=task)
+        if decision.intent == "pause_task" and any(not t.paused for t in others if not t.background):
+            return decision
+        if decision.intent == "resume_task" and any(t.paused for t in others):
+            return decision
+        return decision.model_copy(update={"lane": RouteLane.LANE_0, "intent": "media_control",
+                                           "slots": {"action": "pause" if decision.intent == "pause_task" else "play"}})
+
+    def _carry_over(self, task, dec, tool_result) -> None:
+        """Remember what this command did, so a short follow-up can stand for the full command next time."""
+        from jarvis.core.context.carryover import carryover_of
+        co = carryover_of(self.working_memory)
+        if co is None or dec.lane not in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.LANE_2):
+            return
+        text = getattr(self.router, "routed_texts", {}).get(task.request_id) or getattr(task, "raw_text", "")
+        data = tool_result.data if tool_result is not None and isinstance(tool_result.data, dict) else {}
+        steps = [(s.tool, dict(s.arguments or {})) for s in (dec.subcommands or [])] or [(dec.intent, dict(dec.slots or {}))]
+        if not dec.intent and not dec.subcommands and dec.lane == RouteLane.LANE_2:
+            steps = [("chat", {"query": text})]   # "what's the weather in chennai" -> "and in pune?"
+        for tool, args in steps:
+            if not tool:
+                continue
+            app = ""
+            if tool == "open_app" and len(steps) == 1:
+                app = str(data.get("requested") or args.get("name") or "")
+            co.record(text, tool, args, app=app)
+
     def _log_action(self, task, state, message, tool_result) -> None:
         """Remember what was actually done, for follow-ups ("who did you send that to?") and the chat model."""
         try:
@@ -1134,6 +1175,8 @@ class CommandService:
             # Contextual working memory updates
             if self.working_memory:
                 try:
+                    if state in (State.SUCCESS, State.WAITING_CONFIRMATION) and dec is not None:
+                        self._carry_over(task, dec, tool_result)   # "make it 60", "do the same for X", "close the first one"
                     if state == State.SUCCESS:
                         if hasattr(self.working_memory, "clear_pending_clarification"):
                             self.working_memory.clear_pending_clarification()

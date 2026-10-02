@@ -468,6 +468,64 @@ class DeleteFileTool(Tool):
             shutil.move(str(p), str(target))
             return DeleteFileOutput(path=str(p), deleted=True, method="quarantine_trash")
 
+class CompressFilesInput(Contract):
+    path: str = Field(min_length=1, max_length=4096, description="File or folder to put into a .zip archive")
+
+
+class CompressFilesOutput(Contract):
+    source: str
+    archive: str
+    files: int
+    bytes: int
+    status: str = "SUCCESS"
+    message: str = ""
+
+
+class CompressFilesTool(Tool):
+    """Zips a file or folder next to itself. Never overwrites: an existing name gets ' (2)', ' (3)' ..."""
+
+    def __init__(self):
+        self.definition = ToolDefinition(
+            name="compress_files",
+            description="Compresses (zips) a file or folder into a .zip archive next to it.",
+            input_model=CompressFilesInput,
+            output_model=CompressFilesOutput,
+            read_only=False,
+            risk=RiskLevel.REVERSIBLE,
+            timeout_s=120.0,
+            tags=("files", "zip", "compress", "archive"),
+        )
+
+    def run(self, input_data: CompressFilesInput) -> CompressFilesOutput:
+        import zipfile
+        if isinstance(input_data, dict):
+            input_data = CompressFilesInput(**input_data)
+        home = Path(os.environ.get("USERPROFILE") or Path.home())
+        known = {"downloads": "Downloads", "documents": "Documents", "desktop": "Desktop", "pictures": "Pictures",
+                 "photos": "Pictures", "music": "Music", "videos": "Videos"}
+        name = input_data.path.strip().strip("'\"").lower()
+        src = home / known[name] if name in known and (home / known[name]).exists() else _find_existing_item(input_data.path)
+        if not src or not src.exists():
+            return CompressFilesOutput(source=input_data.path, archive="", files=0, bytes=0, status="NOT_FOUND",
+                                       message=f"I couldn't find {input_data.path} to zip.")
+        base = src.parent / (src.stem if src.is_file() else src.name)
+        archive, n = base.with_name(base.name + ".zip"), 2
+        while archive.exists():
+            archive, n = base.with_name(f"{base.name} ({n}).zip"), n + 1
+        members = [src] if src.is_file() else [p for p in sorted(src.rglob("*")) if p.is_file()]
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for p in members:
+                zf.write(p, p.name if src.is_file() else str(p.relative_to(src.parent)))
+        with zipfile.ZipFile(archive) as zf:   # read it back: every member present and its CRC intact
+            bad = zf.testzip()
+            count = len(zf.namelist())
+        if bad is not None or count != len(members):
+            return CompressFilesOutput(source=str(src), archive=str(archive), files=count, bytes=archive.stat().st_size,
+                                       status="FAILED", message=f"The zip of {src.name} didn't check out ({bad or 'files missing'}).")
+        return CompressFilesOutput(source=str(src), archive=str(archive), files=count, bytes=archive.stat().st_size,
+                                   message=f"Zipped {src.name} into {archive.name}.")
+
+
 def create_file_tools(search_engine: SearchEngine | None = None, db_path: Path | str = ROOT / "db/jarvis.db", working_memory: WorkingMemory | None = None) -> list[Tool]:
     return [
         FindFileTool(search_engine),
@@ -478,4 +536,5 @@ def create_file_tools(search_engine: SearchEngine | None = None, db_path: Path |
         MoveFileTool(),
         RenameFileTool(),
         DeleteFileTool(),
+        CompressFilesTool(),
     ]

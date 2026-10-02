@@ -70,8 +70,83 @@ def _planner(rid: str, t: str) -> RouteDecision:
                          normalized_text=t, reason_code=ReasonCode.MULTI_STEP, candidate_count=0)
 
 
+# "open calculator on chrome": the thing is opened as a web page in that browser, never as a second desktop app
+_BROWSERS = {"chrome": "chrome", "google chrome": "chrome", "edge": "edge", "microsoft edge": "edge", "firefox": "firefox",
+             "mozilla firefox": "firefox", "brave": "brave", "opera": "", "vivaldi": "", "browser": "", "the browser": "",
+             "my browser": ""}
+_WEB_TOOLS = {"calculator": "https://www.google.com/search?q=calculator", "calc": "https://www.google.com/search?q=calculator",
+              "maps": "https://maps.google.com", "google maps": "https://maps.google.com",
+              "translate": "https://translate.google.com", "google translate": "https://translate.google.com",
+              "calendar": "https://calendar.google.com", "google calendar": "https://calendar.google.com",
+              "drive": "https://drive.google.com", "google drive": "https://drive.google.com",
+              "docs": "https://docs.google.com", "google docs": "https://docs.google.com",
+              "sheets": "https://sheets.google.com", "google sheets": "https://sheets.google.com",
+              "slides": "https://slides.google.com", "meet": "https://meet.google.com", "google meet": "https://meet.google.com",
+              "keep": "https://keep.google.com", "photos": "https://photos.google.com", "news": "https://news.google.com",
+              "outlook": "https://outlook.live.com", "teams": "https://teams.microsoft.com", "word": "https://www.office.com/launch/word",
+              "excel": "https://www.office.com/launch/excel", "powerpoint": "https://www.office.com/launch/powerpoint",
+              "notepad": "https://www.google.com/search?q=online+notepad", "whatsapp": "https://web.whatsapp.com",
+              "whatsapp web": "https://web.whatsapp.com", "weather": "https://www.google.com/search?q=weather",
+              "clock": "https://www.google.com/search?q=clock", "timer": "https://www.google.com/search?q=timer",
+              "stopwatch": "https://www.google.com/search?q=stopwatch"}
+
+
+def _pc_radio(t, raw, rid, mode):
+    """"turn on bluetooth" on this PC: Windows has no supported switch for it, so its Settings page opens and the reply
+    says what is left to do - it never claims the radio changed."""
+    if re.search(r"\b(?:phone|mobile|android)\b", t):
+        return None
+    m = re.match(r"^(?:turn|switch)\s+(?P<s>on|off)\s+(?:the\s+|my\s+)?(?P<x>bluetooth|wi-?fi)$|^(?:turn|switch)\s+(?:the\s+|my\s+)?"
+                 r"(?P<x2>bluetooth|wi-?fi)\s+(?P<s2>on|off)$|^(?P<v>enable|disable)\s+(?:the\s+|my\s+)?(?P<x3>bluetooth|wi-?fi)$|"
+                 r"^(?P<x4>bluetooth|wi-?fi)\s+(?P<s4>on|off)$", t)
+    if not m:
+        return None
+    what = (m.group("x") or m.group("x2") or m.group("x3") or m.group("x4")).replace("-", "")
+    state = m.group("s") or m.group("s2") or m.group("s4") or ("on" if m.group("v") == "enable" else "off")
+    return _d(rid, t, "open_system_settings", {"page": what, "want": state})
+
+
+def _app_in_browser(t, raw, rid, mode):
+    m = re.match(r"^(?:open|launch|start|load|show|pull\s+up|bring\s+up|go\s+to|visit|use|run)\s+(?:up\s+)?(?:the\s+|a\s+)?"
+                 r"(?P<x>[a-z0-9][\w .+&'-]{0,40}?)\s+(?:on|in|using|with|via|inside)\s+(?P<b>(?:google\s+|microsoft\s+|mozilla\s+)?"
+                 r"(?:chrome|edge|firefox|brave|opera|vivaldi)|(?:the\s+|my\s+)?browser)(?:\s+browser)?$", t)
+    if not m:
+        return None
+    x = m.group("x").strip()
+    if re.match(r"my\s", x):
+        return None           # "my resume in chrome": a file of the owner's, found first
+    if re.search(r"\b(?:tabs?|window|incognito|private|profile|settings|history|downloads|bookmarks?|extensions?|it|this|that|"
+                 r"link|page|file|pdf)\b", x):
+        return None           # the browser's own things ("a new tab in chrome", "this link in edge") have their own routes
+    from jarvis.tools.system.app_resolver import WEB_SERVICES
+    if re.fullmatch(r"[a-z]+ing", x) and x not in _WEB_TOOLS and x not in WEB_SERVICES:
+        return None           # "start typing in chrome": an activity there, not a site to open
+    browser = _BROWSERS.get(m.group("b").strip(), "")
+    if re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/\S*)?", x):
+        url = x if x.startswith("http") else f"https://{x}"
+    else:
+        url = _WEB_TOOLS.get(x) or WEB_SERVICES.get(x) or \
+            "https://www.google.com/search?q=" + "+".join(re.findall(r"[a-z0-9+#.]+", x))
+    slots = {"url": url, "title": f"{_raw(raw, x)} in {m.group('b').strip().title()}"}
+    if browser:
+        slots["browser"] = browser
+    return _d(rid, t, "open_website", slots)
+
+
+def _zip(t, raw, rid, mode):
+    """'zip report.pdf', 'compress my project folder', 'make a zip of the photos folder'."""
+    m = re.match(r"^(?:zip(?:\s+up)?|compress|archive|make\s+(?:a\s+)?zip(?:\s+file)?\s+(?:of|from|with)|put)\s+(?P<x>(?:my\s+|the\s+)?"
+                 r"[\w][\w .()-]{0,80}?)(?:\s+(?:into|in(?:to)?\s+a|as\s+a)\s+zip(?:\s+file)?)?$", t)
+    if not m or (t.startswith("put ") and not re.search(r"\bzip\b", t)):
+        return None
+    x = re.sub(r"\s+(?:folder|directory|dir)$", "", re.sub(r"^(?:my|the)\s+", "", m.group("x"))).strip()
+    if not x or re.fullmatch(r"(?:it|this|that|them|these|those|everything|all)", x):
+        return None
+    return _d(rid, t, "compress_files", {"path": _raw(raw, x)})
+
+
 def match_capability(t: str, raw: str, rid: str, mode: str = "") -> Optional[RouteDecision]:
-    for fn in (_dry_run, _danger, _schedule, _conditional, _orchestration, _device_refs, _messages, _assistant, _workflow,
+    for fn in (_dry_run, _danger, _zip, _app_in_browser, _pc_radio, _schedule, _conditional, _orchestration, _device_refs, _messages, _assistant, _workflow,
                _system, _phone, _pc, _ide, _files, _browser, _text, _controls, _windows):
         d = fn(t, raw, rid, mode)
         if d is not None:
@@ -904,7 +979,8 @@ def _browser(t, raw, rid, mode):
         if re.match(r"^(?:this|that|the)\s+(?:error|problem|issue|bug)$", q):
             return _planner(rid, t)                          # read the error first, then look it up
         return _d(rid, t, "browser_op", {"action": "official", "target": _raw(raw, q)})
-    if re.match(r"^(?:open|click)\s+(?:this|that)\s+(?:result|link|one)(?:\s+in\s+(?:a\s+)?new\s+tab)?$", t):
+    if re.match(r"^(?:open|click)\s+(?:this|that|the)\s+(?:result|link|one)(?:\s+in\s+(?:a\s+new\s+tab|new\s+tab|"
+                r"(?:google\s+)?chrome|(?:microsoft\s+)?edge|firefox|brave|(?:another|the\s+other)\s+browser))?$", t):
         return _clarify(rid, t, "Which result - say its number, like 'open the second result in a new tab'.",
                         intent="browser_op")
     m = re.match(r"^(?:open|click|follow)\s+(?:the\s+)?(?P<n>[\w -]+?)\s+link(?P<nt>\s+in\s+(?:a\s+)?new\s+tab)?$", t)
@@ -914,7 +990,8 @@ def _browser(t, raw, rid, mode):
                  r"(?:page|form|site|website|upload field)$", t)
     if m:
         return _d(rid, t, "browser_op", {"action": "upload"})
-    m = re.match(r"^(?:open|start)\s+(?:a\s+|another\s+|one more\s+)?(?:new\s+)?(?:browser\s+|chrome\s+|edge\s+)?tab(?:\s+on\s+(?:my\s+)?pc)?$|"
+    m = re.match(r"^(?:open|start)?\s*(?:a\s+|another\s+|one more\s+)?(?:new\s+)?(?:browser\s+|chrome\s+|edge\s+)?tab(?:\s+on\s+(?:my\s+)?pc|"
+                 r"\s+(?:in|on)\s+(?:google\s+)?(?:chrome|edge|firefox|brave|(?:the\s+)?browser))?$|"
                  r"^open\s+(?:a\s+)?new\s+(?:chrome|edge|browser)\s+tab(?:\s+on\s+(?:my\s+)?pc)?$", t)
     if m:
         return _d(rid, t, "browser_quick_action", {"action": "new_tab"})
@@ -1150,6 +1227,7 @@ _DANGER = re.compile(
     r"|\b(?:unlock|open|get\s+into|access)\s+(?:my\s+|the\s+|this\s+|someone'?s?\s+)?(?:\w+\s+)?(?:phone|mobile|laptop|pc|computer|"
     r"account)\s+without\s+(?:the\s+|my\s+|a\s+|its\s+)?(?:pin|passcode|password|pattern|fingerprint|face\s*id|code)\b"
     r"|\b(?:wipe|erase)\s+(?:my\s+|the\s+)?(?:whole|entire|complete)\s+(?:hard\s+)?(?:drive|disk|ssd|pc|computer)\b"
+    r"|\b(?:wipe|erase|nuke)\s+(?:my\s+|the\s+|this\s+)?(?:[a-z]\s*:?\s+)?(?:hard\s+)?(?:drive|disk|ssd|hdd|partition)\b"
     r"|\bsolve\s+(?:this|the|that)\s+captcha\b"
     r"|\brun\s+(?:this|that|a|some|the)\s+(?:powershell|cmd|batch|bash|shell)\s+script\s+from\s+(?:the\s+)?(?:internet|web|net|"
     r"site|website|email)\b")
