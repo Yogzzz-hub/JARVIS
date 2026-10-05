@@ -9,7 +9,11 @@
 const STUB_CIPHERTEXT = 2;
 
 function isGroupJid(jid) {
-  return /@(g\.us|broadcast|newsletter)$/.test(jid || "") || String(jid || "").startsWith("status@");
+  return String(jid || "").endsWith("@g.us");
+}
+
+function isDirectJid(jid) {
+  return /@(s\.whatsapp\.net|lid|c\.us)$/.test(String(jid || ""));
 }
 
 /**
@@ -18,7 +22,7 @@ function isGroupJid(jid) {
  */
 function normalizePendingMessage(rawMsg) {
   const key = (rawMsg && rawMsg.key) || {};
-  if (!key.id || !key.remoteJid) return null;
+  if (!key.id || !key.remoteJid || !(isDirectJid(key.remoteJid) || isGroupJid(key.remoteJid))) return null;
   const isFromMe = Boolean(key.fromMe);
   const senderId = key.participant || (isFromMe ? "me" : key.remoteJid) || "";
   return {
@@ -44,14 +48,26 @@ function isPendingDecryption(rawMsg) {
   return rawMsg.messageStubType === STUB_CIPHERTEXT || (!rawMsg.message && !rawMsg.messageStubType);
 }
 
-function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
+function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null, onDecision = null) {
+  const decision = (result, reason, messageType = "") => {
+    if (onDecision) onDecision({ result, reason, messageType });
+  };
   if (!rawMsg || !rawMsg.message) {
+    decision("REJECTED", "EMPTY_BODY");
     return null;
   }
 
   const key = rawMsg.key || {};
-  const messageId = key.id || `msg_${Date.now()}`;
+  if (!key.id || !key.remoteJid) {
+    decision("REJECTED", !key.id ? "MISSING_MESSAGE_ID" : "MISSING_CHAT_JID");
+    return null;
+  }
+  const messageId = key.id;
   const chatId = key.remoteJid || "";
+  if (!(isDirectJid(chatId) || isGroupJid(chatId))) {
+    decision("REJECTED", "NON_CHAT_CHANNEL");
+    return null;
+  }
   const isFromMe = Boolean(key.fromMe);
   const senderId = key.participant || (isFromMe ? "me" : key.remoteJid) || "";
   const displayName = rawMsg.pushName || senderId.split("@")[0] || "Unknown";
@@ -59,7 +75,8 @@ function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
     rawMsg.messageTimestamp ? Number(rawMsg.messageTimestamp) * 1000 : Date.now()
   ).toISOString();
 
-  const msg = rawMsg.message;
+  // Ephemeral wrappers retain their expiration metadata; view-once is not unwrapped.
+  const msg = rawMsg.message.ephemeralMessage?.message || rawMsg.message;
   let type = "text";
   let text = "";
   let mediaRef = downloadedMediaRef;
@@ -70,7 +87,7 @@ function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
     msg.extendedTextMessage?.contextInfo ||
     msg.imageMessage?.contextInfo ||
     msg.documentMessage?.contextInfo ||
-    msg.audioMessage?.contextInfo;
+    msg.audioMessage?.contextInfo || msg.videoMessage?.contextInfo;
 
   if (contextInfo && contextInfo.stanzaId) {
     replyTo = {
@@ -95,11 +112,34 @@ function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
   } else if (msg.audioMessage) {
     type = msg.audioMessage.ptt ? "voice_note" : "audio";
     text = "";
+  } else if (msg.videoMessage) {
+    type = "video"; text = msg.videoMessage.caption || "";
+  } else if (msg.stickerMessage) {
+    type = "sticker";
+  } else if (msg.locationMessage || msg.liveLocationMessage) {
+    type = "location"; text = (msg.locationMessage || msg.liveLocationMessage).name || "";
+  } else if (msg.contactMessage || msg.contactsArrayMessage) {
+    type = "contact"; text = (msg.contactMessage || msg.contactsArrayMessage).displayName || "";
+  } else if (msg.reactionMessage) {
+    type = "reaction"; text = msg.reactionMessage.text || "";
+    replyTo = { message_id: msg.reactionMessage.key?.id || "", participant: msg.reactionMessage.key?.participant || null };
+  } else if (msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3) {
+    type = "poll"; text = (msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3).name || "";
+  } else if (msg.eventMessage) {
+    type = "event"; text = msg.eventMessage.name || "";
   } else {
     // Unrecognized or unsupported message type (reaction, sticker, protocol)
+    decision("REJECTED", "UNSUPPORTED_MESSAGE_TYPE", Object.keys(msg || {})[0] || "unknown");
     return null;
   }
 
+  const mediaBody = msg.imageMessage || msg.documentMessage || msg.audioMessage || msg.videoMessage || msg.stickerMessage;
+  if (mediaBody) {
+    mediaRef = { filename: mediaBody.fileName || type, mimetype: mediaBody.mimetype || "application/octet-stream",
+      size_bytes: Number(mediaBody.fileLength || 0), downloaded: false, ...(mediaRef || {}) };
+  }
+
+  decision("ACCEPTED", "", type);
   return {
     channel: "whatsapp",
     message_id: messageId,
@@ -113,7 +153,12 @@ function normalizeIncomingMessage(rawMsg, downloadedMediaRef = null) {
     reply_to: replyTo,
     is_from_me: isFromMe,
     is_group: isGroupJid(chatId),
-    state: "READY"
+    state: "READY",
+    metadata: { ephemeral_expiration: contextInfo?.expiration || null,
+      location: msg.locationMessage || msg.liveLocationMessage || null,
+      contact: msg.contactMessage || msg.contactsArrayMessage || null,
+      poll: msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3 || null,
+      event: msg.eventMessage || null }
   };
 }
 

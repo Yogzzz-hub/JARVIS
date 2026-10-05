@@ -617,6 +617,9 @@ class TemporalResolver:
         return None, original
 
     def _match_single_relative_date(self, lowered: str, original: str) -> Tuple[Optional[TemporalConstraint], str]:
+        m_tomorrow = re.search(r"\b(?:on\s+)?tomorrow\b", lowered)
+        if m_tomorrow:
+            return DatePoint(self.today + timedelta(days=1), "tomorrow"), self._clean_span(original, m_tomorrow.start(), m_tomorrow.end())
         # "yesterday"
         m_yest = re.search(r"\b(?:from\s+|on\s+)?yesterday\b", lowered)
         if m_yest:

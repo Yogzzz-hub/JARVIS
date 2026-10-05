@@ -80,32 +80,48 @@ echo [WARNING] Ollama server is taking longer than expected. Continuing startup.
 echo.
 :: 4. Check WhatsApp Omnichannel Bridge (Port 8768)
 echo [2/7] Checking WhatsApp bridge status on port 8768...
+set "JARVIS_WHATSAPP_AUTH_DIR=%~dp0integrations\data\whatsapp_auth_fresh_latency_test"
+set "JARVIS_WHATSAPP_TEMP_DIR=%~dp0integrations\data\whatsapp_temp_fresh_latency_test"
+set "JARVIS_WHATSAPP_SESSION_RECOVERY=1"
+set "JARVIS_WHATSAPP_OFFLINE_BATCH_PROBE=200"
+if not defined JARVIS_WHATSAPP_READ_ONLY set "JARVIS_WHATSAPP_READ_ONLY=1"
+set "JARVIS_WHATSAPP_ONE_SHOT_TO="
+set "JARVIS_WHATSAPP_ONE_SHOT_TEXT="
+set "JARVIS_WHATSAPP_ONE_SHOT_REQUEST_ID="
+if not exist "%JARVIS_WHATSAPP_AUTH_DIR%\creds.json" (
+    echo [ERROR] Live-verified WhatsApp auth is missing. Archived auth will not be used.
+    exit /b 1
+)
+set /a wa_attempts=0
 netstat -ano | findstr /R ":8768.*LISTENING" >nul 2>&1
 if not errorlevel 1 (
-    echo [OK] WhatsApp Bridge is already active and listening on port 8768.
-    goto :check_adb
+    echo [INFO] WhatsApp bridge port is occupied. Verifying the registered fresh session...
+    goto :wait_wa
 )
 
 echo [INFO] WhatsApp Bridge is not running. Launching transport bridge...
-set "WHATSAPP_PHONE_NUMBER=916381456199"
 if not exist "%~dp0integrations\whatsapp\bridge\src\index.js" (
     echo [WARNING] WhatsApp bridge files not found at integrations\whatsapp\bridge\src\index.js
     goto :check_adb
 )
 
-start "JARVIS EDGE - WhatsApp Bridge" /min node "%~dp0integrations\whatsapp\bridge\src\index.js"
-echo [INFO] Waiting for WhatsApp bridge to reach ready state...
-set /a wa_attempts=0
+start "JARVIS EDGE - WhatsApp Bridge" /min node --use-system-ca "%~dp0integrations\whatsapp\bridge\src\index.js"
+echo [INFO] Waiting for the fresh WhatsApp session to reach ready state...
 :wait_wa
-ping -n 2 127.0.0.1 >nul
-set /a wa_attempts+=1
-netstat -ano | findstr /R ":8768.*LISTENING" >nul 2>&1
-if not errorlevel 1 (
-    echo [OK] WhatsApp Bridge is READY on ws://127.0.0.1:8768 (Owner: 6381456199)
+node "%~dp0integrations\whatsapp\bridge\scripts\verify_runtime.js" "%JARVIS_WHATSAPP_AUTH_DIR%" >nul
+set "wa_result=!errorlevel!"
+if "!wa_result!"=="3" (
+    echo [ERROR] Port 8768 is using a different WhatsApp auth store. Refusing archived session.
+    exit /b 1
+)
+if "!wa_result!"=="0" (
+    echo [OK] Registered fresh WhatsApp transport is connected on ws://127.0.0.1:8768. Live event acceptance is tracked separately.
     goto :check_adb
 )
-if !wa_attempts! lss 15 goto :wait_wa
-echo [WARNING] WhatsApp bridge is taking longer than usual to start. Continuing...
+ping -n 2 127.0.0.1 >nul
+set /a wa_attempts+=1
+if !wa_attempts! lss 30 goto :wait_wa
+echo [WARNING] Fresh WhatsApp session has not completed notification sync. Continuing with degraded WhatsApp health.
 
 :check_adb
 echo.

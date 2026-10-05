@@ -469,6 +469,7 @@ class ExecutionEngine:
         if verification.status == VerificationStatus.UNCERTAIN:
             return ToolResult(
                 success=False,
+                data={**(exec_output or {}), "status": "UNCERTAIN"},
                 error=verification.error or "Action outcome is UNCERTAIN. Automatic retry is prevented for safety.",
                 evidence=verification.evidence,
                 duration_ms=dur_ms,

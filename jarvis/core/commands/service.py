@@ -81,7 +81,7 @@ class CommandService:
             return "brightness_set", {"percent": int(max(0, min(100, round(target))))}
         if name == "restore_window" and self.registry.contains("move_resize_window"):
             return "move_resize_window", {"action": "restore"}
-        if name == "whatsapp_status" and self.registry.contains("whatsapp_action"):
+        if name == "whatsapp_status" and not self.registry.contains(name) and self.registry.contains("whatsapp_action"):
             return "whatsapp_action", {"action": "status"}
         return name, slots
 
@@ -188,6 +188,13 @@ class CommandService:
             switch = match_language_switch(text)
             language = reply_language(text, None if switch in (None, AUTO) else switch)
             REPLY_LANGUAGE.set(language)
+            from jarvis.core.general_language import GeneralLanguageUnderstandingEngine
+            frame = GeneralLanguageUnderstandingEngine().understand(text, {"thread_ref": request.chat_id} if request.chat_id else {})
+            if frame.language == "tanglish":
+                request = request.model_copy(update={"metadata": {**request.metadata, "language_raw_text": text,
+                    "language_frame": frame.asdict()}})
+                if frame.speech_act in {"QUESTION", "STATEMENT", "PROHIBITION"} or frame.missing:
+                    return request
             english = to_english_command(text)
             if english != text:
                 return request.model_copy(update={"text": english})
@@ -319,8 +326,13 @@ class CommandService:
         """One command = one task-scoped grant: only the capabilities its route or validated plan needs, revoked
         when the command finishes (jarvis/core/tasks/scope.py)."""
         from jarvis.core.tasks.scope import get_scope_manager
-        with get_scope_manager().grant(getattr(request, "request_id", "") or "", (), reason="command"):
-            return await self._handle(request, clock)
+        from jarvis.core.commands.provenance import owner_command
+        token = owner_command.set(request.text if getattr(request, "is_owner", False) else None)
+        try:
+            with get_scope_manager().grant(getattr(request, "request_id", "") or "", (), reason="command"):
+                return await self._handle(request, clock)
+        finally:
+            owner_command.reset(token)
 
     @staticmethod
     def _grant(tool) -> None:
@@ -1014,6 +1026,9 @@ class CommandService:
             if task.cancellation.is_set():
                 raise asyncio.CancelledError
             state = State.SUCCESS if verification.verified else State.FAILED
+            if (verification.verified and name in ("summarize_whatsapp_messages", "read_whatsapp_messages")
+                    and isinstance(tool_result.data, dict) and tool_result.data.get("status") == "PARTIAL_SYNC"):
+                state = State.PARTIAL_SUCCESS
             if not verification.verified:
                 tool_result = tool_result.model_copy(update={"success": False, "error": verification.error})
             else:
@@ -1157,6 +1172,11 @@ class CommandService:
 
         # Verification Rule: Never produce DONE/COMPLETED/SUCCESS until all required verification passes
         # Execution success != verification success.
+        if state in (State.SUCCESS, State.COMPLETED, State.FAILED) and (
+            getattr(getattr(verification, "status", None), "value", None) == "UNCERTAIN"
+            or tool_result is not None and (tool_result.data or {}).get("status") == "UNCERTAIN"
+        ):
+            state = State.UNCERTAIN
         if state in (State.SUCCESS, State.COMPLETED) and verification is not None and not verification.verified:
             state = State.UNCERTAIN if getattr(verification, "confidence", 1.0) > 0.3 else State.FAILED
 

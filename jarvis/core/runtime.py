@@ -182,13 +182,52 @@ class Runtime:
                         whatsapp_ai=self.whatsapp_ai,
                         announcer=self._announce,
                     )
-                    await self.whatsapp_service.start()
+                    self.whatsapp_service.media_pipeline.stt_engine = getattr(self.voice, "stt", None)
                     if self.service and hasattr(self.service, "registry"):
                         for tn in ("send_whatsapp_message", "send_whatsapp_bulk", "read_whatsapp_messages", "summarize_whatsapp_messages"):
                             if self.service.registry.contains(tn):
                                 t = self.service.registry.get(tn)
                                 t.transport = self.whatsapp_service.transport
                                 t.confirmation_manager = getattr(self.service.executor, "confirmation_manager", None)
+                        from jarvis.tools.system.whatsapp_intelligence import WhatsAppIntelligenceTool
+                        for t in self.service.registry.list():
+                            if isinstance(t, WhatsAppIntelligenceTool):
+                                t.transport = self.whatsapp_service.transport
+                                t.inbox = self.whatsapp_service.gateway.inbox
+                                t.media_pipeline = self.whatsapp_service.media_pipeline
+                                t.personal_reply = self.whatsapp_service.personal_reply
+                                t.registry = self.service.registry
+                                t.working_memory = self.service.working_memory
+                        async def registered_send(chat_id, text):
+                            sender = self.service.registry.get("send_whatsapp_message")
+                            return await asyncio.to_thread(sender.run, {"recipient": chat_id, "message": text})
+                        self.whatsapp_service.gateway.registered_sender = registered_send
+                        self.whatsapp_service.gateway.outbound_ledger = self.service.executor.ledger
+                        self.whatsapp_service.gateway.outbound_policy = self.service.executor.policy_evaluator
+                        if self.whatsapp_service.personal_reply is not None:
+                            self.whatsapp_service.personal_reply.registered_sender = registered_send
+                    await self.whatsapp_service.start()
+                    intelligence = self.whatsapp_service.intelligence
+                    async def notify_watcher(watcher, mid):
+                        self.bus.emit("whatsapp.watcher", watcher["id"], thread_id=watcher["thread_id"],
+                            message_id=mid, action=watcher.get("action", "NOTIFY"))
+                        await self._announce("Your WhatsApp watcher matched a new message.")
+                    intelligence.notifier = notify_watcher
+                    async def watcher_action(watcher, mid):
+                        from jarvis.core.tasks.scope import get_scope_manager
+                        with get_scope_manager().grant(watcher["id"], {"whatsapp_attachment_download", "whatsapp_attachment_save"}, reason="owner-created attachment watcher"):
+                            args = {"contact": watcher["thread_id"], "resource_id": "attachment:" + mid}
+                            result = await self.service.executor.execute(self.service.registry.get("whatsapp_attachment_download"), args,
+                                graph_id=watcher["id"], node_id="download")
+                            if not result.success: raise RuntimeError(result.error or "Attachment download failed")
+                            raw = intelligence.store.get("attachment:" + mid, watcher["thread_id"])
+                            destination = Path(watcher["destination"]).resolve()
+                            if not destination.suffix:
+                                destination = destination / Path(raw["filename"]).name
+                            result = await self.service.executor.execute(self.service.registry.get("whatsapp_attachment_save"),
+                                {**args, "destination": str(destination)}, graph_id=watcher["id"], node_id="save")
+                            if not result.success: raise RuntimeError(result.error or "Attachment save failed")
+                    intelligence.watcher_action = watcher_action
                 except Exception as exc:
                     logging.getLogger("jarvis.runtime").warning("WhatsApp omnichannel service startup failed: %s", exc)
             else:

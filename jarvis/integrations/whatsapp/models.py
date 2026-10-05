@@ -16,7 +16,7 @@ class NormalizedWhatsAppMessage(BaseModel):
     sender_id: str = Field(min_length=1)
     sender_display_name: str = "Unknown"
     timestamp: str
-    type: Literal["text", "image", "document", "audio", "voice_note"] = "text"
+    type: Literal["text", "image", "document", "audio", "voice_note", "video", "sticker", "location", "contact", "reaction", "poll", "event"] = "text"
     text: str = ""
     media_ref: Optional[Dict[str, Any]] = None
     reply_to: Optional[Dict[str, Any]] = None
@@ -28,6 +28,7 @@ class NormalizedWhatsAppMessage(BaseModel):
     # Sent while JARVIS was offline (history sync at link time, or delivered late on reconnect): stored so the owner
     # can ask about it, but never answered, announced or run as a command.
     history: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WhatsAppBridgeStatus(BaseModel):

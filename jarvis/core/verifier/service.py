@@ -31,6 +31,9 @@ class Verifier:
         error = None
         if cancellation.is_set():
             raise asyncio.CancelledError
+        if tool_name in {"send_whatsapp_message", "whatsapp_draft_send", "whatsapp_send_media"}:
+            from jarvis.security.postconditions import verify_postconditions
+            return await verify_postconditions(tool_name, {}, execution_result=result.data)
         if tool_name == "open_app":
             if result.data.get("associated") or str(result.data.get("target", "")).startswith(("http://", "https://", "ms-")):
                 evidence = {"target": result.data.get("target"), "criterion": "associated target launched successfully"}

@@ -407,7 +407,7 @@ class ResponseFormatter:
                 status = data.get("status", "")
                 recipient = data.get("recipient", "")
                 if status == "SENT":
-                    return f"Message delivered to {recipient} on WhatsApp."
+                    return f"Message sent to {recipient} on WhatsApp."
                 elif status == "CONFIRMATION_REQUIRED":
                     return f"Confirmation required before sending message to {recipient}."
                 elif status == "AMBIGUOUS_CONTACT":

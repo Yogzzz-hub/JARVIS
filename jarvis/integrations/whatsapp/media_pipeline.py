@@ -63,6 +63,14 @@ class WhatsAppMediaPipeline:
         self.vision_provider = vision_provider
         self.knowledge_engine = knowledge_engine
 
+    async def extract_document_content(self, file_path: str | Path) -> str:
+        from jarvis.memory.search.extractor import extract_file_content
+        text, _excerpt, status, error = await asyncio.to_thread(extract_file_content, str(file_path),
+            max_file_size_mb=25.0, max_text_chars=100000)
+        if status != "SUCCESS" or not text.strip():
+            raise ValueError(error or "No supported document text available")
+        return text
+
     async def process_voice_note(self, file_path: str | Path, cleanup: bool = True) -> str:
         """
         Transcribes incoming voice note using existing FasterWhisper STT engine.
@@ -172,7 +180,7 @@ class WhatsAppMediaPipeline:
             chunk_count = 0
             if self.knowledge_engine:
                 collection_id = f"wa_{chat_id.replace('@', '_').replace('.', '_')}"
-                chunk_count = self.knowledge_engine.index_document_text(
+                chunk_count = await asyncio.to_thread(self.knowledge_engine.index_document_text,
                     collection_id=collection_id,
                     file_path=str(path_obj),
                     text_content=text_content,

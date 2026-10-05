@@ -66,6 +66,7 @@ class SemanticFrame:
     confidence: float = 1.0
     raw_query: str = ""
     clean_query: str = ""
+    language_features: Dict[str, Any] = field(default_factory=dict)
 
     def is_action_blocked(self, candidate_name: str) -> bool:
         """Determines if a candidate action or tool is forbidden by negative constraints."""

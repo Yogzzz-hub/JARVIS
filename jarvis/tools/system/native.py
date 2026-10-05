@@ -725,6 +725,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     whatsapp_tools.append(WhatsAppLearnChatsTool())
     from jarvis.tools.system.whatsapp_tools import ContactInfoTool
     whatsapp_tools.append(ContactInfoTool())
+    from jarvis.tools.system.whatsapp_intelligence import create_intelligence_tools
+    whatsapp_tools.extend(create_intelligence_tools())
     web_tools = [WebSearchTool()]
     from jarvis.tools.system.connector_tools import create_connector_tools
     conn_tools = create_connector_tools(working_memory=working_memory)

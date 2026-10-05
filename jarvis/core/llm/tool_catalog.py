@@ -41,6 +41,10 @@ AI_CONFIRM_TOOLS = frozenset({
     "android_dial",
     "empty_recycle_bin",
     "whatsapp_auto_reply",
+    "whatsapp_draft_send",
+    "whatsapp_send_media",
+    "whatsapp_autoreply_configure",
+    "whatsapp_autoreply_resume",
 })
 
 # Tools never offered to the agent: they are UI plumbing or would recurse.

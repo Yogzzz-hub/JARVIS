@@ -1,0 +1,88 @@
+{
+  "counts": {
+    "train": {
+      "rows": 84000,
+      "multi_turn": 28620,
+      "no_action": 34010,
+      "none": 79344,
+      "phonetic_typo": 3943,
+      "uncertain_asr": 713
+    },
+    "dev": {
+      "rows": 10500,
+      "multi_turn": 3816,
+      "no_action": 4235,
+      "none": 9958,
+      "phonetic_typo": 450,
+      "uncertain_asr": 92
+    },
+    "test": {
+      "rows": 5250,
+      "multi_turn": 1512,
+      "no_action": 2056,
+      "none": 4961,
+      "phonetic_typo": 247,
+      "uncertain_asr": 42
+    },
+    "holdout": {
+      "rows": 5250,
+      "multi_turn": 1340,
+      "no_action": 2131,
+      "none": 5006,
+      "phonetic_typo": 206,
+      "uncertain_asr": 38
+    },
+    "locked_holdout_v3": {
+      "rows": 5000,
+      "multi_turn": 1297,
+      "no_action": 2026,
+      "none": 4766,
+      "phonetic_typo": 201,
+      "uncertain_asr": 33
+    },
+    "locked_holdout_v4": {
+      "rows": 5000,
+      "multi_turn": 1328,
+      "no_action": 2024,
+      "none": 4765,
+      "phonetic_typo": 203,
+      "uncertain_asr": 32
+    },
+    "locked_holdout_v5": {
+      "rows": 5000,
+      "multi_turn": 1370,
+      "no_action": 1981,
+      "none": 4738,
+      "phonetic_typo": 224,
+      "uncertain_asr": 38
+    },
+    "locked_holdout_v6": {
+      "rows": 5000,
+      "multi_turn": 1338,
+      "no_action": 1988,
+      "none": 4778,
+      "uncertain_asr": 36,
+      "phonetic_typo": 186
+    }
+  },
+  "normalized_exact_overlap_locked_prior": 0,
+  "unique_skeletons": {
+    "train": 29354,
+    "dev": 5436,
+    "test": 2070,
+    "holdout": 2328,
+    "locked_holdout_v3": 2541,
+    "locked_holdout_v4": 2263,
+    "locked_holdout_v5": 2367,
+    "locked_holdout_v6": 2231
+  },
+  "skeleton_overlap_locked_prior": 0,
+  "sampled_jaccard_locked_vs_train": {
+    "locked_sample": 500,
+    "train_sample": 3000,
+    "median_nearest": 0.375,
+    "p95_nearest": 0.5,
+    "near_0_8_count": 0
+  },
+  "limitations": "Lexical Jaccard sample is not semantic paraphrase leakage detection; the corpus is synthetic."
+}

@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable, Optional
 
-from jarvis.integrations.whatsapp.personal_reply.models import ChatLine, Direction, ReplyExample, ExampleSource
+from jarvis.integrations.whatsapp.personal_reply.models import Authorship, ChatLine, Direction, ReplyExample, ExampleSource
+from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import evidence_weight
 
 _ANDROID = re.compile(r"^‎?(?P<date>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}),?\s+(?P<time>\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)"
                       r"(?:[\s  ]*(?P<ampm>[ap]\.?\s?m\.?))?\s+-\s+(?P<rest>.*)$", re.I)
@@ -147,7 +148,10 @@ def chat_from_entries(entries: list[tuple[float, str, str, Optional[bool]]], own
         contact = next((p for p in participants if p != owner), contact_name or "")
         mine_of = lambda s, m: s == owner  # noqa: E731
     lines = [ChatLine(timestamp=ts, sender=s, direction=Direction.USER if mine_of(s, m) else Direction.CONTACT, text=b,
-                      message_id=f"imp_{hashlib.sha1(f'{ts}|{s}|{b}'.encode()).hexdigest()[:16]}")
+                      message_id=f"imp_{hashlib.sha1(f'{ts}|{s}|{b}'.encode()).hexdigest()[:16]}",
+                      provenance=Authorship.LEGACY_OWNER_LIKELY if mine_of(s, m) else Authorship.UNKNOWN,
+                      provenance_confidence=0.55 if mine_of(s, m) else 0.0,
+                      provenance_reasons=['export_owner_direction_unverified'] if mine_of(s, m) else [])
              for ts, s, b, m in kept]
     return ParsedChat(lines=lines, participants=participants, owner_name=owner, contact_name=contact, skipped_system=skipped)
 
@@ -171,37 +175,51 @@ def _pick_owner(participants: list[str], owner_names: Iterable[str], contact_nam
     raise ImportError_(f"Which of these is you: {', '.join(participants)}? Set your name (owner_name) and import again.")
 
 
-def lines_from_inbox(inbox: Any, chat_id: str, limit: int = 5000) -> list[ChatLine]:
+def lines_from_inbox(inbox: Any, chat_id: str, limit: int = 5000, resolver: Any = None) -> list[ChatLine]:
     """Authorized history already stored by the WhatsApp connector (direct chats only)."""
     if not inbox.is_direct_chat(chat_id):
         raise ImportError_("Group chats are never used for personal reply learning.")
     out = []
+    with inbox._get_conn() as conn:
+        payloads = {r[0]: r[1] for r in conn.execute(
+            "SELECT e.message_id,e.payload FROM wa_events e JOIN whatsapp_messages m USING(message_id) "
+            "WHERE m.chat_id=? OR m.sender_id=?", (chat_id, chat_id))}
     for m in inbox.get_chat_history(chat_id, limit=limit):
         if not m.text or SKIP_TEXT.match(m.text.strip()):
             continue
+        decision = resolver.classify(message_id=m.message_id, chat_id=m.chat_id, timestamp=m.timestamp,
+                                     message_type=m.type, text=m.text, from_me=m.is_from_me,
+                                     payload=payloads.get(m.message_id)) if resolver and m.is_from_me else None
+        event = resolver.metadata(payloads.get(m.message_id)) if resolver else {}
+        reply_ref = event.get('reply_to')
+        reply_id = reply_ref if isinstance(reply_ref, str) else (reply_ref.get('message_id') or reply_ref.get('id') or '') if isinstance(reply_ref, dict) else ''
         out.append(ChatLine(timestamp=m.timestamp, sender=m.sender_display_name, text=m.text, message_id=m.message_id,
-                            direction=Direction.USER if m.is_from_me else Direction.CONTACT))
+                            direction=Direction.USER if m.is_from_me else Direction.CONTACT,
+                            provenance=decision.provenance if decision else Authorship.UNKNOWN,
+                            provenance_confidence=decision.confidence if decision else 0,
+                            provenance_reasons=list(decision.reasons) if decision else [],
+                            reply_to=reply_id, origin='legacy_inbox'))
     return out
-
-
-def _split_for(key: str) -> str:
-    h = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % 100
-    return "HOLDOUT" if h < 10 else "DEV" if h < 20 else "TRAIN"
 
 
 def build_examples(contact_id: str, lines: list[ChatLine], max_gap_s: float = 6 * 3600, burst_s: float = 600,
                    context_turns: int = 3, source: ExampleSource = ExampleSource.IMPORT) -> list[ReplyExample]:
     """Pair what the contact said with how the owner replied (consecutive owner lines form one reply)."""
     lines = sorted(lines, key=lambda ln: ln.timestamp)
+    by_id = {ln.message_id: ln for ln in lines if ln.message_id and ln.direction == Direction.CONTACT}
     examples: list[ReplyExample] = []
     i = 0
     while i < len(lines):
-        if lines[i].direction != Direction.USER:
+        if lines[i].direction != Direction.USER or lines[i].provenance not in (
+            Authorship.USER_TYPED, Authorship.VERIFIED_MANUAL_OWNER_SEND, Authorship.USER_EDITED_AI_DRAFT,
+            Authorship.USER_APPROVED_AI_DRAFT, Authorship.VERIFIED_LEGACY_OWNER, Authorship.LEGACY_OWNER_LIKELY):
             i += 1
             continue
         j = i
         reply_parts = [lines[i].text]
-        while j + 1 < len(lines) and lines[j + 1].direction == Direction.USER and lines[j + 1].timestamp - lines[j].timestamp <= burst_s:
+        while (j + 1 < len(lines) and lines[j + 1].direction == Direction.USER
+               and lines[j + 1].provenance == lines[i].provenance
+               and lines[j + 1].timestamp - lines[j].timestamp <= burst_s):
             j += 1
             reply_parts.append(lines[j].text)
         ctx = []
@@ -211,11 +229,36 @@ def build_examples(contact_id: str, lines: list[ChatLine], max_gap_s: float = 6 
                 break
             ctx.insert(0, lines[k].text)
             k -= 1
+        # Explicit reply metadata is stronger than adjacency. The target may
+        # precede another owner message or a long contact burst.
+        target = by_id.get(lines[i].reply_to)
+        if target and target.timestamp <= lines[i].timestamp and lines[i].timestamp - target.timestamp <= max_gap_s:
+            ctx = [target.text] if target.text not in ctx else ctx
         if ctx:
             reply = "\n".join(reply_parts)
             origin_source = ExampleSource.LIVE_USER if lines[i].origin == "live" else source
             examples.append(ReplyExample(contact_id=contact_id, context="\n".join(ctx), reply=reply,
-                                         timestamp=lines[i].timestamp, source=origin_source,
-                                         split=_split_for(f"{contact_id}|{lines[i].timestamp}|{reply}")))
+                                         timestamp=lines[i].timestamp, source=origin_source, split="TRAIN",
+                                         provenance=lines[i].provenance,
+                                         evidence_weight=min(evidence_weight(part.provenance, part.provenance_confidence)
+                                                             for part in lines[i:j+1])))
         i = j + 1
+    # Forward-chaining split: the newest replies never shape a profile used to
+    # evaluate those replies. No random hash split can leak future style.
+    for group in ('VERIFIED', 'LEGACY'):
+        strong = (Authorship.USER_TYPED, Authorship.VERIFIED_MANUAL_OWNER_SEND,
+                  Authorship.USER_EDITED_AI_DRAFT, Authorship.VERIFIED_LEGACY_OWNER)
+        family = [e for e in examples if (e.provenance in strong) == (group == 'VERIFIED')]
+        if len(family) >= (3 if group == 'VERIFIED' else 10):
+            if group == 'VERIFIED':
+                # Reserve the newest quarter even in a small reviewed batch.
+                # Small holdouts are diagnostic only; they cannot clear the
+                # downstream minimum-size auto-reply gate.
+                train_end = min(len(family) - 1, (3 * len(family) + 3) // 4)
+                dev_end = train_end
+            else:
+                train_end = max(1, int(len(family) * 0.8))
+                dev_end = max(train_end + 1, int(len(family) * 0.9))
+            for idx, example in enumerate(family):
+                example.split = "TRAIN" if idx < train_end else "DEV" if idx < dev_end else "HOLDOUT"
     return examples

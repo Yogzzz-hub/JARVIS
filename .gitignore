@@ -1,4 +1,6 @@
 .venv/
+.venv-stage23/
+.venv-stage24/
 .runtime/
 __pycache__/
 *.py[cod]
@@ -22,7 +24,14 @@ config/google_accounts.json
 # Local data & browser cache
 contacts.vcf
 tmp_test_dir/
+jarvis/data/
 data/
+!/data/
+/data/*
+!/data/tanglish/
+/data/tanglish/*
+!/data/tanglish/DATASET_MANIFEST.md
+!/data/tanglish/dataset_manifest.json
 !jarvis/integrations/whatsapp/personal_reply/data/
 jarvis/jarvis/
 data/whatsapp_auth/
@@ -37,18 +46,46 @@ integrations/whatsapp/bridge/auth_info/
 models/whisper/base/model.bin
 models/piper/**/*.onnx
 models/piper/.cache/
+models/tanglish_stage2/
+models/tanglish_stage21/
+models/tanglish_stage23/
+models/tanglish_stage24/
 
 # Runtime scratch folders
 jarvis/.trash/
 .trash/
+jarvis/data/whatsapp_style_reviews/
+jarvis/data/whatsapp_shadow_*.log
+jarvis/data/whatsapp_shadow_draft_latency.json
+integrations/data/whatsapp_shadow_*.log
 
 # JDE encoder assets (built by scripts/setup_models.py --jde)
 models/jde/encoders/
 
 # Generated benchmark / evaluation output (the combined guide in README.md is the documentation)
 reports/
+!reports/
+reports/*
+!reports/WHATSAPP_UNREAD_SYNC_AUDIT.md
+!reports/WHATSAPP_LIVE_ACCEPTANCE.md
+!reports/WHATSAPP_BRIDGE_ROOT_CAUSE.md
+!reports/WHATSAPP_CODE500_DIAGNOSTIC.md
+!reports/WHATSAPP_AUTONOMOUS_ROOT_CAUSE.md
+!reports/WHATSAPP_EVENT_PIPELINE.md
+!reports/WHATSAPP_ARCHITECTURE_AUDIT.md
 docs/*
 !docs/WHATSAPP_PERSONAL_REPLY_AGENT.md
+!docs/WHATSAPP_CURRENT_STATE.md
+!docs/WHATSAPP_ARCHITECTURE.md
+!docs/WHATSAPP_CAPABILITIES.md
+!docs/WHATSAPP_AUTO_REPLY.md
+!docs/WHATSAPP_PERSONAL_STYLE.md
+!docs/WHATSAPP_SECURITY.md
+!docs/WHATSAPP_TEST_REPORT.md
+!docs/WHATSAPP_LIVE_VERIFICATION.md
+!docs/WHATSAPP_BAILEYS_SESSION_HEALTH.md
+!docs/WHATSAPP_FRESH_LATENCY_AB.md
+!docs/WHATSAPP_FINAL_ACCEPTANCE.md
 !docs/FULL_COMPUTER_AGENT_AUDIT.md
 !docs/AGI_520_CAPABILITIES.md
 !docs/PHASE500_REPORT.md
@@ -60,3 +97,29 @@ jarvis/db/window_layouts.json
 jarvis/db/workflows.json
 jarvis/db/text_templates.json
 jarvis/db/automations.json
+!reports/WHATSAPP_INTELLIGENCE_IMPLEMENTATION.md
+!reports/WHATSAPP_VERIFIED_STYLE_FLYWHEEL.md
+!reports/WHATSAPP_SHADOW_MODE.md
+!reports/WHATSAPP_PERSONAL_BRAIN.md
+!reports/WHATSAPP_PERSONAL_BRAIN_EVALUATION.md
+!reports/WHATSAPP_PERSONAL_BRAIN_REPAIR.md
+!reports/WHATSAPP_INTELLIGENCE_FINAL.md
+!reports/TANGLISH_LANGUAGE_ENGINE.md
+!reports/TANGLISH_DATA_AUDIT.md
+!reports/TANGLISH_SEMANTIC_LEAKAGE.md
+!reports/TANGLISH_SEMANTIC_TRAINING.md
+!reports/TANGLISH_ACTIONABILITY_REPAIR.md
+!reports/TANGLISH_STAGE22_REPORT.md
+!reports/TANGLISH_STAGE23_REPORT.md
+!reports/TANGLISH_STAGE24_DATA_QUALITY.md
+!reports/TANGLISH_STAGE24_REPORT.md
+!reports/TAMIL_TANGLISH_STAGE25_DATA.md
+!reports/TAMIL_TANGLISH_STAGE25_QUALITY.md
+!reports/TAMIL_TANGLISH_STAGE25_TRAINING.md
+!reports/TAMIL_TANGLISH_STAGE25_CAPABILITIES.md
+!reports/TAMIL_TANGLISH_STAGE25_DEV.md
+!reports/STAGE25_ACTION_ONTOLOGY_COVERAGE.md
+!reports/TAMIL_TANGLISH_STAGE25_FINAL_DISTRIBUTION.md
+!reports/STAGE23_ENGLISH_RECALL_AUDIT.md
+!reports/tanglish_locked_holdout_v6_results.json
+!reports/tanglish_corpus_audit.json

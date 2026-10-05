@@ -68,3 +68,17 @@ def register(app: FastAPI, runtime: Any = None) -> None:
         for c in checks:  # the audio device table is long: one line is enough on a card
             c["detail"] = str(c.get("detail", "")).splitlines()[0][:300] if c.get("detail") else ""
         return {"checks": checks, "ms": round((time.perf_counter() - started) * 1000)}
+
+    @app.get("/dashboard/whatsapp/diagnostics")
+    async def whatsapp_diagnostics() -> dict[str, Any]:
+        from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
+        service = getattr(runtime, "whatsapp_service", None)
+        if service and service.transport.is_connected:
+            response = await service.transport._call("get_status", timeout=3)
+            if response.get("success"):
+                service._on_bridge_status(response["result"])
+        result = await asyncio.to_thread(WhatsAppInbox.get_default().diagnostics)
+        intelligence = getattr(service, "intelligence", None)
+        if intelligence is not None:
+            result["intelligence"] = await asyncio.to_thread(intelligence.diagnostics)
+        return result

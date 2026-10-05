@@ -52,9 +52,38 @@ class ApproveBody(BaseModel):
     mark_good: bool = False
 
 
+class LegacyReviewBody(BaseModel):
+    decisions: dict[str, bool]
+
+
+class LegacyBatchActionBody(BaseModel):
+    action: str
+    selected_ids: list[str] = []
+    limit: int = 35
+
+
+class ManualConfirmationBody(BaseModel):
+    confirmation: str
+    contact_id: str = ""
+
+
+class HoldoutRatingBody(BaseModel):
+    rating: str
+    semantic_correct: bool | None = None
+    dyadic_correct: bool | None = None
+    language_match: bool | None = None
+    emoji_appropriate: bool | None = None
+    length_appropriate: bool | None = None
+
+
 class ContactBody(BaseModel):
     contact: str          # number, JID or saved contact name
     display_name: str = ""
+
+
+class BrainBuildBody(BaseModel):
+    scope: str = 'ALL'
+    contact_id: str = ''
 
 
 def _agent(runtime: Any):
@@ -80,6 +109,68 @@ def register(app: FastAPI, runtime: Any) -> None:
         a = _agent(runtime)
         return {"contacts": a.contacts_overview(), "grants": a.policy.status(), "activity": a.store.recent_activity(60),
                 "encryption": a.store.box.status, "status_text": a.status_text()}
+
+    @app.get(base + '/intelligence/overview')
+    async def brain_overview() -> dict[str, Any]:
+        a = _agent(runtime)
+        def read() -> dict[str, Any]:
+            with a.inbox._get_conn() as con:
+                messages = con.execute('SELECT count(*) FROM whatsapp_messages').fetchone()[0]
+                direct = con.execute("SELECT count(DISTINCT chat_id) FROM whatsapp_messages WHERE "
+                                     "chat_id LIKE '%@lid' OR chat_id LIKE '%@s.whatsapp.net' OR chat_id LIKE '%@c.us'").fetchone()[0]
+                groups = con.execute("SELECT count(DISTINCT chat_id) FROM whatsapp_messages WHERE chat_id LIKE '%@g.us'").fetchone()[0]
+                try:
+                    observed_live = con.execute("SELECT count(*) FROM wa_events WHERE "
+                                                "json_extract(payload,'$.history')=0").fetchone()[0]
+                except Exception:
+                    observed_live = 0
+            with a.store._conn() as con:
+                profiles = con.execute('SELECT count(*) FROM wa_pr_profiles WHERE contact_id!=?', ('__default__',)).fetchone()[0]
+                indexed = con.execute('SELECT count(*) FROM wa_brain_contact_state').fetchone()[0]
+                pairs = con.execute('SELECT count(*) FROM wa_pr_examples').fetchone()[0]
+                imported = con.execute("SELECT EXISTS(SELECT 1 FROM wa_pr_sources WHERE import_id NOT IN "
+                                       "('live','owner_attested','reviewed_draft'))").fetchone()[0]
+            service = getattr(runtime, 'whatsapp_service', None)
+            connected = bool(service and getattr(getattr(service, 'transport', None), 'is_connected', False))
+            return {'messages_stored': messages, 'direct_contacts': direct, 'groups': groups,
+                    'connection': 'READY' if connected else 'DEGRADED',
+                    'python_listener': bool(service),
+                    'profiles_ready': profiles, 'contacts_indexed': indexed, 'reply_pairs': pairs,
+                    'history': {'live_history_capture': 'OBSERVED' if observed_live else 'UNKNOWN',
+                                'observed_live_events': observed_live,
+                                'local_history_available': messages > 0,
+                                'imported_history_available': bool(imported),
+                                'remote_history_complete': 'UNKNOWN'},
+                    'memory': a.store.brain_state(), 'latest_job': a.brain_jobs.latest(),
+                    'generated_auto_reply_enabled': False}
+        return await __import__('asyncio').to_thread(read)
+
+    @app.post(base + '/intelligence/jobs')
+    async def start_brain_job(body: BrainBuildBody) -> dict[str, Any]:
+        a = _agent(runtime)
+        try:
+            return a.brain_jobs.start(body.scope.upper(), _cid(body.contact_id) if body.contact_id else '')
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get(base + '/intelligence/jobs/{job_id}')
+    async def brain_job(job_id: str) -> dict[str, Any]:
+        try:
+            return _agent(runtime).brain_jobs.get(job_id)
+        except KeyError as exc:
+            raise HTTPException(404, 'Unknown intelligence job') from exc
+
+    @app.post(base + '/intelligence/jobs/{job_id}/cancel')
+    async def cancel_brain_job(job_id: str) -> dict[str, Any]:
+        try:
+            return _agent(runtime).brain_jobs.cancel(job_id)
+        except KeyError as exc:
+            raise HTTPException(404, 'Unknown intelligence job') from exc
+
+    @app.get(base + '/intelligence/contacts/{contact_id}')
+    async def brain_contact(contact_id: str) -> dict[str, Any]:
+        cid = _cid(contact_id)
+        return _agent(runtime).store.brain_state(cid)
 
     @app.post(f"{base}/contacts")
     async def add_contact(body: ContactBody) -> dict[str, Any]:
@@ -137,6 +228,68 @@ def register(app: FastAPI, runtime: Any) -> None:
     @app.post(base + "/contacts/{contact_id}/rebuild")
     async def rebuild(contact_id: str) -> dict[str, Any]:
         return _agent(runtime).rebuild_profile(_cid(contact_id))
+
+    @app.post(base + "/refresh-all")
+    async def refresh_all() -> dict[str, Any]:
+        return _agent(runtime).refresh_all()
+
+    @app.get(base + "/contacts/{contact_id}/style/explain")
+    async def explain_style(contact_id: str) -> dict[str, Any]:
+        return _agent(runtime).explain_style(_cid(contact_id))
+
+    @app.post(base + "/contacts/{contact_id}/style/evaluate")
+    async def evaluate_style(contact_id: str) -> dict[str, Any]:
+        return await _agent(runtime).evaluate_contact(_cid(contact_id))
+
+    @app.post(base + "/contacts/{contact_id}/style/approve-evaluation")
+    async def approve_evaluation(contact_id: str) -> dict[str, Any]:
+        return _agent(runtime).approve_offline_evaluation(_cid(contact_id))
+
+    @app.get(base + "/contacts/{contact_id}/style/holdout-review")
+    async def holdout_review(contact_id: str) -> dict[str, Any]:
+        cid = _cid(contact_id)
+        return {'contact_id': cid, 'cases': _agent(runtime).store.holdout_review_cases(cid)}
+
+    @app.post(base + "/contacts/{contact_id}/style/holdout-review/{case_id}")
+    async def rate_holdout(contact_id: str, case_id: str, body: HoldoutRatingBody) -> dict[str, Any]:
+        try:
+            dimensions = body.model_dump(exclude={'rating'}, exclude_none=True)
+            saved = _agent(runtime).store.rate_holdout_review_case(_cid(contact_id), case_id, body.rating,
+                                                                  dimensions)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {'status': 'SAVED' if saved else 'NOT_FOUND', 'case_id': case_id}
+
+    @app.get(base + "/contacts/{contact_id}/maturity")
+    async def maturity(contact_id: str) -> dict[str, Any]:
+        a = _agent(runtime)
+        return {'contact_id': contact_id, 'state': a.maturity(_cid(contact_id))}
+
+    @app.get(base + "/contacts/{contact_id}/legacy-review")
+    async def legacy_review_batch(contact_id: str, limit: int = 35) -> dict[str, Any]:
+        return _agent(runtime).legacy_review_batch(_cid(contact_id), limit=min(40, max(1, limit)))
+
+    @app.post(base + "/contacts/{contact_id}/legacy-review")
+    async def legacy_review(contact_id: str, body: LegacyReviewBody) -> dict[str, Any]:
+        return _agent(runtime).review_legacy(_cid(contact_id), body.decisions)
+
+    @app.post(base + "/contacts/{contact_id}/legacy-review/action")
+    async def legacy_review_action(contact_id: str, body: LegacyBatchActionBody) -> dict[str, Any]:
+        return _agent(runtime).review_legacy_batch(
+            _cid(contact_id), body.action, body.selected_ids, body.limit)
+
+    @app.post(base + "/contacts/{contact_id}/manual-send/{message_id}/verify")
+    async def verify_manual(contact_id: str, message_id: str) -> dict[str, Any]:
+        return _agent(runtime).verify_manual_owner_send(_cid(contact_id), message_id)
+
+    @app.post(base + "/manual-send/verify-last")
+    async def verify_last_manual(body: ManualConfirmationBody) -> dict[str, Any]:
+        return _agent(runtime).verify_last_manual_owner_send(
+            body.confirmation, _cid(body.contact_id) if body.contact_id else '')
+
+    @app.post(base + "/contacts/{contact_id}/draft-latest")
+    async def draft_latest(contact_id: str) -> dict[str, Any]:
+        return await _agent(runtime).draft_latest(_cid(contact_id))
 
     @app.get(base + "/contacts/{contact_id}/preview")
     async def preview(contact_id: str) -> dict[str, Any]:
@@ -197,3 +350,9 @@ def register(app: FastAPI, runtime: Any) -> None:
     @app.post(base + "/replies/{reply_id}/reject")
     async def reject(reply_id: int) -> dict[str, Any]:
         return _agent(runtime).reject_reply(reply_id)
+
+    @app.post(base + "/replies/{reply_id}/feedback")
+    async def draft_feedback(reply_id: int, body: FeedbackBody) -> dict[str, Any]:
+        if body.kind == 'REGENERATE':
+            return await _agent(runtime).regenerate_reply(reply_id)
+        return _agent(runtime).draft_feedback(reply_id, body.kind)

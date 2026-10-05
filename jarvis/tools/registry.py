@@ -19,6 +19,12 @@ class ToolRegistry:
         if definition.name in self._tools:
             raise ValueError(f"duplicate tool: {definition.name}")
         self._tools[definition.name] = tool
+        if definition.name.startswith("whatsapp_"):
+            self.register_alias(definition.name.replace("_", "."), definition.name)
+            family, separator, action = definition.name.removeprefix("whatsapp_").partition("_")
+            self.register_alias("whatsapp." + family + ("." + action if separator else ""), definition.name)
+        if definition.name == "send_whatsapp_message":
+            self.register_alias("whatsapp.send.text", definition.name)
 
     def discover(self, tools: Iterable[Tool]):
         """Explicit startup discovery: never import arbitrary plugins from disk."""

@@ -52,11 +52,7 @@ async def check_bridge_connection(host: str = "127.0.0.1", port: int = 8768) -> 
 
 def check_pairing_state(auth_dir: Path) -> Tuple[bool, str]:
     if not auth_dir.exists():
-        alt_dir = ROOT / "integrations/data/whatsapp_auth"
-        if alt_dir.exists():
-            auth_dir = alt_dir
-        else:
-            return False, "Unpaired (auth directory does not exist)"
+        return False, "Configured fresh auth directory does not exist; archived auth will not be used"
     creds_file = auth_dir / "creds.json"
     if creds_file.exists():
         try:
@@ -67,8 +63,8 @@ def check_pairing_state(auth_dir: Path) -> Tuple[bool, str]:
                     return True, "Paired (session credentials active)"
                 return False, "Pairing in progress (awaiting confirmation on device)"
         except Exception:
-            pass
-        return True, "Paired (session credentials present, tokens redacted)"
+            return False, "Configured auth credentials are unreadable or invalid"
+        return False, "Configured auth credentials are not registered"
     return False, "Pairing required (no active credentials found)"
 
 
@@ -154,7 +150,7 @@ async def run_doctor() -> None:
         with cfg_file.open("rb") as f:
             config = tomllib.load(f)
 
-    auth_dir = ROOT / config.get("whatsapp", {}).get("auth_dir", "data/whatsapp_auth")
+    auth_dir = ROOT / config.get("whatsapp", {}).get("auth_dir", "integrations/data/whatsapp_auth_fresh_latency_test")
     host = config.get("whatsapp", {}).get("bridge_host", "127.0.0.1")
     port = config.get("whatsapp", {}).get("bridge_port", 8768)
 

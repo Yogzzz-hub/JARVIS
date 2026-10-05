@@ -1,0 +1,26 @@
+# Tanglish public data audit
+
+Pre-acquisition source and license audit performed 2026-10-02, then updated with measured local counts. Source text is never treated as an executable JARVIS command label. Exact revisions, file SHA256 hashes, timestamps, row counts, and transformations are in [the dataset manifest](../data/tanglish/DATASET_MANIFEST.md).
+
+| Source | License | Size | Language type | Quality | Duplicate rate | Usefulness for JARVIS | Decision |
+|---|---|---:|---|---|---:|---|---|
+| [Aksharantar Tamil](https://indicnlp.ai4bharat.org/aksharantar/) | CC BY 4.0 for manual pairs; CC0 for mined/existing packaging; Dakshina-origin rows inherit CC BY-SA 4.0 | 3,251,225 original / 3,251,205 usable pairs | Tamil↔Roman word pairs | Mixed human/mined; 60,986 publisher-train AK-* and Dakshina rows marked training eligible; 16,216 licensed validation/test rows held out; 3,174,003 mined/other rows quarantined | 0.0006% | Phonetic normalization, transliteration only | **USE** (eligible rows only) |
+| [DravidianCodeMix 2020](https://zenodo.org/records/4750858) | CC BY 4.0 per canonical Zenodo record | 88,080 source task rows / 43,663 unique Tamil texts | Natural code mixed public comments | Research annotations, noisy/social register; 35,337 Roman-only, 8,326 contain Tamil script | 50.11% across task files | Natural distribution and code-switch robustness; never intent labels | **AUXILIARY** |
+| [TanglishSTS](https://huggingface.co/datasets/vishnu-n/TanglishSTS) | CC BY 4.0 per dataset card | 325 original / 325 usable pairs | Human scored Romanized Tanglish similarity | Small, independently scored; no exact sentence overlap with processed Dravidian text | 0% | Semantic similarity benchmark, held out from training | **EVALUATION_ONLY** |
+| [TamilTech-QA](https://huggingface.co/datasets/dheepakkaran/TamilTech-QA) | CC BY 4.0 per dataset card; upstream public-comment rights need further review | 4,430 original / 4,430 usable QA | Technical Tamil/Tanglish QA; 4,065 public YouTube comments and 365 synthetic rows | Useful register, provenance caveat; processed copies drop `raw_text` and `chatml` | 0% | Technical vocabulary analysis only; quarantined from training | **EVALUATION_ONLY** |
+| [IndicCMix](https://huggingface.co/datasets/ai4bharat/IndicCMix) | MIT publisher label | 104,797 Tamil rows reported | Synthetic code mixed/romanized Tamil | Generated, no natural distribution | Not measured | Could aid style, but dataset is gated | **REJECT** (login/acceptance required) |
+| [IndicMSMARCO](https://huggingface.co/datasets/ai4bharat/IndicMSMARCO) | MIT publisher label; [upstream MS MARCO terms](https://microsoft.github.io/msmarco/) limit use to noncommercial research | ~1k Tamil rows | Translated retrieval QA | Upstream license conflict | Not measured | Retrieval benchmark only if separate research license accepted | **REJECT** |
+| [Tanglish-Corpus-185k](https://huggingface.co/datasets/vishnu-n/Tanglish-Corpus-185k) | CC BY 4.0 publisher label; mixed YouTube/Reddit upstream provenance | ~186k rows | Natural Romanized Tanglish | Large but upstream rights and duplication uncertain | Not measured | Potential future source after provenance review | **REJECT** |
+| [Dakshina](https://github.com/google-research-datasets/dakshina) | CC BY-SA 4.0 | 2.0 GB full multilingual tar | Human Romanized Tamil sentences and lexicon | High quality | Not measured | Strong supplemental evaluation/transliteration source; full tar deferred because Aksharantar covers first acquisition phase | **AUXILIARY** (not yet acquired) |
+
+## Processing boundary
+
+Raw archives remain unchanged under `data/tanglish/raw`. The acquisition script checks pinned revisions and license metadata before downloading. Processing creates separate copies and reports exact row counts and duplicates. Original published labels (sentiment, QA, similarity) must not be converted into SemanticFrame actions. No acquired source was merged into JARVIS training. Evaluation-only material stays outside any training split.
+
+Aksharantar's `source` field matters: its card calls mined data packaging CC0 while also saying the publisher does not own the extracted text. Processing therefore marks IndicCorp, Samanantar, Wikidata, and other mined/existing rows ineligible for training until upstream rights are verified. Dakshina-origin pairs are tagged CC BY-SA 4.0 rather than relabeled CC0. Attributions and share-alike conditions must be preserved for any distributed derivatives.
+
+This is an acquisition audit, not evidence that the current JARVIS language engine meets a 100k SemanticFrame training target. The natural corpus carries sentiment/offense annotations, the transliteration corpus carries word pairs, and the similarity corpus is held out; none supplies command/action ground truth.
+
+## Reproduce locally
+
+Install `scripts/requirements_tanglish_data.txt`, then run `python scripts/acquire_tanglish_data.py`, `python scripts/process_tanglish_data.py`, and `python scripts/validate_tanglish_data.py` in that order. The acquisition step uses the official Hugging Face Hub client and the canonical Zenodo record API, checks expected revisions and license metadata, and preserves artifact bytes. `data/tanglish/raw`, `interim`, `processed`, `generated`, `splits`, and `manifests` stay out of Git; only the two manifest files are visible to Git.

@@ -10,6 +10,10 @@ import asyncio
 import logging
 import re
 import time
+import hashlib
+import json
+from contextvars import ContextVar
+from uuid import uuid4
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Set
 
@@ -31,6 +35,7 @@ from jarvis.security.confirmation.manager import ConfirmationManager
 logger = logging.getLogger("jarvis.integrations.whatsapp.gateway")
 
 TICKET_PATTERN = re.compile(r"^(APPROVE|REJECT)\s+(tkt_[a-zA-Z0-9_-]+)", re.IGNORECASE)
+_reply_source = ContextVar("whatsapp_reply_source", default="")
 
 
 class WhatsAppChannelGateway:
@@ -70,6 +75,9 @@ class WhatsAppChannelGateway:
         self.event_bus = event_bus
         # Contact-specific personal reply agent (set by WhatsAppIntegrationService); None = feature off.
         self.personal_reply: Any = None
+        self.registered_sender = None
+        self.outbound_ledger = None
+        self.outbound_policy = None
 
         from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
         from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
@@ -105,10 +113,12 @@ class WhatsAppChannelGateway:
     def is_owner(self, sender_id: str) -> bool:
         """Determines if sender is a configured owner identity."""
         cleaned = sender_id.strip().casefold()
-        cleaned_no_jid = cleaned.split("@")[0]
+        from jarvis.tools.system.whatsapp_tools import phone_to_jid
+        cleaned_no_jid = cleaned.split("@")[0].split(":")[0]
         for owner in self.owner_identities:
-            owner_clean = owner.split("@")[0].lstrip("+")
-            if cleaned == owner or cleaned_no_jid == owner_clean or cleaned_no_jid.endswith(owner_clean):
+            owner_jid = owner if "@" in owner else phone_to_jid(owner)
+            owner_clean = (owner_jid or owner).split("@")[0].split(":")[0].lstrip("+")
+            if cleaned == owner or (cleaned.endswith("@s.whatsapp.net") and cleaned_no_jid == owner_clean):
                 return True
         return False
 
@@ -117,6 +127,7 @@ class WhatsAppChannelGateway:
         Main entry point for incoming WhatsApp messages from transport.
         Returns response metadata or None.
         """
+        _reply_source.set(message.message_id)
         from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat, is_placeholder
         # 0a. "Waiting for this message" / undecrypted: not content. No reply, no inbox entry, no read/replied
         #     marking, and NOT recorded as processed, so the real body (same message_id) is handled once later.
@@ -239,8 +250,9 @@ class WhatsAppChannelGateway:
             contact_clean = message.sender_id.split("@")[0].casefold()
             # Groups can never receive an automatic reply (structural gate, before any model runs).
             is_group = bool(getattr(message, "is_group", False)) or is_group_chat(message.chat_id)
-            is_allowlisted = not is_group and (contact_clean in self.auto_reply_allowlist
-                                               or message.sender_id.casefold() in self.auto_reply_allowlist)
+            # A saved allowlist alone has no bounded user grant. Automatic sends
+            # are exclusively handled by the existing personal-reply policy above.
+            is_allowlisted = False
 
             if self.mode == "OFF":
                 return {"status": "MODE_OFF"}
@@ -257,7 +269,7 @@ class WhatsAppChannelGateway:
             # For non-owners, force conversational lane only (zero PC actions)
             # Create knowledge scope filter strictly isolated to this contact's chat
             scope_filter = KnowledgeScopeFilter(
-                allowed_scopes={"scope:user", f"scope:whatsapp:chat:{message.chat_id}"},
+                allowed_scopes={f"scope:whatsapp:chat:{message.chat_id}"},
                 excluded_scopes=set(),
             )
 
@@ -287,25 +299,10 @@ class WhatsAppChannelGateway:
                     await self._send_reply(message.chat_id, reply)
                 return {"status": "NON_OWNER_DENIED", "action_taken": False}
 
-            # Non-owner message: let the owner know, and prepare an AI reply on their behalf.
+            # No bounded grant or explicit draft request. The personal-reply agent
+            # declined this message, so do not create a generic or ungrounded draft.
             await self._announce_incoming(message)
-            if self.whatsapp_ai is not None:
-                try:
-                    reply = await self.whatsapp_ai.auto_reply(message.sender_display_name or "there", message.chat_id, processed_text)
-                except Exception as exc:
-                    logger.warning("AI reply generation failed: %s", exc)
-                    reply = "Hello! I'll make sure your message is seen soon."
-            else:
-                reply = "Hello! I am Jarvis Edge. How can I help you today?"
-            if self.mode == "ALLOWLIST_AUTO_REPLY" and is_allowlisted:
-                await self._send_reply(message.chat_id, reply)
-                return {"status": "REPLIED", "text": reply}
-            else:
-                draft = self._create_draft(message.chat_id, message.sender_display_name, reply)
-                if self.event_bus is not None:
-                    self.event_bus.emit("whatsapp.draft", draft.draft_id, chat_id=message.chat_id,
-                                        recipient=message.sender_display_name, text=reply)
-                return {"status": "DRAFT_CREATED", "draft_id": draft.draft_id, "text": reply}
+            return {"status": "NO_REPLY_AUTHORIZATION", "action_taken": False}
 
         # 5. Owner Remote Command Execution
         # Dispatches directly to existing CommandService
@@ -351,10 +348,40 @@ class WhatsAppChannelGateway:
 
     async def _send_reply(self, to_chat_id: str, text: str) -> Dict[str, Any]:
         """Sends reply back through the transport adapter."""
-        try:
-            self.inbox.mark_as_replied(to_chat_id)
-        except Exception:
-            pass
+        if self.registered_sender is not None:
+            from jarvis.tools.base import RiskLevel, IdempotencyClass
+            from jarvis.security.ledger.models import LedgerState
+            from jarvis.security.policy.models import PolicyDecisionType
+            from jarvis.tools.system.whatsapp_tools import SendWhatsAppMessageTool
+            if self.outbound_ledger is None:
+                return {"status": "FAILED", "error": "Reply ledger unavailable"}
+            if self.outbound_policy is not None:
+                verdict = self.outbound_policy.evaluate_node(SendWhatsAppMessageTool.definition,
+                    {"recipient": to_chat_id, "message": text})
+                if verdict.decision in {PolicyDecisionType.DENY, PolicyDecisionType.PAUSE_FOR_USER}:
+                    return {"status": "FAILED", "error": "Reply blocked by policy"}
+            fingerprint = "wa_channel_reply:" + hashlib.sha256(f"{to_chat_id}|{_reply_source.get()}|{text}".encode()).hexdigest()
+            duplicate, prior = self.outbound_ledger.check_duplicate(fingerprint)
+            if duplicate:
+                return {"status": "UNCERTAIN" if prior and prior.status in {LedgerState.STARTED, LedgerState.UNCERTAIN} else "DUPLICATE"}
+            action_id = "wa_channel_" + uuid4().hex[:12]
+            self.outbound_ledger.prepare_action(action_id=action_id, fingerprint=fingerprint, request_id=_reply_source.get(),
+                graph_id="whatsapp_channel", node_id="reply", tool="send_whatsapp_message", risk=RiskLevel.EXTERNAL_EFFECT,
+                idempotency=IdempotencyClass.NON_IDEMPOTENT, args_hash=hashlib.sha256(text.encode()).hexdigest(), method="whatsapp",
+                confirmation_ticket="authorized_channel_response", idempotency_key=fingerprint)
+            if not self.outbound_ledger.start_action(action_id, fingerprint, RiskLevel.EXTERNAL_EFFECT, idempotency_key=fingerprint):
+                return {"status": "DUPLICATE"}
+            try:
+                result = await self.registered_sender(to_chat_id, text)
+                status = LedgerState.VERIFIED if result.get("status") == "SENT" and result.get("message_id") else LedgerState.UNCERTAIN if result.get("status") == "UNCERTAIN" else LedgerState.FAILED
+            except Exception as exc:
+                result = {"status": "UNCERTAIN", "error": type(exc).__name__}
+                status = LedgerState.UNCERTAIN
+            self.outbound_ledger.record_outcome(action_id, fingerprint, RiskLevel.EXTERNAL_EFFECT, status,
+                verification_json=json.dumps(result.get("evidence", {})), output_json=json.dumps(result))
+            if status == LedgerState.VERIFIED:
+                self.inbox.mark_as_replied(to_chat_id)
+            return result
         if hasattr(self.transport, "send_text"):
             return await self.transport.send_text(to=to_chat_id, text=text)
         elif hasattr(self.transport, "sendTextMessage"):

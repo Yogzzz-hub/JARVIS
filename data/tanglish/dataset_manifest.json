@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-10-02T12:43:31.228223+00:00",
+  "sources": [
+    {
+      "name": "Aksharantar Tamil",
+      "id": "aksharantar_tamil",
+      "source": "https://huggingface.co/datasets/ai4bharat/Aksharantar",
+      "revision": "e418c1fc928d9f5393af33268472cf20c1891be8",
+      "files": [
+        "tam.zip",
+        "README.md"
+      ],
+      "license": "CC BY 4.0 (manual); CC0 1.0 (mined/existing packaging only); CC BY-SA 4.0 (Dakshina-origin rows)",
+      "license_source": "https://indicnlp.ai4bharat.org/aksharantar/",
+      "purpose": "Tamil word transliteration and spelling normalization; no intent labels",
+      "decision": "USE",
+      "download_timestamp_utc": "2026-10-02T12:43:31.228223+00:00",
+      "original_rows": 3251225,
+      "usable_rows": 3251205,
+      "transformations": [
+        "Stream Tamil JSONL members from unchanged zip",
+        "Validate nonempty Tamil-script native and Latin-script Roman form",
+        "Deduplicate normalized native/Roman pairs across publisher splits, prioritizing test then valid then train",
+        "Retain source, score, publisher split, and source-specific license tag",
+        "Mark only publisher train rows from AK-* and Dakshina origins as training eligible; hold out publisher validation/test and quarantine mined sources because CC0 packaging does not prove upstream text rights"
+      ],
+      "artifacts": [
+        {
+          "path": "data/tanglish/raw/aksharantar_tamil/tam.zip",
+          "bytes": 97129851,
+          "sha256": "d019cffcdc2264870a96b8ffaea0b66a3b175c8c7d56c095d9f6dd4bbeb313a2"
+        },
+        {
+          "path": "data/tanglish/raw/aksharantar_tamil/README.md",
+          "bytes": 8417,
+          "sha256": "1846b06a04bbec6b7b4c0bd0cda3c62a0a8c050b7d69927f5dd23a98d3e8daeb"
+        }
+      ],
+      "duplicate_rows": 20,
+      "duplicate_rate": 6e-06,
+      "quality_counts": {
+        "original": 3251225,
+        "test_original": 11499,
+        "origin_AK-Freq": 3384,
+        "license_permitted_rows": 77202,
+        "origin_AK-NEF": 829,
+        "origin_AK-NEI": 1216,
+        "origin_Dakshina": 71773,
+        "test_usable": 11499,
+        "valid_original": 8824,
+        "duplicates": 20,
+        "origin_Wikidata": 288,
+        "origin_Samanantar": 34789,
+        "origin_IndicCorp": 3137381,
+        "valid_usable": 8804,
+        "train_original": 3230902,
+        "training_eligible": 60986,
+        "origin_Existing": 1545,
+        "train_usable": 3230902
+      },
+      "processed_artifacts": [
+        {
+          "path": "data/tanglish/processed/aksharantar_tamil/test.jsonl",
+          "bytes": 2355252,
+          "sha256": "b2a7375bb66c8fa44b4f535036a1e7925517ca4872a1dd81bdc65a5efb7e1b26",
+          "rows": 11499
+        },
+        {
+          "path": "data/tanglish/processed/aksharantar_tamil/valid.jsonl",
+          "bytes": 2043644,
+          "sha256": "bdeff0e6fcd9a974eee386d1fcd6b50ca49e49720faaa96ca13964c005f0b7ec",
+          "rows": 8804
+        },
+        {
+          "path": "data/tanglish/processed/aksharantar_tamil/train.jsonl",
+          "bytes": 885623651,
+          "sha256": "def2eba4ba51222842644f18764722cb3211c37a8f3b30ed6ea73a4f8eedf056",
+          "rows": 3230902
+        }
+      ]
+    },
+    {
+      "name": "DravidianCodeMix 2020",
+      "id": "dravidiancodemix",
+      "source": "https://zenodo.org/records/4750858",
+      "revision": "Zenodo record 4750858, version 1.0, DOI 10.5281/zenodo.4750858",
+      "files": [
+        "DravidianCodeMix-2020.zip"
+      ],
+      "license": "CC BY 4.0",
+      "license_source": "https://zenodo.org/records/4750858",
+      "purpose": "Natural public Tamil-English code-mixed text distribution; sentiment/offense labels kept separate",
+      "decision": "AUXILIARY",
+      "download_timestamp_utc": "2026-10-02T12:44:07.440729+00:00",
+      "original_rows": 88080,
+      "usable_rows": 43663,
+      "transformations": [
+        "Read canonical full Tamil sentiment and offensive TSV members only; ignore split copies and other languages",
+        "Validate nonempty text",
+        "Deduplicate casefolded whitespace-normalized text across tasks",
+        "Retain all source annotations as non-action labels"
+      ],
+      "artifacts": [
+        {
+          "path": "data/tanglish/raw/dravidiancodemix/DravidianCodeMix-2020.zip",
+          "bytes": 10793728,
+          "sha256": "ec5c63e0a0f3122656680e46df6ed418849231a759758303efe0849441f1bd9c"
+        }
+      ],
+      "duplicate_rows": 44139,
+      "duplicate_rate": 0.501124,
+      "quality_counts": {
+        "original": 88080,
+        "sentiment_rows": 43951,
+        "duplicates": 44139,
+        "empty_or_nontext": 137,
+        "malformed": 141,
+        "offensive_rows": 43851
+      },
+      "processed_artifacts": [
+        {
+          "path": "data/tanglish/processed/dravidiancodemix/tamil_unique.jsonl",
+          "bytes": 12809001,
+          "sha256": "c4bcd83c0e50ee0e5183232f48b300391a5e2086cd3a5b1bc72238ca5d123382",
+          "rows": 43663
+        }
+      ]
+    },
+    {
+      "name": "TanglishSTS",
+      "id": "tanglish_sts",
+      "source": "https://huggingface.co/datasets/vishnu-n/TanglishSTS",
+      "revision": "e25f8884a306ecb39dce27b62ab42efa334fe6ad",
+      "files": [
+        "tanglish_sts.jsonl",
+        "README.md"
+      ],
+      "license": "CC BY 4.0",
+      "license_source": "https://huggingface.co/datasets/vishnu-n/TanglishSTS",
+      "purpose": "Held-out Tanglish sentence similarity evaluation only",
+      "decision": "EVALUATION_ONLY",
+      "download_timestamp_utc": "2026-10-02T12:44:25.787354+00:00",
+      "original_rows": 325,
+      "usable_rows": 325,
+      "transformations": [
+        "Validate paired sentences and human score",
+        "Deduplicate order-invariant normalized sentence pairs",
+        "Retain only human score; mark evaluation only"
+      ],
+      "artifacts": [
+        {
+          "path": "data/tanglish/raw/tanglish_sts/tanglish_sts.jsonl",
+          "bytes": 45403,
+          "sha256": "92f3c4c34b8e3953d20dc57991f019e23873e5f3bd745125019e2bb2b1deff09"
+        },
+        {
+          "path": "data/tanglish/raw/tanglish_sts/README.md",
+          "bytes": 5600,
+          "sha256": "f401c59e75c4f65ada8c13e3db942ba364b0eb0428555226e88d00bfd5462d23"
+        }
+      ],
+      "duplicate_rows": 0,
+      "duplicate_rate": 0.0,
+      "quality_counts": {
+        "original": 325
+      },
+      "processed_artifacts": [
+        {
+          "path": "data/tanglish/processed/tanglish_sts/pairs.jsonl",
+          "bytes": 56128,
+          "sha256": "9f0f3a4aba036906a2a0baa386ca914f160db5fd022750374623b4a623a1c003",
+          "rows": 325
+        }
+      ]
+    },
+    {
+      "name": "TamilTech-QA",
+      "id": "tamiltech_qa",
+      "source": "https://huggingface.co/datasets/dheepakkaran/TamilTech-QA",
+      "revision": "a73e451b2e58bcae7ce0d2c553392ff84b6738ce",
+      "files": [
+        "data/train-00000-of-00001.parquet",
+        "data/validation-00000-of-00001.parquet",
+        "data/test-00000-of-00001.parquet",
+        "README.md"
+      ],
+      "license": "CC BY 4.0 (publisher label; underlying public-comment rights not independently established)",
+      "license_source": "https://huggingface.co/datasets/dheepakkaran/TamilTech-QA",
+      "purpose": "Audit Tamil technical QA register; quarantined from training pending provenance review",
+      "decision": "EVALUATION_ONLY",
+      "download_timestamp_utc": "2026-10-02T12:44:27.740761+00:00",
+      "original_rows": 4430,
+      "usable_rows": 4430,
+      "transformations": [
+        "Read publisher Parquet splits without modifying raw files",
+        "Validate nonempty question and answer",
+        "Deduplicate normalized QA pairs across splits, prioritizing test then validation then train",
+        "Drop raw_text and chatml; retain only QA/topic/source in quarantined evaluation copies"
+      ],
+      "artifacts": [
+        {
+          "path": "data/tanglish/raw/tamiltech_qa/data/train-00000-of-00001.parquet",
+          "bytes": 3706332,
+          "sha256": "1168f503d1294f929ffe620401ec0303679cb0e903585e1002c6fdd1c789803b"
+        },
+        {
+          "path": "data/tanglish/raw/tamiltech_qa/data/validation-00000-of-00001.parquet",
+          "bytes": 470033,
+          "sha256": "7a3a9f77310e76cc13d8789f473a7ce59fee33aaa63e5c944e1076e39a33b3f2"
+        },
+        {
+          "path": "data/tanglish/raw/tamiltech_qa/data/test-00000-of-00001.parquet",
+          "bytes": 504504,
+          "sha256": "306663225b7c79d35adca37c85a2e8a70ef59cab2394e34f55c932962c41fb5f"
+        },
+        {
+          "path": "data/tanglish/raw/tamiltech_qa/README.md",
+          "bytes": 7832,
+          "sha256": "b3acc18b07eaa7f56a029c9d3e1d5c499fdab9106c160742dcb303a6964458ec"
+        }
+      ],
+      "duplicate_rows": 0,
+      "duplicate_rate": 0.0,
+      "quality_counts": {
+        "original": 4430,
+        "test_usable": 447,
+        "validation_usable": 431,
+        "train_usable": 3552
+      },
+      "processed_artifacts": [
+        {
+          "path": "data/tanglish/processed/tamiltech_qa/test.jsonl",
+          "bytes": 177702,
+          "sha256": "03287ecd13b3f1396cb731928347a8ce0ac814fe5eb60cec26db7d090dd0e2cc",
+          "rows": 447
+        },
+        {
+          "path": "data/tanglish/processed/tamiltech_qa/validation.jsonl",
+          "bytes": 175775,
+          "sha256": "3fe692eb4931958cf242318d30ef03c4480c16c6f5486b77beb560fbde22b30c",
+          "rows": 431
+        },
+        {
+          "path": "data/tanglish/processed/tamiltech_qa/train.jsonl",
+          "bytes": 1422817,
+          "sha256": "dd383584cdaf0db8cd7a09d2282ee43d88d87c920ec29d262f0ccdf220d5fee2",
+          "rows": 3552
+        }
+      ]
+    }
+  ]
+}

@@ -131,6 +131,8 @@ class SmartRouter:
             self.llm_provider.capability_retriever = self.capability_retriever
         if hasattr(self.llm_provider, "capability_registry"):
             self.llm_provider.capability_registry = self.capability_registry
+        if hasattr(self.llm_provider, "working_memory"):
+            self.llm_provider.working_memory = self.working_memory
         if tool_registry is not None and getattr(self.llm_provider, "tool_registry", False) is None:
             self.llm_provider.tool_registry = tool_registry
         self.last_clarification_candidates: list[str] = []
@@ -167,6 +169,40 @@ class SmartRouter:
         """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
         if isinstance(request, str):
             request = CommandRequest(text=request)
+        # Preserve the raw multilingual speech act before canonical spelling
+        # repair and English command normalization change its surface form.
+        from jarvis.core.general_language import GeneralLanguageUnderstandingEngine
+        raw_language = request.metadata.get("language_raw_text", request.text)
+        if raw_language != request.text:
+            from jarvis.core.multilingual import to_english_command
+            if to_english_command(str(raw_language)) != request.text:
+                raw_language = request.text
+        semantic_context = {}
+        if request.chat_id:
+            semantic_context["thread_ref"] = request.chat_id
+        selected = getattr(self.working_memory, "get_selected_resource", lambda: None)()
+        if selected is not None and getattr(selected, "is_valid", True):
+            kind = str(getattr(selected, "resource_type", "")).upper()
+            extension = str(getattr(selected, "extension", "")).lower()
+            semantic_context.setdefault("selected_resource", {"target_type": "PDF" if extension == ".pdf" else kind,
+                "resource_id": getattr(selected, "resource_id", "")})
+            if kind == "FOLDER":
+                semantic_context.setdefault("folder_ref", getattr(selected, "resource_id", ""))
+        language_frame = GeneralLanguageUnderstandingEngine().understand(raw_language, semantic_context)
+        has_action_word = bool(language_frame.evidence.get("lexical_families")) or bool(
+            re.search(r"\b(?:send|share|forward|delete|open|close|install)\b", raw_language, re.I))
+        if language_frame.language == "tanglish" and (has_action_word or language_frame.speech_act == "PROHIBITION"):
+            if language_frame.speech_act == "PROHIBITION":
+                return RouteDecision(request_id=request.request_id, lane=RouteLane.REJECT, intent=None, slots={},
+                    confidence=1.0, source=RouteSource.GRAMMAR, normalized_text=raw_language,
+                    reason_code=ReasonCode.NEGATED_ACTION)
+            if language_frame.speech_act in {"QUESTION", "STATEMENT"}:
+                return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={},
+                    confidence=0.8, source=RouteSource.GRAMMAR, normalized_text=raw_language,
+                    reason_code=ReasonCode.QUESTION_NOT_COMMAND)
+            # Slot hints from this language adapter are advisory. The registered
+            # capability router has the authoritative schema and can resolve a
+            # contextual command such as "next paatu" without an explicit object.
         from jarvis.core.router.normalize import repair_swapped_letters
         unswapped = repair_swapped_letters(request.text or "")
         if unswapped != request.text:
@@ -185,6 +221,17 @@ class SmartRouter:
         if own is not None:
             self._record(own)
             return own
+        # Registered capability labels are resolved before conversational
+        # grammar can reinterpret a subsystem noun as a contact.
+        label = re.sub(r"\s+", "_", (request.text or "").strip().casefold())
+        if self.tool_registry is not None and self.tool_registry.contains(label):
+            definition = self.tool_registry.get(label).definition
+            if not any(field.is_required() for field in definition.input_model.model_fields.values()):
+                decision = RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_0,
+                    intent=definition.name, slots={}, confidence=1.0, source=RouteSource.EXACT,
+                    normalized_text=request.text, reason_code=ReasonCode.EXACT_PATTERN)
+                self._record(decision)
+                return decision
         if not re.match(r"^\W*(?:say|announce|shout)\b", request.text or "", re.I):
             loud = re.sub(r"\s+(?:out\s+loud|aloud|loudly)\b", "", request.text or "", flags=re.I)
             if loud != request.text and loud.strip():
@@ -273,7 +320,26 @@ class SmartRouter:
         decision = self._constraints(request, decision, prohibited, rejected)
         decision = self._coordinate(request, decision)
         decision = self._typed_slots(decision)
-        return self._check_frame_safety(self._semantic_policy(request, decision), request.text or "")
+        decision = self._check_frame_safety(self._semantic_policy(request, decision), request.text or "")
+        if language_frame.language == "tanglish" and language_frame.speech_act == "COMMAND" \
+                and language_frame.missing and decision.lane != RouteLane.REJECT:
+            media_target_resolved = (decision.intent == "media_control"
+                                     and decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1)
+                                     and bool((decision.slots or {}).get("action")))
+            if not media_target_resolved:
+                return RouteDecision(request_id=request.request_id, lane=RouteLane.CLARIFY, intent=None, slots={},
+                    confidence=language_frame.confidence, source=RouteSource.GRAMMAR, normalized_text=raw_language,
+                    clarification="I need " + ", ".join(language_frame.missing).replace("_", " ") + " before acting.",
+                    reason_code=ReasonCode.MISSING_REQUIRED_SLOT, missing_slots=language_frame.missing,
+                    context_trace={"language_frame": language_frame.asdict()})
+        if language_frame.language == "tanglish" and language_frame.speech_act == "COMMAND" \
+                and language_frame.action not in {"SEND", "DRAFT_REPLY"} and decision.intent in self._SEND_INTENTS:
+            return RouteDecision(request_id=request.request_id, lane=RouteLane.CLARIFY, intent=None, slots={},
+                confidence=language_frame.confidence, source=RouteSource.GRAMMAR, normalized_text=raw_language,
+                clarification="That request does not identify a message to send. Please specify the resource or question.",
+                reason_code=ReasonCode.LOW_CONFIDENCE,
+                context_trace={"language_frame": language_frame.asdict()})
+        return decision
 
     _PROHIBITED_EFFECT = {
         "pay": "payment", "buy": "payment", "purchase": "payment", "order": "payment", "checkout": "payment",
@@ -921,6 +987,12 @@ class SmartRouter:
                                  normalized_text=decision.normalized_text, reason_code=ReasonCode.MULTI_STEP)
         if isinstance((decision.slots or {}).get("message"), str) and re.match(r"^[\s,;:.-]+", decision.slots["message"]):
             decision = decision.model_copy(update={"slots": {**decision.slots, "message": decision.slots["message"].lstrip(" ,;:.-")}})
+        if re.match(r"^tell\s+\S+\s+to\s+(?:call|contact|send|start|stop|join|reply|wait|come|go)\b", text, re.I) \
+                and str((decision.slots or {}).get("message") or "").lower().startswith("to "):
+            # The infinitive marker belongs to the owner's instruction, not
+            # to the quoted message: "tell Kumar to call me" -> "call me".
+            decision = decision.model_copy(update={"slots": {**decision.slots,
+                "message": decision.slots["message"][3:]}})
         if decision.lane == RouteLane.LANE_0 and self._QUESTION_START.match((text or "").strip()):
             # "was that message actually sent?" asks about a message; a question never sends one
             return RouteDecision(request_id=decision.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.6,
@@ -1317,6 +1389,38 @@ class SmartRouter:
         original_text = request.text
         request_id = request.request_id
         breakdown: dict[str, float] = {}
+
+        # Resource-bearing WhatsApp follow-ups use this same semantic classifier
+        # before legacy matchers can reinterpret a draft as a fresh text send.
+        context = getattr(self.working_memory, "context", None)
+        draft = getattr(context, "pending_draft", None)
+        result_set = self.working_memory.get_active_result_set() if self.working_memory else None
+        wa_results = bool(result_set and result_set.item_type.startswith("WHATSAPP_"))
+        follow = FollowupDetector.classify(original_text, context)
+        from jarvis.core.context.models import FollowupType
+        contextual = follow.followup_type not in {FollowupType.STANDALONE, FollowupType.TOPIC_SWITCH, FollowupType.WHY_QUERY}
+        if draft and follow.followup_type == FollowupType.CANCELLATION and not getattr(context, "pending_confirmation", None):
+            decision = RouteDecision(request_id=request_id, lane=RouteLane.LANE_0, intent="whatsapp_draft_cancel",
+                slots={"resource_id": draft.draft_id}, confidence=1.0, source=RouteSource.EXACT,
+                normalized_text=original_text, reason_code=ReasonCode.EXACT_PATTERN)
+            self._record(decision)
+            return decision
+        if (draft or wa_results) and contextual and not getattr(context, "pending_confirmation", None) and not _NO_MODEL.get() and not _IN_CLAUSE.get():
+            try:
+                decision = await self.llm_provider.classify(original_text, [], request_id)
+            except Exception:
+                decision = None
+            if decision is None or not (decision.intent or "").startswith("whatsapp_"):
+                decision = RouteDecision(request_id=request_id, lane=RouteLane.CLARIFY,
+                    confidence=0.0, source=RouteSource.TINY_MODEL, normalized_text=original_text,
+                    clarification="Please specify the action for the selected WhatsApp resource.",
+                    reason_code=ReasonCode.UNKNOWN_INTENT)
+            if draft and decision.intent == "whatsapp_draft_send":
+                decision.slots = {**decision.slots, "resource_id": draft.draft_id,
+                    "revision": draft.metadata.get("revision", 1)}
+            decision.routing_ms = (perf_counter_ns() - t0) / 1e6
+            self._record(decision)
+            return decision
 
         # 1. CONTROL COMMAND CHECK (< 1 ms)
         t_ctrl_0 = perf_counter_ns()
@@ -1992,7 +2096,7 @@ class SmartRouter:
 
         elif (m_ord or followup.followup_type == FollowupType.ORDINAL_REFERENCE) and self.reference_resolver:
             res = self.reference_resolver.resolve(clean_lower)
-            if res.referent and res.confidence == ReferenceConfidence.HIGH:
+            if res.referent and res.confidence == ReferenceConfidence.HIGH and res.referent_type in {"FILE", "SEARCH_RESULT", "APP"}:
                 intent_target = "open_file" if res.referent_type in ("FILE", "SEARCH_RESULT") else "open_app"
                 slot_key = "path" if intent_target == "open_file" else "name"
                 ord_decision = RouteDecision(

@@ -106,7 +106,7 @@ def get_action_log() -> ActionLog:
 # ------------------------------------------------------------------ follow-up questions
 _U = r"(?:you|u|jarvis)"
 FOLLOWUP = re.compile(
-    rf"^(?:to\s+whom|who)\s+(?:did|have|has|was|were)\s+(?:{_U}\s+)?(?:just\s+)?(?:sen[dt]|message[d]?|text(?:ed)?|reply|replied)"
+    rf"^(?:to\s+whom|who)\s+(?:did|have|has|was|were)\s+{_U}\s+(?:just\s+)?(?:sen[dt]|message[d]?|text(?:ed)?|reply|replied)"
     rf"(?:\s+(?:it|that|this|the\s+message|the\s+msg|a\s+message))?(?:\s+(?:to|sent\s+to))?"
     rf"|^(?:to\s+whom|who)\s+{_U}\s+(?:have\s+|has\s+)?(?:just\s+)?(?:sen[dt]|messaged|texted)(?:\s+(?:it|that))?(?:\s+to)?"
     rf"|^who\s+(?:was|is)\s+(?:it|that|the\s+message)\s+(?:sent\s+)?(?:to|for)"

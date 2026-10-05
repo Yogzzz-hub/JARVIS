@@ -30,7 +30,6 @@ def is_placeholder(message: Any) -> bool:
 
 
 def is_group_chat(chat_id: str) -> bool:
-    """Structural group gate: groups, broadcast lists, status and channels are never direct chats."""
+    """Auto-reply gate: only a genuine one-to-one JID can reach reply generation."""
     cid = (chat_id or "").lower()
-    return (cid.endswith("@g.us") or cid.endswith("@broadcast") or cid.endswith("@newsletter")
-            or cid.startswith("status@") or cid.endswith("@temp") or not cid)
+    return not (cid.endswith("@s.whatsapp.net") or cid.endswith("@lid") or cid.endswith("@c.us"))

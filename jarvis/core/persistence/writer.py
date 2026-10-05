@@ -56,9 +56,14 @@ class PersistenceWriter:
             migrations = sorted((ROOT / "db/migrations").glob("*.sql"))
             if version > len(migrations):
                 raise RuntimeError("database is newer than this service")
+            if version < len(migrations):
+                backup = self.path.with_name(self.path.stem + f".before_schema_{version:03}.db")
+                if not backup.exists():
+                    with sqlite3.connect(backup) as target:
+                        connection.backup(target)
             for number, migration in enumerate(migrations, 1):
                 if number > version:
-                    connection.executescript("BEGIN;\n" + migration.read_text() + f"\nPRAGMA user_version={number};\nCOMMIT;")
+                    connection.executescript("BEGIN;\n" + migration.read_text(encoding="utf-8") + f"\nPRAGMA user_version={number};\nCOMMIT;")
             self.pragmas = {key: connection.execute(f"PRAGMA {key}").fetchone()[0]
                             for key in ("journal_mode", "synchronous", "busy_timeout", "foreign_keys", "user_version")}
             self.ready.set()

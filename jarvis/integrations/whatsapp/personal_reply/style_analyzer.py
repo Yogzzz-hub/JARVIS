@@ -11,7 +11,8 @@ from collections import Counter
 from typing import Iterable
 
 from jarvis.integrations.whatsapp.personal_reply import language as lang
-from jarvis.integrations.whatsapp.personal_reply.models import ChatLine, ContactStyleProfile, Direction
+from jarvis.integrations.whatsapp.personal_reply.models import Authorship, ChatLine, ContactStyleProfile, Direction
+from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import evidence_weight
 
 _STOP = set("""i me my you your the a an and or but to of in on at for is are was were be been am it its this that
 these those so if then just not no yes do did does have has had will would can could should with from by as up out
@@ -33,9 +34,23 @@ def _first_phrase(text: str, n: int = 2) -> str:
 
 def analyze(contact_id: str, display_name: str, lines: Iterable[ChatLine],
             preferences: dict | None = None) -> ContactStyleProfile:
-    user = [ln for ln in lines if ln.direction == Direction.USER and ln.text.strip()]
+    user = [ln for ln in lines if ln.direction == Direction.USER and ln.text.strip()
+            and evidence_weight(ln.provenance, ln.provenance_confidence) > 0]
     prof = ContactStyleProfile(contact_id=contact_id, display_name=display_name, preferences=dict(preferences or {}))
     prof.messages_analyzed = len(user)
+    prof.verified_messages = sum(ln.provenance in (
+        Authorship.USER_TYPED, Authorship.VERIFIED_MANUAL_OWNER_SEND, Authorship.USER_EDITED_AI_DRAFT,
+        Authorship.USER_APPROVED_AI_DRAFT, Authorship.VERIFIED_LEGACY_OWNER) for ln in user)
+    prof.legacy_messages = sum(ln.provenance == Authorship.LEGACY_OWNER_LIKELY for ln in user)
+    weights = [evidence_weight(ln.provenance, ln.provenance_confidence) for ln in user]
+    verified_raw = sum(w for ln, w in zip(user, weights) if ln.provenance != Authorship.LEGACY_OWNER_LIKELY)
+    legacy_raw = sum(w for ln, w in zip(user, weights) if ln.provenance == Authorship.LEGACY_OWNER_LIKELY)
+    if verified_raw > 0 and legacy_raw > 0:
+        legacy_scale = min(1.0, .5 * verified_raw / legacy_raw)
+        weights = [w * legacy_scale if ln.provenance == Authorship.LEGACY_OWNER_LIKELY else w
+                   for ln, w in zip(user, weights)]
+    total_weight = sum(weights)
+    prof.effective_evidence = round(total_weight, 3)
     prof.updated_at = time.time()
     if not user:
         return prof
@@ -43,30 +58,59 @@ def analyze(contact_id: str, display_name: str, lines: Iterable[ChatLine],
 
     # language mix (message level)
     labels = [lang.detect(t) for t in texts]
-    known = [m for m in labels if m.label != lang.UNKNOWN]
-    tang = sum(1 for m in known if lang.is_tanglish_mode(m.label))
-    prof.tanglish_ratio = round(tang / len(known), 3) if known else 0.0
-    prof.english_ratio = round(1 - prof.tanglish_ratio, 3) if known else 1.0
-    pure_tanglish = sum(1 for m in known if m.label == lang.TANGLISH)
+    known = [(m, w) for m, w in zip(labels, weights) if m.label != lang.UNKNOWN]
+    known_weight = sum(w for _, w in known)
+    tang = sum(w for m, w in known if lang.is_tanglish_mode(m.label))
+    prof.tanglish_ratio = round(tang / known_weight, 3) if known_weight else 0.0
+    prof.english_ratio = round(1 - prof.tanglish_ratio, 3) if known_weight else 1.0
+    pure_tanglish = sum(w for m, w in known if m.label == lang.TANGLISH)
     if prof.tanglish_ratio < 0.2:
         prof.preferred_language = "ENGLISH"
-    elif known and pure_tanglish / len(known) >= 0.5:
+    elif known_weight and pure_tanglish / known_weight >= 0.5:
         prof.preferred_language = "TANGLISH"
     else:
         prof.preferred_language = "MIXED"
 
     # length
     lengths = [len(_words(t)) or 1 for t in texts]
-    prof.avg_message_length = round(sum(lengths) / len(lengths), 2)
-    prof.median_message_length = float(statistics.median(lengths))
+    prof.avg_message_length = round(sum(v*w for v, w in zip(lengths, weights)) / total_weight, 2)
+    ordered_lengths = sorted(zip(lengths, weights))
+    cumulative = 0.0
+    prof.median_message_length = float(ordered_lengths[-1][0])
+    for value, weight in ordered_lengths:
+        cumulative += weight
+        if cumulative >= total_weight / 2:
+            prof.median_message_length = float(value)
+            break
     med = prof.median_message_length
     prof.typical_reply_length = ("1-3 words" if med <= 3 else "1 short sentence" if med <= 8
                                  else "1-2 sentences" if med <= 20 else "a few sentences")
 
     # emoji
-    all_emojis = [e for t in texts for e in lang.emojis(t)]
-    prof.emoji_frequency = round(len(all_emojis) / len(texts), 3)
-    prof.common_emojis = [e for e, _ in Counter(all_emojis).most_common(6)]
+    all_emojis = Counter()
+    for text, weight in zip(texts, weights):
+        all_emojis.update({emoji: weight * count for emoji, count in Counter(lang.emojis(text)).items()})
+    prof.emoji_frequency = round(sum(all_emojis.values()) / total_weight, 3)
+    prof.common_emojis = [e for e, _ in all_emojis.most_common(6)]
+    combinations = Counter()
+    for text, weight in zip(texts, weights):
+        run = ""
+        for char in text:
+            if lang.is_emoji(char) or (run and char in "\ufe0f\u200d"):
+                run += char
+            else:
+                if len(lang.emojis(run)) >= 2:
+                    combinations[run] += weight
+                run = ""
+        if len(lang.emojis(run)) >= 2:
+            combinations[run] += weight
+    prof.emoji_combinations = [value for value, _ in combinations.most_common(5)]
+    modalities = Counter()
+    for text, weight in zip(texts, weights):
+        emoji = bool(lang.emojis(text))
+        letters = "".join(ch for ch in text if not lang.is_emoji(ch) and ch not in "\ufe0f\u200d").strip(" \t.!?,")
+        modalities["EMOJI_ONLY" if emoji and not letters else "TEXT_EMOJI" if emoji else "TEXT"] += weight
+    prof.modality_counts = dict(modalities)
 
     # punctuation / capitalization
     ends = sum(1 for t in texts if t[-1] in ".!?")
@@ -116,10 +160,13 @@ def analyze(contact_id: str, display_name: str, lines: Iterable[ChatLine],
     prof.question_style = "often asks questions" if questions >= 0.3 else "sometimes asks" if questions >= 0.1 else "rarely asks"
     prof.directness = "HIGH" if med <= 5 else "MEDIUM" if med <= 15 else "LOW"
     prof.example_message_ids = [ln.message_id for ln in user[-10:] if ln.message_id]
-    habits(prof, user, texts)
+    habits(prof, user, texts, weights)
 
     # confidence: enough samples AND a consistent style
-    n_factor = min(1.0, len(texts) / 40.0)
+    # Legacy can bootstrap a profile but cannot swamp later verified behavior.
+    legacy_effective = sum(w for ln, w in zip(user, weights) if ln.provenance == Authorship.LEGACY_OWNER_LIKELY)
+    verified_effective = total_weight - legacy_effective
+    n_factor = min(1.0, (verified_effective + min(legacy_effective, 12.0)) / 40.0)
     spread = statistics.pstdev(lengths) / (prof.avg_message_length + 1)
     consistency = max(0.3, 1.0 - min(spread, 1.0) * 0.5)
     lang_consistency = max(prof.tanglish_ratio, prof.english_ratio)
@@ -158,29 +205,34 @@ def _emoji_runs(text: str) -> int:
     return best
 
 
-def habits(prof: ContactStyleProfile, user: list[ChatLine], texts: list[str]) -> None:
+def habits(prof: ContactStyleProfile, user: list[ChatLine], texts: list[str], weights: list[float] | None = None) -> None:
     n = len(texts)
-    all_emojis = [e for t in texts for e in lang.emojis(t)]
-    prof.emoji_vocab = [e for e, _ in Counter(all_emojis).most_common(20)]
-    with_emoji = [t for t in texts if lang.emojis(t)]
+    weighted = [(t, w) for t, w in zip(texts, weights or [evidence_weight(ln.provenance, ln.provenance_confidence)
+                                                         for ln in user])]
+    total_weight = sum(w for _, w in weighted)
+    all_emojis = Counter()
+    for text, weight in weighted:
+        all_emojis.update({e: weight * count for e, count in Counter(lang.emojis(text)).items()})
+    prof.emoji_vocab = [e for e, _ in all_emojis.most_common(20)]
+    with_emoji = [(t, w) for t, w in weighted if lang.emojis(t)]
     if with_emoji:
         pos = Counter()
-        for t in with_emoji:
+        for t, weight in with_emoji:
             plain = "".join(ch for ch in t if not lang.is_emoji(ch) and ch not in "\ufe0f\u200d").strip(" .!?,")
             stripped = t.rstrip(" .!?,")
             if not plain:
-                pos["alone"] += 1
+                pos["alone"] += weight
             elif lang.is_emoji(stripped[-1]) or stripped[-1] in "\ufe0f":
-                pos["end"] += 1
+                pos["end"] += weight
             elif lang.is_emoji(t.lstrip()[0]):
-                pos["start"] += 1
+                pos["start"] += weight
             else:
-                pos["inline"] += 1
+                pos["inline"] += weight
         prof.emoji_position = pos.most_common(1)[0][0]
-        prof.emoji_end_rate = round(sum(1 for t in texts if (t.rstrip(" .!?,") or " ")[-1:] and
-                                        (lang.is_emoji(t.rstrip(" .!?,")[-1]) or t.rstrip(" .!?,")[-1] == "\ufe0f")) / n, 3)
-        prof.emoji_only_rate = round(pos["alone"] / n, 3)
-        runs = sorted(_emoji_runs(t) for t in with_emoji)
+        prof.emoji_end_rate = round(sum(w for t, w in weighted if t.rstrip(" .!?,") and
+                                        (lang.is_emoji(t.rstrip(" .!?,")[-1]) or t.rstrip(" .!?,")[-1] == "\ufe0f")) / total_weight, 3)
+        prof.emoji_only_rate = round(pos["alone"] / total_weight, 3)
+        runs = sorted(_emoji_runs(t) for t, _ in with_emoji)
         prof.emoji_run = max(1, runs[len(runs) // 2])
     # written laughs ("hahaha", "lol") first: laughing emojis are already covered by the emoji habits
     laughs = Counter(m.group(0).lower() for t in texts for m in _LAUGH.finditer(t) if not lang.emojis(m.group(0)))

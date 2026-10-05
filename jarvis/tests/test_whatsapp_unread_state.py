@@ -7,6 +7,7 @@ import asyncio
 import shutil
 import sqlite3
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,6 +104,72 @@ def test_without_a_full_chat_list_other_chats_use_the_inbox(tmp_path):
     inbox.update_chats([{"chat_id": YOGA, "name": "Yoga CEO", "unread": 1, "last_ts": time.time()}])  # not synced
     spoken = inbox.summarize_inbox()["spoken_summary"]
     assert "Yoga CEO" in spoken and "Sanjana" in spoken and "Ashok" in spoken
+
+
+def test_incomplete_sync_never_claims_zero_unread(tmp_path):
+    inbox = WhatsAppInbox(tmp_path / "partial.db")
+    out = wt.SummarizeWhatsAppMessagesTool(inbox=inbox).run({})
+    assert out["status"] == "PARTIAL_SYNC"
+    assert out["unread_count"] == 0
+    assert "can't verify" in out["spoken_summary"]
+    count = wt.ReadWhatsAppMessagesTool(inbox=inbox).run({"filter": "unread", "count_only": True})
+    assert count["status"] == "PARTIAL_SYNC"
+    assert "can't verify" in count["spoken_summary"]
+
+
+def test_stale_zero_badge_does_not_hide_newer_stored_message_during_partial_sync(tmp_path):
+    inbox = WhatsAppInbox(tmp_path / "partial.db")
+    inbox.update_chats([{"chat_id": ASHOK, "name": "Ashok", "unread": 0}], synced=False)
+    inbox.add_message(_msg("new", ASHOK, "Ashok", "Please send the file", time.time()))
+    out = wt.SummarizeWhatsAppMessagesTool(inbox=inbox).run({})
+    assert out["status"] == "PARTIAL_SYNC"
+    assert out["unread_count"] == 1
+    assert "Ashok" in out["spoken_summary"]
+    # A cached full snapshot can also arrive *after* the new message.
+    inbox.update_chats([{"chat_id": ASHOK, "name": "Ashok", "unread": 0}], full=True, synced=False)
+    assert inbox.summarize_inbox()["unread_count"] == 1
+
+
+def test_disconnect_invalidates_cached_complete_sync(tmp_path):
+    inbox = WhatsAppInbox(tmp_path / "state.db")
+    inbox.update_chats([], full=True, synced=True)
+    assert inbox.sync_state() == "READY"
+    inbox.set_connector_state("DISCONNECTED")
+    assert inbox.sync_state() == "NOT_CONNECTED"
+    inbox.set_connector_state("CONNECTED")
+    assert inbox.sync_state() == "PARTIAL_SYNC"
+
+
+def test_ready_requires_snapshot_from_current_generation(tmp_path):
+    inbox = WhatsAppInbox(tmp_path / "generation.db")
+    inbox.set_connector_state("CONNECTED")
+    inbox.update_chats([], full=True, synced=True, generation="new", synced_generation="old")
+    assert inbox.sync_state() == "PARTIAL_SYNC"
+    inbox.update_chats([], full=True, synced=True, generation="new", synced_generation="new",
+                       event_meta={"last_history_event": "2026-10-01T00:00:00Z"})
+    assert inbox.sync_state() == "READY"
+    diag = inbox.diagnostics()
+    assert diag["sync_generation"] == "new"
+    assert diag["last_history_event"] == "2026-10-01T00:00:00Z"
+
+
+def test_legacy_bridge_snapshot_cannot_claim_ready_after_connection(tmp_path):
+    inbox = WhatsAppInbox(tmp_path / "legacy.db")
+    inbox.set_connector_state("CONNECTED")
+    inbox.update_chats([{"chat_id": ASHOK, "unread": 0}], full=True, synced=True)
+    assert inbox.sync_state() == "PARTIAL_SYNC"
+
+
+def test_wait_for_sync_wakes_on_current_snapshot(tmp_path):
+    inbox = WhatsAppInbox(tmp_path / "wait.db")
+    inbox.set_connector_state("CONNECTED")
+    timer = threading.Timer(0.02, lambda: inbox.update_chats([], full=True, synced=True,
+                                                             generation="g1", synced_generation="g1"))
+    timer.start()
+    try:
+        assert inbox.wait_for_ready(0.5)
+    finally:
+        timer.join()
 
 
 def test_writing_in_a_chat_reads_it(tmp_path):
@@ -218,8 +285,14 @@ def test_chat_state_from_the_bridge_reaches_the_inbox(tmp_path):
     ("whatsapp la enna puthusa", "summarize_whatsapp_messages", {}),
     ("read my unread messages", "read_whatsapp_messages", {"filter": "unread"}),
     ("how many unread messages do i have", "read_whatsapp_messages", {"filter": "unread", "count_only": True}),
+    ("how many unread personal messages can you currently see", "read_whatsapp_messages", {"filter": "unread", "count_only": True}),
     ("whatsapp la evlo message vandhirukku", "read_whatsapp_messages", {"filter": "unread", "count_only": True}),
     ("who is waiting for my reply", "read_whatsapp_messages", {"filter": "needs_reply"}),
+    ("catch me up on WhatsApp", "summarize_whatsapp_messages", {}),
+    ("anything new in my personal chats", "summarize_whatsapp_messages", {}),
+    ("who has messaged me", "summarize_whatsapp_messages", {}),
+    ("give me the WhatsApp rundown", "summarize_whatsapp_messages", {}),
+    ("what's waiting for me on WhatsApp", "summarize_whatsapp_messages", {}),
 ])
 def test_unread_questions_route(text, intent, slots):
     from jarvis.core.router.ollama import DisabledProvider

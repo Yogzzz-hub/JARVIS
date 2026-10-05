@@ -24,6 +24,8 @@ class WhatsAppContactsClient(QObject):
     statusChanged = Signal()
     busyChanged = Signal()
     noticeChanged = Signal()
+    intelligenceChanged = Signal()
+    holdoutChanged = Signal()
     _done = Signal(str, object)  # (kind, result) delivered on the UI thread
 
     def __init__(self, http_url: str = "http://127.0.0.1:8765", opener: Optional[Callable[..., Any]] = None,
@@ -43,6 +45,9 @@ class WhatsAppContactsClient(QObject):
         self._busy = 0
         self._notice = ""
         self._notice_error = False
+        self._intelligence: dict = {}
+        self._contact_brain: dict = {}
+        self._holdout: list = []
         self._done.connect(self._on_done)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -98,6 +103,18 @@ class WhatsAppContactsClient(QObject):
     @Property(bool, notify=noticeChanged)
     def noticeError(self) -> bool:
         return self._notice_error
+
+    @Property('QVariantMap', notify=intelligenceChanged)
+    def intelligence(self) -> dict:
+        return self._intelligence
+
+    @Property('QVariantMap', notify=intelligenceChanged)
+    def contactBrain(self) -> dict:
+        return self._contact_brain
+
+    @Property('QVariantList', notify=holdoutChanged)
+    def holdoutCases(self) -> list:
+        return self._holdout
 
     def _set_notice(self, text: str, error: bool = False) -> None:
         self._notice, self._notice_error = text, error
@@ -166,6 +183,26 @@ class WhatsAppContactsClient(QObject):
         elif kind == "history":
             self._history = result.get("history", [])
             self.historyChanged.emit()
+        elif kind == 'intelligence':
+            self._intelligence = result
+            self.intelligenceChanged.emit()
+        elif kind == 'contact_brain':
+            self._contact_brain = result.get('contact') or {}
+            self.intelligenceChanged.emit()
+        elif kind == 'holdout':
+            self._holdout = result.get('cases', [])
+            self.holdoutChanged.emit()
+        elif kind.startswith('holdout_rating:'):
+            self._set_notice('Review saved.' if result.get('status') == 'SAVED' else 'Review case unavailable.',
+                             error=result.get('status') != 'SAVED')
+            self.loadHoldout(kind.split(':', 1)[1])
+        elif kind.startswith('evaluate:'):
+            self._set_notice('Evaluation complete; owner review cases are ready.')
+            self.loadHoldout(kind.split(':', 1)[1])
+        elif kind in ('brain_start', 'brain_cancel'):
+            self._intelligence['latest_job'] = result
+            self.intelligenceChanged.emit()
+            self._set_notice('Intelligence build ' + result.get('status', '').lower() + '.')
         else:
             self._set_notice(self._describe(kind, result if isinstance(result, dict) else {}))
             self.refresh()
@@ -198,10 +235,58 @@ class WhatsAppContactsClient(QObject):
     @Slot()
     def refresh(self) -> None:
         self._request("contacts", "GET", "/contacts")
+        self.refreshIntelligence()
+
+    @Slot()
+    def refreshIntelligence(self) -> None:
+        self._request('intelligence', 'GET', '/intelligence/overview')
+
+    @Slot()
+    def loadAllHistory(self) -> None:
+        self._request('brain_start', 'POST', '/intelligence/jobs', {'scope': 'ALL'})
+
+    @Slot(str)
+    def refreshPersonIntelligence(self, contact_id: str) -> None:
+        self._request('brain_start', 'POST', '/intelligence/jobs',
+                      {'scope': 'CONTACT', 'contact_id': contact_id})
+
+    @Slot(str)
+    def cancelIntelligenceJob(self, job_id: str) -> None:
+        self._request('brain_cancel', 'POST', f'/intelligence/jobs/{self._q(job_id)}/cancel', {})
+
+    @Slot(str)
+    def loadContactIntelligence(self, contact_id: str) -> None:
+        self._request('contact_brain', 'GET', f'/intelligence/contacts/{self._q(contact_id)}')
+
+    @Slot(str)
+    def loadHoldout(self, contact_id: str) -> None:
+        self._request('holdout', 'GET', f'/contacts/{self._q(contact_id)}/style/holdout-review')
+
+    @Slot(str)
+    def evaluatePerson(self, contact_id: str) -> None:
+        self._request('evaluate:' + contact_id, 'POST',
+                      f'/contacts/{self._q(contact_id)}/style/evaluate', {}, timeout=180)
+
+    @Slot(str, str, str, str)
+    def rateHoldout(self, contact_id: str, case_id: str, rating: str, dimensions_json: str) -> None:
+        try:
+            dimensions = json.loads(dimensions_json or '{}')
+        except ValueError:
+            self._set_notice('Review dimensions are invalid.', error=True)
+            return
+        self._request('holdout_rating:' + contact_id, 'POST',
+                      f'/contacts/{self._q(contact_id)}/style/holdout-review/{self._q(case_id)}',
+                      {'rating': rating, **dimensions})
+
+    @Slot(int, str)
+    def draftFeedback(self, reply_id: int, kind: str) -> None:
+        self._request('draft_feedback', 'POST', f'/replies/{int(reply_id)}/feedback', {'kind': kind})
 
     @Slot(str)
     def select(self, contact_id: str) -> None:
         self._request("detail", "GET", f"/contacts/{self._q(contact_id)}")
+        self.loadContactIntelligence(contact_id)
+        self.loadHoldout(contact_id)
         self._preview, self._test = {}, {}
         self.previewChanged.emit()
         self.testResultChanged.emit()
@@ -292,4 +377,9 @@ class WhatsAppContactsClient(QObject):
         if name == "whatsapp.personal.activity":
             self._activity = [payload] + self._activity[:99]
             self.activityChanged.emit()
+        if name == 'whatsapp.personal.ingestion':
+            self._intelligence['latest_job'] = payload
+            self.intelligenceChanged.emit()
+            if payload.get('status') in ('COMPLETE', 'FAILED', 'CANCELLED'):
+                self.refreshIntelligence()
         self._refresh_timer.start()

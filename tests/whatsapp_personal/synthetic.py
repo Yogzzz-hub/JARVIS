@@ -116,8 +116,9 @@ def export_text(contact_key: str, n: int = 120, seed: int = 7, start: datetime |
 class StandInLLM:
     """Deterministic stand-in for OllamaClient.chat_json used by tests and the benchmark."""
 
-    def __init__(self, fail: bool = False) -> None:
+    def __init__(self, fail: bool = False, fact_free: bool = False) -> None:
         self.fail = fail
+        self.fact_free = fact_free
         self.calls: list[dict[str, Any]] = []
 
     async def chat_json(self, messages: list[dict[str, Any]], schema: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
@@ -131,7 +132,10 @@ class StandInLLM:
         you = [y.replace("\n        ", "\n") for y in re.findall(r"^\s+You: (.+(?:\n {8}\S.*)*)", prompt, re.M)]
         if re.fullmatch(r"[\W\d_]*|(?:[bcdfghjklmnpqrstvwxz]{5,}\s*)+", current.lower()):
             return {"reply": "?", "understood": False, "confidence": 0.1, "intent": "unclear"}
-        if you:
+        if self.fact_free:
+            reply = ("I'll check and get back to you." if target == "ENGLISH" or "tone: professional" in prompt
+                     else "pathutu solren" if "typical length: 1-3 words" in prompt else "paathutu solren da")
+        elif you:
             reply = you[0]
         elif target == "ENGLISH":
             reply = "Sure, sounds good."

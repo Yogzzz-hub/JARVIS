@@ -142,7 +142,14 @@ class AIHarness:
         self.bus = EventBus()
         self.writer = DummyWriter()
         self.tasks = TaskManager(self.bus, self.writer)
-        self.executor = ExecutionEngine()
+        from jarvis.security.ledger.ledger import ActionLedger
+        from jarvis.security.audit.logger import AuditLogger
+        from jarvis.core.executor.selector import MethodStatsTracker
+        self.executor = ExecutionEngine(
+            ledger=ActionLedger(tmp_path / "actions.db"),
+            audit_logger=AuditLogger(tmp_path / "audit.db"),
+            stats_tracker=MethodStatsTracker(tmp_path / "methods.db"),
+        )
         self.verifier = Verifier()
         self.memory = WorkingMemory()
         self.router = SmartRouter(
@@ -158,6 +165,14 @@ class AIHarness:
             scheduler=DAGScheduler(registry=self.registry, executor=self.executor), working_memory=self.memory,
             assistant=self.assistant, agent=self.agent, whatsapp_ai=self.whatsapp_ai,
         )
+
+        from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
+        get_intelligence(self.inbox).client = self.llm
+        for tool in self.registry.list():
+            if hasattr(tool, "capability_metadata") and tool.definition.name.startswith("whatsapp_"):
+                tool.inbox = self.inbox
+                tool.working_memory = self.memory
+                tool.registry = self.registry
 
     async def say(self, text: str, source: str = "test", **kwargs: Any):
         return await self.service.handle(CommandRequest(text=text, source=source, **kwargs))

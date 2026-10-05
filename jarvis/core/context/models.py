@@ -568,6 +568,7 @@ class WorkingContext:
     pending_confirmation: Optional[PendingConfirmation] = None
     pending_clarification: Optional[PendingClarification] = None
     pending_draft: Optional[DraftResourceRef] = None
+    whatsapp_thread: str = ""
     current_browser_resource: Optional[Any] = None
     current_file_resource: Optional[Any] = None
     current_contact: Optional[Any] = None

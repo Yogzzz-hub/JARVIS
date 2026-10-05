@@ -25,6 +25,19 @@ class Direction(StrEnum):
     CONTACT = "CONTACT"  # written by the other person
 
 
+class Authorship(StrEnum):
+    USER_TYPED = "USER_TYPED"
+    VERIFIED_MANUAL_OWNER_SEND = "VERIFIED_MANUAL_OWNER_SEND"
+    USER_EDITED_AI_DRAFT = "USER_EDITED_AI_DRAFT"
+    USER_APPROVED_AI_DRAFT = "USER_APPROVED_AI_DRAFT"
+    VERIFIED_LEGACY_OWNER = "VERIFIED_LEGACY_OWNER"
+    LEGACY_OWNER_LIKELY = "LEGACY_OWNER_LIKELY"
+    AI_DRAFT = "AI_DRAFT"
+    AUTO_GENERATED = "AUTO_GENERATED"
+    UNKNOWN = "UNKNOWN"
+    REJECTED_LEGACY = "REJECTED_LEGACY"
+
+
 class ExampleSource(StrEnum):
     IMPORT = "IMPORT"            # owner-authored message from an imported chat
     LIVE_USER = "LIVE_USER"      # owner typed it themselves on WhatsApp
@@ -62,6 +75,9 @@ class ChatLine:
     message_id: str = ""
     reply_to: str = ""
     origin: str = ""   # import id, or "live" for messages seen live through the connector
+    provenance: Authorship = Authorship.UNKNOWN
+    provenance_confidence: float = 0.0
+    provenance_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -74,6 +90,8 @@ class ReplyExample:
     source: ExampleSource = ExampleSource.IMPORT
     split: str = "TRAIN"   # TRAIN / DEV / HOLDOUT
     example_id: int = 0
+    provenance: Authorship = Authorship.UNKNOWN
+    evidence_weight: float = 0.0
 
 
 @dataclass
@@ -87,6 +105,7 @@ class ContactStyleProfile:
     median_message_length: float = 0.0
     emoji_frequency: float = 0.0            # emojis per message
     common_emojis: list[str] = field(default_factory=list)
+    emoji_combinations: list[str] = field(default_factory=list)
     punctuation_style: str = "minimal"      # none / minimal / standard / expressive
     capitalization_style: str = "lowercase" # lowercase / sentence / mixed
     greeting_patterns: list[str] = field(default_factory=list)
@@ -104,6 +123,8 @@ class ContactStyleProfile:
     emoji_position: str = ""                # end / start / inline / alone (where emojis usually go)
     emoji_end_rate: float = 0.0             # share of messages that end with an emoji
     emoji_only_rate: float = 0.0            # share of messages that are only emojis
+    modality_counts: dict[str, int] = field(default_factory=dict)
+    sticker_frequency: float = 0.0
     emoji_run: int = 1                      # usual repeat count ("😂😂😂" = 3)
     laugh_style: str = ""                   # "hahaha", "😂", "lol", ...
     elongation_rate: float = 0.0            # "sooo", "okkk", "daaa"
@@ -114,6 +135,9 @@ class ContactStyleProfile:
     response_patterns: list[str] = field(default_factory=list)
     example_message_ids: list[str] = field(default_factory=list)
     messages_analyzed: int = 0
+    verified_messages: int = 0
+    legacy_messages: int = 0
+    effective_evidence: float = 0.0
     confidence: float = 0.0
     profile_version: int = 0
     updated_at: float = field(default_factory=time.time)
@@ -228,10 +252,14 @@ class QualityReport:
     sensitive_action_risk: float
     reasons: list[str] = field(default_factory=list)
     sensitive_topics: list[str] = field(default_factory=list)
+    semantic_pass: bool = True
+    semantic_reason: str = ""
+    answerability_category: str = ""
+    answerability_gate: str = ""
 
     @property
     def passed(self) -> bool:
-        return not self.reasons
+        return self.semantic_pass and not self.reasons
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
