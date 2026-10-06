@@ -1,0 +1,24 @@
+{
+  "CURRENT_PRODUCTION": {
+    "change_authorized": false,
+    "routing": "existing_runtime"
+  },
+  "NLP_CANDIDATE": {
+    "accepted": false,
+    "dataset_directory": "data/nlp_structural_v2/56a1248f87921b2c2b2866b319bb6b4f31f7eae586f14c3edd728611507f0970",
+    "encoder": "intfloat/multilingual-e5-small",
+    "human_validation": "DEFERRED",
+    "mode": "shadow_advisory",
+    "production_enabled": false,
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "shadow_enabled": true,
+    "status": "AI_ASSISTED_PROVISIONAL",
+    "trained": true,
+    "translation_first": false,
+    "artifact_directory": "candidate",
+    "stage": "STRUCTURAL_REPAIR_V2"
+  },
+  "deployment_state": "INTEGRATED_SHADOW",
+  "MULTILINGUAL_NLP_SHADOW": true,
+  "WHATSAPP_GENERATED_REPLY_SHADOW": true
+}

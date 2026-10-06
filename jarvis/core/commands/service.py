@@ -281,16 +281,21 @@ class CommandService:
     def _pending_execution(self) -> dict[str, Any] | None:
         pending = self.__dict__.get("_pending_store")
         if pending is not None and time.monotonic() - pending.get("_stamped", 0.0) > self.PENDING_TTL_S:
-            self.__dict__["_pending_store"] = None
+            self._pending_execution = None
             return None
         return pending
 
     @_pending_execution.setter
     def _pending_execution(self, value: dict[str, Any] | None) -> None:
+        previous = self.__dict__.get('_pending_store')
         if value is not None:
             value = dict(value)
             value.setdefault("_stamped", time.monotonic())
         self.__dict__["_pending_store"] = value
+        if value is None and previous is not None:
+            memory = getattr(self, 'working_memory', None)
+            if memory is not None and hasattr(memory, 'clear_pending_confirmation'):
+                memory.clear_pending_confirmation()
 
     # ------------------------------------------------------------------ channel helpers
     @staticmethod
@@ -302,6 +307,15 @@ class CommandService:
     def _speaks(self, request) -> bool:
         """Talk back on the PC for local interactive channels only (never for WhatsApp / tests)."""
         source = getattr(request, "source", "")
+        metadata = getattr(request, 'metadata', None) or {}
+        if metadata.get('input_envelope'):
+            from jarvis.core.commands.envelope import JarvisInputEnvelope
+            from jarvis.core.response.coordinator import ResponseCoordinator
+            envelope = JarvisInputEnvelope.model_validate(metadata['input_envelope'])
+            if not ResponseCoordinator.plan(envelope, metadata.get('response_language')).speak:
+                return False
+        if (getattr(request, 'metadata', None) or {}).get('input_source') == 'phone':
+            return False
         if source in self.SILENT_SOURCES:
             return False
         if source in ("voice", "websocket", "desktop_ui", "local", "chat", "ui", "http", "api", "cli"):
@@ -327,12 +341,61 @@ class CommandService:
         when the command finishes (jarvis/core/tasks/scope.py)."""
         from jarvis.core.tasks.scope import get_scope_manager
         from jarvis.core.commands.provenance import owner_command
+        shadow_raw = request.text
+        reference_resolver = None
+        if (getattr(request, 'is_owner', False) and request.source != 'whatsapp'
+                and request.metadata.get('input_source') != 'phone'
+                and re.search(r'\b(?:it|that|this|previous|second|him|her|atha|avan)\b|அதை|இந்த|அந்த', shadow_raw, re.I)):
+            try:
+                import copy
+                from jarvis.core.context.semantic_adapter import resolve_semantic_references
+                memory_snapshot = copy.deepcopy(self.working_memory)
+                if memory_snapshot is not None:
+                    reference_resolver = lambda frame: resolve_semantic_references(frame, memory_snapshot)
+            except Exception:
+                pass
+        from jarvis.core.commands.envelope import JarvisInputEnvelope
+        from jarvis.core.response.coordinator import RESPONSE_LANGUAGE, ResponseLanguagePolicy, UNIFIED_RESPONSE_ACTIVE
+        envelope = JarvisInputEnvelope.from_request(request)
+        selected_language = ResponseLanguagePolicy.choose(envelope.raw_text,
+            explicit=request.metadata.get('response_language'),
+            conversation=request.metadata.get('conversation_language'))
+        language_token = RESPONSE_LANGUAGE.set(selected_language)
+        active_language_token = UNIFIED_RESPONSE_ACTIVE.set(True)
+        request = request.model_copy(update={'metadata': {**request.metadata,
+            'input_envelope': envelope.model_dump(), 'response_language': selected_language}})
         token = owner_command.set(request.text if getattr(request, "is_owner", False) else None)
         try:
+            if not request.is_owner:
+                return CommandResult(request_id=request.request_id, state='WAITING_FOR_USER',
+                    message='Only an authenticated owner can authorize commands.', metrics={})
+            # Conservative safety admission, not candidate routing. Scope ambiguity
+            # clarifies rather than executing a positive cue from a prohibition.
+            if re.search(r"do\s+not|don['’]t|never|[a-z]+(?:adha|atha)\b|\b(?:venam|vendam|venda)\b|பண்ணாத|வேண்டாம்|அனுப்பாத", shadow_raw, re.I):
+                from jarvis.core.language_layer import repair
+                safety = repair({'raw_text': shadow_raw, 'action': 'UNKNOWN', 'domain': 'GENERAL',
+                    'speech_act': 'COMMAND', 'slots': [], 'values': {}})
+                if safety['speech_act'] == 'NEGATED_COMMAND':
+                    message = "I won't execute that request. Please clarify any action you still want."
+                    if self._speaks(request) and getattr(self.response, 'enabled', False):
+                        self.response.schedule_final(request.request_id, message)
+                    return CommandResult(request_id=request.request_id, state='CANCELLED', message=message, metrics={})
             with get_scope_manager().grant(getattr(request, "request_id", "") or "", (), reason="command"):
                 return await self._handle(request, clock)
         finally:
             owner_command.reset(token)
+            RESPONSE_LANGUAGE.reset(language_token)
+            UNIFIED_RESPONSE_ACTIVE.reset(active_language_token)
+            # Advisory queue only: never await the encoder or change the result.
+            try:
+                from jarvis.core.language_shadow import get_language_service, production_snapshot
+                decision = self._last_decisions.get(request.request_id)
+                source = request.metadata.get("input_source", request.source)
+                get_language_service().submit(shadow_raw, source, production_snapshot(decision) if decision is not None else None,
+                                              owner=bool(getattr(request, "is_owner", False)), event_id=request.request_id,
+                                              reference_resolver=reference_resolver)
+            except Exception:
+                logging.getLogger(__name__).debug("Language shadow unavailable", exc_info=True)
 
     @staticmethod
     def _grant(tool) -> None:
@@ -1181,9 +1244,8 @@ class CommandService:
             state = State.UNCERTAIN if getattr(verification, "confidence", 1.0) > 0.3 else State.FAILED
 
         try:
-            from jarvis.core.multilingual import REPLY_LANGUAGE, THANGLISH, in_thanglish
-            if REPLY_LANGUAGE.get() == THANGLISH:
-                message = in_thanglish(message)
+            from jarvis.core.response.coordinator import RESPONSE_LANGUAGE, ResponseLanguagePolicy
+            message = ResponseLanguagePolicy.render(message, RESPONSE_LANGUAGE.get())
         except Exception:
             pass
         decided = getattr(self, "_last_decisions", {}).get(task.request_id)

@@ -1,0 +1,5 @@
+# These byte-pinned sources must match the immutable Stage 2.5 evidence.
+scripts/stage25_generate.py text eol=lf
+scripts/stage25_gold_data.py text eol=lf
+scripts/tanglish_stage24_ontology.py text eol=lf
+scripts/stage25_conversation_state.py text eol=lf

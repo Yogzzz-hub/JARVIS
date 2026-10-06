@@ -259,6 +259,13 @@ Window {
                     selected: pageStack.currentIndex === 8
                     onClicked: pageStack.currentIndex = 8
                 }
+                SidebarButton {
+                    text: "NLP Intelligence"
+                    iconName: "diagnostics"
+                    compact: sidebar.compact
+                    accent: mainWindow.tint
+                    onClicked: Qt.openUrlExternally("http://127.0.0.1:8766")
+                }
             }
         }
 

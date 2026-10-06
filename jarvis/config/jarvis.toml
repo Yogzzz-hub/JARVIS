@@ -68,12 +68,12 @@ wake_enabled = true
 ptt_enabled = true
 model_path = "models/wake/hey_jarvis_v0.1.onnx"
 threshold = 0.5   # openWakeWord hey_jarvis: lower = easier to wake (more false wakes), higher = stricter
-language = "thanglish"     # "thanglish" = understands English and Thanglish (multilingual model); "english" = English only
+language = "auto"          # multilingual speech with per-utterance language detection
 stt_model = "auto"  # auto = large-v3-turbo on an NVIDIA GPU (best accuracy), small.en on the CPU; or a size/path
 stt_device = "auto"        # use the NVIDIA GPU when available, else the CPU
 compute_type = "int8"
 stt_beam_size = 5          # final-pass accuracy (lower = faster on slow CPUs)
-preroll_ms = 500
+preroll_ms = 1500  # within the existing 2-second ring; preserve immediate post-wake commands
 endpoint_silence_ms = 800  # pause that ends your turn; unfinished sentences get about twice as long
 max_utterance_s = 45       # longest single request
 talk_over = true           # speak over JARVIS to interrupt it (no wake word); it carries on if it only heard itself

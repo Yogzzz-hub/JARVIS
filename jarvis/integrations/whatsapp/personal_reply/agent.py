@@ -196,6 +196,12 @@ class PersonalReplyAgent:
         self.store.upsert_contact(chat_id, name)
         self._last_contact = chat_id
         text = (getattr(message, "text", "") or "").strip()
+        try:
+            from jarvis.core.language_shadow import get_language_service
+            if not getattr(message, 'history', False):
+                get_language_service().submit(text, 'whatsapp', mode='conversation', event_id=mid)
+        except Exception:
+            pass  # Shadow understanding never changes truth, style, or send authorization.
         if self.store.load_profile(chat_id) is not None:
             self.store.add_sources(chat_id, [ChatLine(timestamp=self.clock(), sender=name, direction=Direction.CONTACT,
                                                       text=text, message_id=mid)], import_id="live")
@@ -248,6 +254,11 @@ class PersonalReplyAgent:
         decision = self.policy.decide(cid, batch.chat_id, has_profile=prof_exists, now=self.clock())
         if decision.mode == ReplyMode.OFF:
             return {"status": Outcome.NOT_ENABLED.value if decision.reason != "GROUP_BLOCKED" else Outcome.IGNORED_GROUP.value}
+        from jarvis.core.language_shadow import generated_auto_reply_blocked
+        if decision.auto and generated_auto_reply_blocked():
+            return {"status": Outcome.NEEDS_USER_REVIEW.value,
+                    "reason": "Generated auto-reply is OFF during multilingual language shadow",
+                    "auto_reply": False}
         if self._owner_replied_at.get(cid, 0) > batch.received_at:
             self._activity(cid, name, "Skipped", "you replied yourself")
             return {"status": Outcome.OWNER_REPLIED.value}

@@ -212,6 +212,12 @@ class ThreadIntelligence:
         if row and revision != row[0]:
             return
         frame = semantic_frame(message.chat_id, message.text, job["timestamp"], message.message_id, lexicon=self.store.lexicon())
+        try:
+            from jarvis.core.language_shadow import get_language_service
+            if not message.is_from_me and not message.is_group and not message.history and message.state == 'READY':
+                get_language_service().submit(message.text, 'whatsapp', mode='conversation', event_id=message.message_id)
+        except Exception:
+            pass  # Understanding is advisory; existing reply/truth gates remain authoritative.
         self.store.put("FRAME", {"id": "frame:" + message.message_id, "thread_id": message.chat_id, **frame.model_dump()}, message.message_id)
         media = message.media_ref or {}
         if media:

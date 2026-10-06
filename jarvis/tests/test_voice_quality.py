@@ -113,7 +113,7 @@ def test_name_vocabulary_fixes_near_miss_names_only():
     assert "Akash Anna" in v.hotwords()
 
 
-def test_final_pass_gets_hotwords_and_corrects_names(monkeypatch):
+def test_final_pass_gets_hotwords_without_rewriting_recipient(monkeypatch):
     import sys
     from jarvis.core.stt import faster_whisper_engine as fw
     from jarvis.core.stt.names import NameVocabulary
@@ -139,7 +139,10 @@ def test_final_pass_gets_hotwords_and_corrects_names(monkeypatch):
         await eng.start_session("s")
         await eng.feed_audio((np.random.randn(32000) * 1000).astype(np.int16).tobytes())
         return await eng.finalize()
-    assert asyncio.run(run()).text == "message Akash Anna saying hi"
+    final = asyncio.run(run())
+    assert final.text == "message akash ana saying hi"
+    assert final.raw_text == final.text
+    assert final.clarification_required  # older backend provided no word evidence
     assert "Akash Anna" in seen["hotwords"]
 
 

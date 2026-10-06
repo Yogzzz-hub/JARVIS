@@ -636,3 +636,35 @@ class TestReliabilityAndCache:
         # Blind retry MUST be suppressed on write
         assert call_count == 1
         assert exc_info.value.code == GoogleErrorCode.TIMEOUT
+
+
+def test_runtime_google_tool_factory_exposes_existing_gmail_capabilities_with_send_confirmation():
+    from jarvis.tools.registry import ToolRegistry
+    from jarvis.tools.system.google_tools import create_google_tools
+
+    registry = ToolRegistry()
+    registry.discover(create_google_tools())
+    registry.finalize()
+    for name in ("gmail_list_recent", "gmail_search", "gmail_get_message",
+                 "gmail_create_draft", "gmail_send_draft", "calendar_list_events",
+                 "calendar_create_event", "calendar_find_events", "calendar_get_event",
+                 "calendar_update_event", "calendar_delete_event", "drive_list_files",
+                 "drive_search", "drive_get_metadata", "drive_download_file",
+                 "drive_upload_file", "drive_create_folder"):
+        assert registry.contains(name)
+    send = registry.get("gmail_send_draft").definition
+    assert send.requires_confirmation and not send.read_only
+    assert registry.get("calendar_delete_event").definition.requires_confirmation
+    assert registry.get("drive_search").definition.read_only
+
+
+def test_lazy_drive_tool_checks_auth_before_building_service(monkeypatch):
+    from jarvis.tools.system import google_tools
+    from jarvis.integrations.google.drive.tools import DriveSearchInput
+
+    async def auth_required(_capability):
+        raise RuntimeError("AUTH_REQUIRED")
+    monkeypatch.setattr(google_tools, "_credentials", auth_required)
+    tool = next(t for t in google_tools.create_google_tools() if t.definition.name == "drive_search")
+    with pytest.raises(RuntimeError, match="AUTH_REQUIRED"):
+        asyncio.run(tool.run(DriveSearchInput(query="test")))

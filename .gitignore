@@ -44,6 +44,7 @@ integrations/whatsapp/bridge/auth_info/
 
 # Large model binaries (>50MB)
 models/whisper/base/model.bin
+models/whisper/small/model.bin
 models/piper/**/*.onnx
 models/piper/.cache/
 models/tanglish_stage2/
@@ -73,6 +74,11 @@ reports/*
 !reports/WHATSAPP_AUTONOMOUS_ROOT_CAUSE.md
 !reports/WHATSAPP_EVENT_PIPELINE.md
 !reports/WHATSAPP_ARCHITECTURE_AUDIT.md
+!reports/JARVIS_CONNECTED_AUTOMATION_FINAL.md
+!reports/JARVIS_ENGLISH_TANGLISH_NLP_FINAL.md
+!reports/JARVIS_MULTILINGUAL_LANGUAGE_LAYER_FINAL.md
+!reports/JARVIS_COMPLETE_INTEGRATION_FINAL.md
+!reports/JARVIS_VOICE_DAILY_USE_ACCEPTANCE.md
 docs/*
 !docs/WHATSAPP_PERSONAL_REPLY_AGENT.md
 !docs/WHATSAPP_CURRENT_STATE.md

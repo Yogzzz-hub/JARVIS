@@ -26,6 +26,7 @@ Item {
     property var profile: detail && detail.profile ? detail.profile : null
     property var brain: client ? client.intelligence : ({})
     property var brainJob: brain && brain.latest_job ? brain.latest_job : ({})
+    readonly property bool nlpShadow: brain && brain.language_layer ? brain.language_layer.shadow === true : false
     property var contactBrain: client ? client.contactBrain : ({})
     readonly property bool busy: client ? client.busy : false
     readonly property bool wide: width >= 1080
@@ -86,6 +87,8 @@ Item {
             title: "WhatsApp"
             subtitle: root.client ? (root.client.status || "Loading...") : "JARVIS backend not connected"
             StatusBadge { status: "BUSY"; text: "GROUPS BLOCKED" }
+            StatusBadge { status: "WAITING"; text: root.nlpShadow ? "UNIFIED JARVIS NLP · SHADOW" : "UNIFIED NLP · NOT ACTIVE" }
+            StatusBadge { status: "WAITING"; text: "GENERATED AUTO-REPLY OFF" }
             StatusBadge { status: root.client && root.client.encryption === "keyring" ? "READY" : "WAITING"
                           text: root.client && root.client.encryption === "keyring" ? "ENCRYPTED" : "NOT ENCRYPTED" }
         }

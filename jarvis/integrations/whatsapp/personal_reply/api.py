@@ -132,6 +132,7 @@ def register(app: FastAPI, runtime: Any) -> None:
                                        "('live','owner_attested','reviewed_draft'))").fetchone()[0]
             service = getattr(runtime, 'whatsapp_service', None)
             connected = bool(service and getattr(getattr(service, 'transport', None), 'is_connected', False))
+            from jarvis.core.language_shadow import get_language_service
             return {'messages_stored': messages, 'direct_contacts': direct, 'groups': groups,
                     'connection': 'READY' if connected else 'DEGRADED',
                     'python_listener': bool(service),
@@ -142,7 +143,9 @@ def register(app: FastAPI, runtime: Any) -> None:
                                 'imported_history_available': bool(imported),
                                 'remote_history_complete': 'UNKNOWN'},
                     'memory': a.store.brain_state(), 'latest_job': a.brain_jobs.latest(),
-                    'generated_auto_reply_enabled': False}
+                    'generated_auto_reply_enabled': False,
+                    'language_layer': {'source': 'Unified JARVIS NLP', 'shadow': get_language_service().enabled(),
+                                       'controls_tools': False, 'personal_style_source': 'Personal Reply Brain'}}
         return await __import__('asyncio').to_thread(read)
 
     @app.post(base + '/intelligence/jobs')

@@ -191,6 +191,14 @@ class WhatsAppInbox:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def contains_message(self, message_id: str, chat_id: str) -> bool:
+        """True only after this exact message is durable in the canonical inbox."""
+        if not message_id or not chat_id:
+            return False
+        with self._get_conn() as conn:
+            return conn.execute("SELECT 1 FROM whatsapp_messages WHERE message_id=? AND chat_id=?",
+                                (message_id, chat_id)).fetchone() is not None
+
     def _init_db(self) -> None:
         with self._get_conn() as conn:
             conn.execute("PRAGMA journal_mode=WAL;")

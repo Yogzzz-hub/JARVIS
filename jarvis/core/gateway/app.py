@@ -52,6 +52,15 @@ def create_app(runtime=None):
     async def reject_browser_commands(request: Request, call_next):
         # Match the WebSocket boundary: browser pages cannot authorize actions.
         if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("origin"):
+            # Narrow recording/rating exception: these endpoints never execute
+            # commands. A same-origin page and per-process nonce are required.
+            import secrets
+            if (request.url.path in {'/dashboard/voice-benchmark/record', '/dashboard/voice-benchmark/rating'}
+                and request.headers.get('host') in {'127.0.0.1:8765', 'localhost:8765'}
+                and request.headers.get('origin') == 'http://' + request.headers.get('host', '')
+                and secrets.compare_digest(request.headers.get('x-jarvis-benchmark', ''),
+                    getattr(app.state, 'voice_benchmark_token', 'invalid'))):
+                return await call_next(request)
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=403, content={"detail": "Browser-origin commands are not supported"})
         return await call_next(request)
@@ -86,6 +95,8 @@ def create_app(runtime=None):
     register_personal_reply(app, runtime)
     from jarvis.core.gateway.dashboard_api import register as register_dashboard
     register_dashboard(app, runtime)
+    from jarvis.core.gateway.phone_voice import register as register_phone_voice
+    register_phone_voice(app, runtime)
 
     @app.get("/tasks/{request_id}", response_model=TaskSnapshot)
     async def task(request_id: str):
@@ -139,7 +150,9 @@ def create_app(runtime=None):
                 message, clock = await commands.get()
                 try:
                     await outgoing.put({"version": 1, "type": "task_state", "request_id": message.request_id, "state": "UNDERSTANDING"})
-                    result = await runtime.service.handle(CommandRequest(text=message.text, request_id=message.request_id, source="websocket"), clock)
+                    input_source = {"desktop": "dashboard", "dashboard": "dashboard", "phone": "phone"}.get(message.source, "websocket")
+                    result = await runtime.service.handle(CommandRequest(text=message.text, request_id=message.request_id, source="websocket",
+                        metadata={"input_source": input_source}), clock)
                     await outgoing.put({"version": 1, "type": "task_result", **result.model_dump(mode="json")})
                     if asyncio.current_task().cancelling():
                         return

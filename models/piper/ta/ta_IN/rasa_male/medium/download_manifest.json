@@ -1,0 +1,20 @@
+{
+  "repository": "tinisoft/piper-ta_IN-rasa_male-medium",
+  "revision": "0b041f8e882b1e6f41f427169be25bcb0e94f352",
+  "license": "CC-BY-4.0",
+  "attribution": "tinisoft; AI4Bharat Rasa, Varadhan et al., INTERSPEECH 2024",
+  "files": {
+    "ta_IN-rasa_male-medium.onnx": {
+      "sha256": "0df057808d684ce59e3fd1cb02d6bfd5ef860d14a9e3c515c65ca5c61062ce39",
+      "bytes": 63511037
+    },
+    "ta_IN-rasa_male-medium.onnx.json": {
+      "sha256": "b4e9c2b637d80f4a6de1be6ffd6c7ae1bc97a1420698e2bf9df7fedc352488d1",
+      "bytes": 7089
+    },
+    "README.md": {
+      "sha256": "9cff35a98ca3117addd921873e4644b18c1217817b30fd6aa4a126123c8bb5bb",
+      "bytes": 2414
+    }
+  }
+}

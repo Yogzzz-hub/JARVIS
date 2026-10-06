@@ -517,7 +517,7 @@ class WhatsAppIntegrationService:
         if self.read_only:
             await self.gateway.handle_incoming(message.model_copy(update={"history": True}))
             if (not message.history and not message.is_from_me and message.type == 'text'
-                    and self.draft_only_agent is not None
+                    and getattr(self, 'draft_only_agent', None) is not None
                     and self.draft_only_agent.maturity(message.chat_id) in (
                         'DRAFT_READY', 'VERIFIED_STYLE_BUILDING', 'AUTO_REPLY_CANDIDATE',
                         'TIMED_AUTO_REPLY_READY')):
@@ -535,16 +535,24 @@ class WhatsAppIntegrationService:
             self._remember_chat(message.chat_id)
             return
         logger.info("Received WhatsApp message from %s (%s)", message.sender_display_name, message.sender_id)
-        if self.event_bus:
-            self.event_bus.emit(
-                "whatsapp.incoming",
-                "",
-                sender=message.sender_display_name,
-                sender_id=message.sender_id,
-                text=message.text,
-                type=message.type,
-            )
-        await self.gateway.handle_incoming(message)
+        # The gateway's in-memory dedupe is reset on restart. Capture durable
+        # existence first so a replay of an already stored ID cannot fire an
+        # automation again after a new Python generation starts.
+        was_stored = self.gateway.inbox.contains_message(message.message_id, message.chat_id)
+        result = await self.gateway.handle_incoming(message)
+        from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat
+        if self.event_bus and not message.is_from_me and not getattr(message, "is_group", False) \
+                and not is_group_chat(message.chat_id) \
+                and not self.gateway.is_owner(message.sender_id) \
+                and not was_stored and self.gateway.inbox.contains_message(message.message_id, message.chat_id) \
+                and (not isinstance(result, dict) or result.get("status") not in
+                     {"DUPLICATE_IGNORED", "PENDING_DECRYPTION"}):
+            # This event is evidence that a current direct message reached the
+            # Python gateway. Its body is never a command or event-bus payload.
+            self.event_bus.emit("whatsapp.message_received", message.message_id,
+                                message_id=message.message_id, chat_id=message.chat_id,
+                                sender_id=message.sender_id, message_type=message.type,
+                                history=False, from_me=False, is_group=False)
         self._remember_chat(message.chat_id)
 
     def _remember_chat(self, chat_id: str) -> None:

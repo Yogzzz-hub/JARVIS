@@ -37,9 +37,9 @@ class VocabularyBiasProvider:
 
         # Static technical terms common in user's workflow
         self._static_terms = [
-            "Chrome", "Edge", "VS Code", "Visual Studio", "Notepad",
-            "Calculator", "PowerShell", "Terminal", "Cisco Packet Tracer",
-            "Power BI", "NLP", "PDF", "FastAPI", "Supabase",
+            "Jarvis", "FastAPI", "Postgres", "GitHub", "React", "Docker", "Supabase",
+            "Gmail", "WhatsApp", "Chrome", "backend", "frontend", "API", "GPU", "CPU",
+            "Python", "Wi-Fi", "Edge", "VS Code", "PowerShell", "PDF",
         ]
 
     def generate_prompt(self, active_context: str = "") -> str:
@@ -70,7 +70,10 @@ class VocabularyBiasProvider:
                 seen.add(c.lower())
                 ordered_terms.append(c)
 
-        # 1. Static technical terms (highest priority)
+        # Context names are hints only; bounded ahead of generic vocabulary.
+        for term in self.custom_terms[:8]:
+            _add_term(term)
+        # 1. Static technical terms
         for term in self._static_terms:
             _add_term(term)
 
@@ -119,3 +122,13 @@ class VocabularyBiasProvider:
             return ""
 
         return ", ".join(prompt_parts) + "."
+
+
+class JarvisSpeechVocabulary(VocabularyBiasProvider):
+    """Bounded local metadata hints, never a transcript replacement dictionary."""
+    @classmethod
+    def from_metadata(cls, *, apps=(), projects=(), contacts=(), capabilities=()):
+        terms = list(contacts)[:3] + list(projects)[:2] + list(apps)[:2]
+        for capability in capabilities:
+            terms.extend(str(capability).replace('_', ' ').replace('.', ' ').split())
+        return cls(custom_terms=terms[:100], max_tokens=30)

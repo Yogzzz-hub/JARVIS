@@ -65,6 +65,8 @@ class VoiceSession:
 
     # Timing milestones (perf_counter_ns)
     wake_timestamp_ns: int = 0
+    captured_audio_start_ns: int = 0
+    stt_start_ns: int = 0
     speech_start_ns: int = 0
     last_speech_frame_ns: int = 0  # Canonical timestamp: last confirmed user speech frame
     first_partial_ns: int = 0
@@ -92,6 +94,7 @@ class VoiceSession:
 
     # Transcript content
     final_text: str = ""
+    transcript_evidence: dict = field(default_factory=dict)
     stable_prefix: str = ""
 
     def __post_init__(self):
@@ -177,6 +180,12 @@ class VoiceSession:
     def timeline(self) -> dict[str, float]:
         """Complete latency timeline in milliseconds."""
         return {
+            "wake_timestamp_ns": self.wake_timestamp_ns,
+            "speech_start_ns": self.speech_start_ns,
+            "captured_audio_start_ns": self.captured_audio_start_ns,
+            "stt_start_ns": self.stt_start_ns,
+            "onset_preserved": (self.captured_audio_start_ns <= self.speech_start_ns)
+                if self.captured_audio_start_ns and self.speech_start_ns else None,
             "wake_to_speech_ms": self.wake_to_speech_ms,
             "speech_to_first_partial_ms": self.speech_to_first_partial_ms,
             "wake_to_first_partial_ms": self.wake_to_first_partial_ms,

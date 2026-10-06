@@ -545,7 +545,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
 
     def set_voice_fn(args):
         g = args.gender.lower().strip()
-        target_gender = "female" if ("fem" in g or "woman" in g) else "male"
+        target_gender = "female" if ("fem" in g or "woman" in g or "women" in g) else "male"
         actual_gender = target_gender
         if response_provider:
             try:
@@ -556,6 +556,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
                         actual_gender = tts.set_voice(target_gender)
             except Exception as exc:
                 logging.getLogger("jarvis.system").warning("set_voice execution error: %s", exc)
+                raise RuntimeError('Voice switch failed; the previous voice is retained') from exc
         return dict(gender=actual_gender, status="updated")
 
     def show_dashboard_fn(args):

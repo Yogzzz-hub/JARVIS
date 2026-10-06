@@ -236,8 +236,12 @@ class Assistant:
         if caps:
             parts.append("Things JARVIS can do on request (tools):\n" + caps)
         try:
-            from jarvis.core.multilingual import REPLY_LANGUAGE, prompt_instruction
-            language_rule = prompt_instruction(REPLY_LANGUAGE.get())
+            from jarvis.core.response.coordinator import RESPONSE_LANGUAGE, ResponseLanguagePolicy, UNIFIED_RESPONSE_ACTIVE
+            if UNIFIED_RESPONSE_ACTIVE.get():
+                language_rule = ResponseLanguagePolicy.prompt_instruction(RESPONSE_LANGUAGE.get())
+            else:
+                from jarvis.core.multilingual import REPLY_LANGUAGE, prompt_instruction
+                language_rule = prompt_instruction(REPLY_LANGUAGE.get())
         except Exception:
             language_rule = ""
         if language_rule:

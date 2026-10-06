@@ -363,7 +363,9 @@ class Runtime:
             _get_hub().registry = self.registry
             _get_hub().router = self.router
             from jarvis.core.operator.automations import get_automations
-            get_automations().start(dispatch, notify=notify)
+            automations = get_automations()
+            automations.start(dispatch, notify=notify)
+            self.automation_subscription = self.bus.subscribe(automations.handle_event)
             from jarvis.core.operator.clip import get_clipboard_history
             get_clipboard_history().start()
             wm.dispatch = dispatch
@@ -405,7 +407,7 @@ class Runtime:
         import tomllib
         from jarvis.core.audio.output.player import AudioOutputManager
         from jarvis.core.response.ack_cache import AckCache
-        from jarvis.core.tts.manager import TTSManager
+        from jarvis.core.tts.speech_service import JarvisSpeechResponseService as TTSManager
         from jarvis.core.tts.piper_engine import PiperEngine
 
         project = ROOT.parent
@@ -444,6 +446,7 @@ class Runtime:
             race_timer_ms=250.0,
         )
         self.service.pulse = self.pulse
+        self.pulse.coordinator = response.coordinator
 
         if not self.config.features.voice:
             return
@@ -461,7 +464,8 @@ class Runtime:
         mic_dev = None if cfg.device in (None, "", "default") else cfg.device
         self.voice = VoicePipeline(
             hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level, enhancer=self._noise_suppressor(cfg)),
-            wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold),
+            wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold,
+                bare_model_path=str(project / 'models/wake/jarvis_bare.onnx')),
             stt_engine=self._stt_engine(cfg, project),
             endpoint_detector=EndpointDetector(default_silence_ms=cfg.endpoint_silence_ms),
             max_utterance_s=cfg.max_utterance_s,
@@ -482,12 +486,13 @@ class Runtime:
         engine = FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model,
                                      device=cfg.stt_device, compute_type=cfg.compute_type,
                                      initial_prompt=self._stt_vocabulary(), beam_size=cfg.stt_beam_size,
-                                     thanglish=getattr(cfg, "language", "english") == "thanglish")
+                                     language=None if cfg.language == 'auto' else ('ta' if cfg.language == 'tamil' else 'en'),
+                                     thanglish=cfg.language == 'thanglish')
         engine.vocabulary = self._name_vocabulary()
         return engine
 
     def _name_vocabulary(self):
-        """Contacts + installed apps: Whisper hotwords and post-transcription name correction."""
+        """Contacts + installed apps: bounded Whisper decoding hints only."""
         from jarvis.core.stt.names import NameVocabulary
         names: list[str] = []
         try:
@@ -504,14 +509,21 @@ class Runtime:
     def _stt_vocabulary(self) -> str:
         """Bias Whisper toward words JARVIS commands use (names, apps, contacts)."""
         try:
-            from jarvis.core.stt.vocabulary import VocabularyBiasProvider
-            terms = ["Jarvis", "WhatsApp", "YouTube", "Spotify", "Chrome", "screenshot", "volume", "brightness", "reminder"]
+            from jarvis.core.stt.vocabulary import JarvisSpeechVocabulary
+            terms = []
             try:
                 from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
                 terms += [c.display_name for c in ContactResolver()._contacts[:25] if c.display_name]
             except Exception:
                 pass
-            return VocabularyBiasProvider(custom_terms=terms, max_tokens=30).generate_prompt()
+            apps = [e.display_name for e in self.resolver.list_installed_entries()[:30]] if self.resolver else []
+            from jarvis.core.capabilities.registry import CAPABILITY_DEFINITIONS
+            capability_terms = [term for cap in CAPABILITY_DEFINITIONS for term in cap.keywords[:2]]
+            # Reuse already discovered project metadata; no filesystem scan on STT startup.
+            catalog = getattr(self, 'project_catalog', None)
+            projects = [p.name for p in getattr(catalog, '_projects', {}).values()]
+            return JarvisSpeechVocabulary.from_metadata(apps=apps[:2], contacts=terms[:3],
+                projects=projects[:2], capabilities=capability_terms).generate_prompt()
         except Exception:
             return ""
 
@@ -556,6 +568,17 @@ class Runtime:
 
     async def close(self):
         self.ready = False
+        if getattr(self, "automation_subscription", None):
+            try:
+                await self.bus.unsubscribe(self.automation_subscription)
+            except Exception:
+                pass
+            self.automation_subscription = None
+        try:
+            from jarvis.core.operator.automations import get_automations
+            get_automations().stop()
+        except Exception:
+            pass
         if hasattr(self, "whatsapp_service") and self.whatsapp_service:
             try:
                 await self.whatsapp_service.stop()

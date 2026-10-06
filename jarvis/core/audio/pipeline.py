@@ -96,6 +96,8 @@ class VoicePipeline:
         self.ptt_enabled = ptt_enabled
         self.voice_enabled = voice_enabled
         self.preroll_ms = preroll_ms
+        self.stt_session_lock = asyncio.Lock()
+        self.remote_audio_active = False
         self.partial_interval_ms = partial_interval_ms
 
         self._running = False
@@ -114,6 +116,10 @@ class VoicePipeline:
         self.last_error = ""
         self.last_result = None
         self.last_timeline = {}
+        self.last_transcript = {}
+        self.benchmark_active = False
+        self.input_epoch = 0
+        self.recent_wakes = []
         self._release = False
         self._loop = None
         self._command_tasks = set()
@@ -270,6 +276,14 @@ class VoicePipeline:
         only a confidently detected wake word interrupts (barge-in).
         """
         while self._running:
+            if self.hub and not getattr(getattr(self.hub, 'source', None), '_running', True):
+                self.last_error = 'Microphone unavailable; reconnect it or use typed input'
+                self._emit('voice.error', error=self.last_error)
+                self._running = False
+                return None
+            if self.remote_audio_active or self.benchmark_active:
+                await asyncio.sleep(.05)
+                continue
             if self.ptt_enabled and self.ptt_engine.check():
                 self.total_ptt_triggers += 1
                 if self.response_engine and getattr(self.response_engine, "active_followup_window", False):
@@ -291,6 +305,8 @@ class VoicePipeline:
                 try:
                     frame = await asyncio.wait_for(self._vad_consumer.queue.get(), timeout=0.08)
                 except asyncio.TimeoutError:
+                    continue
+                if self.benchmark_active:
                     continue
                 if frame.timestamp_ns and frame.timestamp_ns < self._echo_cutoff_ns:
                     continue
@@ -316,7 +332,12 @@ class VoicePipeline:
                     chunk = await self._next_wake_chunk(timeout=0.1)
                 except asyncio.TimeoutError:
                     continue
+                if self.benchmark_active:
+                    continue
+                epoch = self.input_epoch
                 detection = await asyncio.to_thread(self.wake_engine.feed, chunk)
+                if self.benchmark_active or epoch != self.input_epoch:
+                    continue
                 if detection and detection.detected:
                     if speaking and detection.score < self.barge_in_wake_threshold:
                         self.false_wake_triggers += 1
@@ -326,6 +347,9 @@ class VoicePipeline:
                     if followup:
                         self.response_engine.close_followup_window()
                     self.total_wake_triggers += 1
+                    self.recent_wakes = (self.recent_wakes + [{'timestamp_ns': detection.timestamp_ns,
+                        'score': detection.score, 'model': detection.model}])[-20:]
+                    self._last_wake_timestamp_ns = detection.timestamp_ns
                     logger.info("Wake word detected: score=%.3f", detection.score)
                     self._emit("voice.wake_detected", source="wake_word", score=detection.score)
                     return ("wake_word", None)
@@ -403,7 +427,14 @@ class VoicePipeline:
         said = set(_re.findall(r"[a-z0-9']+", own.lower()))
         return bool(heard) and len(heard & said) / len(heard) >= 0.7
 
-    async def _handle_speech_session(
+    async def _handle_speech_session(self, trigger_source="wake_word", initial_frame=None):
+        epoch = self.input_epoch
+        async with self.stt_session_lock:
+            if self.benchmark_active or epoch != self.input_epoch:
+                return
+            return await self._handle_speech_session_unlocked(trigger_source, initial_frame)
+
+    async def _handle_speech_session_unlocked(
         self,
         trigger_source: str = "wake_word",
         initial_frame: AudioFrame | None = None,
@@ -411,7 +442,8 @@ class VoicePipeline:
         """Handle a complete speech session from wake to final transcript."""
         session = VoiceSession(source="mic")
         session.trigger_source = trigger_source
-        session.wake_timestamp_ns = perf_counter_ns()
+        session.wake_timestamp_ns = (getattr(self, '_last_wake_timestamp_ns', 0)
+            if trigger_source == 'wake_word' else 0) or perf_counter_ns()
         trace = LatencyTrace(session_id=session.session_id)
         trace.mark("wake_detected", session.wake_timestamp_ns)
         trace.mark("ui_wake_event_sent", perf_counter_ns())
@@ -454,6 +486,9 @@ class VoicePipeline:
         if self.hub and self.preroll_ms > 0:
             preroll = self.hub.ring.read_last_ms(self.preroll_ms)
             if preroll and self.stt:
+                session.captured_audio_start_ns = (getattr(self.hub, 'last_frame_timestamp_ns', 0)
+                    or perf_counter_ns()) - int(len(preroll) / 32000 * 1e9)
+                session.stt_start_ns = perf_counter_ns()
                 await self.stt.feed_audio(preroll)
         elif initial_frame and self.stt:
             await self.stt.feed_audio(initial_frame.pcm)
@@ -705,6 +740,18 @@ class VoicePipeline:
                 return
 
         if final and final.text:
+            from dataclasses import asdict
+            self.last_transcript = asdict(final)
+            session.transcript_evidence = self.last_transcript
+            from jarvis.core.stt.uncertainty import requires_clarification
+            if requires_clarification(final):
+                self._emit('voice.clarification_required', text=final.text,
+                    uncertain_spans=final.uncertain_spans, session_id=session.session_id)
+                if self.response_engine:
+                    self.response_engine.schedule_final(session.session_id,
+                        "I didn't hear that clearly. Please repeat the request.")
+                final = None
+        if final and final.text:
             session.final_text = final.text
             session.final_transcript_ns = perf_counter_ns()
             if trace:
@@ -736,14 +783,13 @@ class VoicePipeline:
                 if self.response_engine and hasattr(self.response_engine, "open_followup_window"):
                     self.response_engine.open_followup_window(session.session_id, duration_seconds=10.0)
         else:
-            logger.info("No final transcript produced; holding follow-up window")
-            if self.response_engine and hasattr(self.response_engine, "open_followup_window"):
-                self.response_engine.open_followup_window(session.session_id, duration_seconds=10.0)
+            logger.info("No trustworthy final transcript produced; return to wake-required mode")
             self._emit("voice.idle", reason="No speech recognized")
 
         # Cleanup session
         if live is not None:
             live.abort()
+        self.last_timeline = session.timeline()
         session.transition(VoiceState.IDLE)
         self._session = None
         self.wake_engine.reset()
@@ -794,7 +840,13 @@ class VoicePipeline:
 
         try:
             from jarvis.core.commands.contracts import CommandRequest
-            req_kwargs = {"text": text, "source": "voice"}
+            req_kwargs = {"text": text, "source": "voice", "metadata": {
+                "audio_metadata": {"session_id": session.session_id,
+                    "trigger": getattr(session, 'trigger_source', 'voice'),
+                    "sample_rate": 16000,
+                    **{k: v for k, v in session.transcript_evidence.items() if k in
+                        {'raw_text', 'language', 'confidence', 'uncertain_spans', 'alternatives', 'finalization_ms'}}},
+                "conversation_id": "local"}}
             if trace and getattr(trace, "request_id", None):
                 req_kwargs["request_id"] = trace.request_id
             request = CommandRequest(**req_kwargs)
@@ -881,9 +933,11 @@ class VoicePipeline:
             "hey jarvis ", "jarvis", "jarvis,", "jarvis.",
             "ok jarvis", "ok jarvis,", "ok jarvis.", "okay jarvis",
             "hello jarvis", "hi jarvis",
+            "ஜார்விஸ்",
         ]
         for phrase in wake_phrases:
-            if lower.startswith(phrase):
+            if lower.startswith(phrase) and (len(lower) == len(phrase)
+                or not lower[len(phrase)].isalnum()):
                 result = text[len(phrase):].strip().lstrip(",. ")
                 return result
 

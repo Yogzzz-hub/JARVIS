@@ -19,6 +19,36 @@ def test_read_only_inbound_uses_storage_path_without_command_or_event_bus():
     assert incoming.history is False
 
 
+def test_live_incoming_event_requires_new_durable_direct_message(tmp_path):
+    from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
+    inbox = WhatsAppInbox(tmp_path / "inbox.db")
+    events = []
+    async def handle(message):
+        if inbox.contains_message(message.message_id, message.chat_id):
+            return {"status": "DUPLICATE_IGNORED"}
+        inbox.add_message(message)
+        return {"status": "STORED"}
+    gateway = SimpleNamespace(handle_incoming=handle, inbox=inbox, is_owner=lambda _: False)
+    bus = SimpleNamespace(emit=lambda *args, **kwargs: events.append((args, kwargs)))
+    service = SimpleNamespace(read_only=False, gateway=gateway, event_bus=bus,
+                              _remember_chat=lambda _: None)
+    direct = NormalizedWhatsAppMessage(message_id="live-1", chat_id="123@lid", sender_id="123@lid",
+                                       text="restart computer", timestamp="2026-10-01T00:00:00Z")
+    asyncio.run(WhatsAppIntegrationService._on_incoming_message(service, direct))
+    assert inbox.contains_message("live-1", "123@lid")
+    assert len(events) == 1
+    assert events[0][0][0] == "whatsapp.message_received"
+    assert "text" not in events[0][1]
+    asyncio.run(WhatsAppIntegrationService._on_incoming_message(service, direct))
+    assert len(events) == 1
+    group = direct.model_copy(update={"message_id": "group-1", "chat_id": "123@g.us", "is_group": True})
+    asyncio.run(WhatsAppIntegrationService._on_incoming_message(service, group))
+    assert len(events) == 1
+    history = direct.model_copy(update={"message_id": "history-1", "history": True})
+    asyncio.run(WhatsAppIntegrationService._on_incoming_message(service, history))
+    assert len(events) == 1
+
+
 def test_live_health_requires_evidence_from_current_generation(tmp_path):
     from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
     inbox = WhatsAppInbox(tmp_path / "inbox.db")

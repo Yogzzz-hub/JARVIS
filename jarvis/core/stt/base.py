@@ -64,6 +64,11 @@ class TranscriptFinal:
     audio_quality: str = "normal"
     finalization_ms: float = 0.0
     segments: list[dict] | None = None
+    raw_text: str = ""
+    confidence: float | None = None
+    uncertain_spans: list[dict] = field(default_factory=list)
+    clarification_required: bool = False
+    alternatives: list[str] = field(default_factory=list)
     generated_ns: int = 0
 
     def __post_init__(self):

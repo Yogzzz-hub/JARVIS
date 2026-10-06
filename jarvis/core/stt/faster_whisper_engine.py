@@ -86,13 +86,13 @@ class FasterWhisperEngine:
         # Thanglish: the multilingual model (English-only ".en" models cannot hear Tamil words) with language "en"
         # and a Thanglish example prompt, so Tamil words come out in English letters ("volume kammi pannu").
         self.thanglish = bool(thanglish)
+        self.multilingual = self.thanglish or language is None or language == 'ta'
         if self.thanglish:
             from jarvis.core.multilingual import STT_PROMPT
             initial_prompt = f"{STT_PROMPT} {initial_prompt}".strip()
-            if str(model).endswith(".en"):
-                logger.info("Thanglish speech needs a multilingual model: using '%s' instead of '%s'", str(model)[:-3], model)
-                model = str(model)[:-3]
-                self.model_name_str = resolve_whisper_model(model)
+        if self.multilingual and str(model).endswith('.en'):
+            model = str(model)[:-3]
+            self.model_name_str = resolve_whisper_model(model)
         # Keep initial_prompt bounded so Whisper text decoder context (448) has plenty of headroom
         if initial_prompt and len(initial_prompt) > 200:
             words = initial_prompt.split()
@@ -130,6 +130,20 @@ class FasterWhisperEngine:
         t0 = perf_counter_ns()
 
         def _load():
+            # CTranslate2 needs CUDA DLL discovery, without importing a second
+            # torch model. Reuse the already installed local CUDA dependencies.
+            import os
+            import sys
+            from pathlib import Path
+            if os.name == 'nt' and self.device_preference in {'cuda', 'auto'}:
+                roots = [Path(sys.prefix)/'Lib/site-packages/torch/lib',
+                    Path(__file__).resolve().parents[3]/'.venv-stage24/Lib/site-packages/torch/lib']
+                self._cuda_dll_directories = []
+                for directory in roots:
+                    if (directory/'cublas64_12.dll').exists() and (directory/'cudnn64_9.dll').exists():
+                        self._cuda_dll_directories.append(os.add_dll_directory(str(directory)))
+                        os.environ['PATH'] = str(directory) + os.pathsep + os.environ.get('PATH', '')
+                        break
             from faster_whisper import WhisperModel
 
             device = self.device_preference
@@ -150,9 +164,9 @@ class FasterWhisperEngine:
                 if not is_large_cached:
                     is_large_cached = Path("models/whisper/large-v3-turbo/model.bin").exists()
 
-                small = "small" if self.thanglish else "small.en"  # Thanglish needs the multilingual model
+                small = "small" if self.multilingual else "small.en"
                 local_ready = None
-                for candidate in (small, "base" if self.thanglish else "base.en", "base"):
+                for candidate in (small, "base" if self.multilingual else "base.en", "base"):
                     if Path(f"models/whisper/{candidate}/model.bin").exists():
                         local_ready = f"models/whisper/{candidate}"
                         break
@@ -278,10 +292,9 @@ class FasterWhisperEngine:
                 text = tamil_to_latin(text)
         if not text or self.vocabulary is None:
             return text
-        try:
-            return self.vocabulary.correct(text)
-        except Exception:
-            return text
+        # Vocabulary is decoding assistance only. Fuzzy rewrites can change a
+        # recipient, filename or technical identifier after recognition.
+        return text
 
     def _final_beam(self) -> int:
         """Beam search for the final transcript: full width on a GPU, capped at 3 on the CPU (latency)."""
@@ -298,6 +311,7 @@ class FasterWhisperEngine:
                 stt_model=self.model_name_str,
                 backend="faster_whisper",
                 device=self._device_actual,
+                clarification_required=bool(self._last_partial_text),
             )
 
         # Fast path: reuse the latest partial only when it already covered everything except the
@@ -318,6 +332,8 @@ class FasterWhisperEngine:
                 device=self._device_actual,
                 finalization_ms=(perf_counter_ns() - t0) / 1e6,
                 segments=[],
+                raw_text=self._last_partial_text,
+                clarification_required=True,
             )
 
         return await self._final_pass(self._audio_buffer, t0)
@@ -335,12 +351,15 @@ class FasterWhisperEngine:
             logger.debug("speculative_finalize failed (%s); falling back to partial", exc)
             return TranscriptFinal(session_id=self._session_id, text=self._fix_names(clean_transcript(self._last_partial_text or "")),
                                    language=self.language or "en", duration_ms=len(self._audio_buffer) / 16.0,
-                                   stt_model=self.model_name_str, backend="faster_whisper", device=self._device_actual)
+                                   stt_model=self.model_name_str, backend="faster_whisper", device=self._device_actual,
+                                   raw_text=self._last_partial_text or '', clarification_required=True)
 
     async def _final_pass(self, audio, t0: int) -> TranscriptFinal:
         if not self._loaded or self._model is None or len(audio) == 0:
             return TranscriptFinal(session_id=self._session_id, text=self._last_partial_text or "",
-                                   stt_model=self.model_name_str, backend="faster_whisper", device=self._device_actual)
+                                   stt_model=self.model_name_str, backend="faster_whisper", device=self._device_actual,
+                                   raw_text=self._last_partial_text or '',
+                                   clarification_required=bool(self._last_partial_text))
         session_id = self._session_id
 
         def _transcribe_final():
@@ -374,23 +393,28 @@ class FasterWhisperEngine:
                 log_prob_threshold=-1.0,
                 compression_ratio_threshold=2.4,
                 without_timestamps=True,
+                word_timestamps=True,
                 **({} if (_legacy or _fallback) else {"hotwords": hotwords}),
             )
             text, seg_list = join_segments(segments)
             voiced_ms = float(getattr(info, "duration_after_vad", 0.0) or 0.0) * 1000.0 or None
-            return self._fix_names(clean_transcript(text, speech_ms=voiced_ms)), info.language, seg_list
+            return self._fix_names(clean_transcript(text, speech_ms=voiced_ms)), info.language, seg_list, text
 
         try:
-            text, language, segments = await asyncio.to_thread(_transcribe_final)
+            text, language, segments, raw_text = await asyncio.to_thread(_transcribe_final)
         except Exception as exc:
             logger.warning("STT _final_pass failed (%s); recovering with partial transcript %r", exc, self._last_partial_text)
             text = self._fix_names(clean_transcript(self._last_partial_text or ""))
             language = self.language or "en"
             segments = []
+            raw_text = self._last_partial_text or ''
 
         finalization_ms = (perf_counter_ns() - t0) / 1e6
         duration_ms = len(audio) / 16.0
 
+        from jarvis.core.stt.uncertainty import transcript_evidence
+        evidence = transcript_evidence(text, segments)
+        evidence['raw_text'] = raw_text
         return TranscriptFinal(
             session_id=session_id,
             text=text,
@@ -401,6 +425,7 @@ class FasterWhisperEngine:
             device=self._device_actual,
             finalization_ms=finalization_ms,
             segments=segments,
+            **evidence,
         )
 
     async def cancel(self) -> None:

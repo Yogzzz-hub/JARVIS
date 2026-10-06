@@ -68,6 +68,7 @@ class BridgeWorker(QObject):
             "type": "command",
             "request_id": req_id,
             "text": text,
+            "source": "desktop",
         }
         if self._loop and self._send_queue and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._send_queue.put_nowait, msg)
@@ -79,7 +80,7 @@ class BridgeWorker(QObject):
         def _post() -> None:
             try:
                 url = f"{self.http_url}/command"
-                payload = json.dumps({"text": text, "request_id": req_id, "source": "websocket"}).encode("utf-8")
+                payload = json.dumps({"text": text, "request_id": req_id, "source": "websocket", "metadata": {"input_source": "dashboard"}}).encode("utf-8")
                 req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
                 with urllib.request.urlopen(req, timeout=10.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))

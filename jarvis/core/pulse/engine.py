@@ -35,6 +35,8 @@ class PulseEngine:
         self.ack_cache = ack_cache
         self.tts = tts_manager
         self.event_bus = event_bus
+        from jarvis.core.response.coordinator import ResponseCoordinator
+        self.coordinator = ResponseCoordinator()
 
         if self.audio_output and hasattr(self.audio_output, "start") and not getattr(self.audio_output, "_running", False):
             try:
@@ -356,6 +358,8 @@ class PulseEngine:
         is_waiting_confirmation: bool = False,
     ) -> None:
         """Handles post-verification feedback."""
+        if not self.coordinator.claim_final(request_id):
+            return
         self.scheduler.mark_verified(request_id)
 
         # 1. UI state transition: DONE, WAITING_CONFIRMATION, or ERROR
@@ -388,7 +392,7 @@ class PulseEngine:
                 return
 
         # 4. Final spoken response for voice requests or confirmation talk-back
-        if (is_voice or is_waiting_confirmation) and result_message and self.audio_output and self.tts:
+        if is_voice and result_message and self.audio_output and self.tts:
             async def _speak_final():
                 try:
                     from time import perf_counter_ns

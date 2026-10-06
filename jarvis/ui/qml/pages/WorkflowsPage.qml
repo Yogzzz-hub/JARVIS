@@ -39,7 +39,7 @@ Item {
                     { t: "Actions", s: root.up(root.stateModel ? root.stateModel.connectionStatus : "", "ONLINE"),
                       d: "Apps, files, system, browser, phone (ADB), Google, WhatsApp - 150+ tools." },
                     { t: "Safety", s: "READY",
-                      d: "Risky actions ask first; group chats and passwords are never automated; incoming messages can never run tools." },
+                      d: "Risky actions ask first. An incoming message can trigger only an owner-saved, direct-chat automation; its text is never run as a command." },
                     { t: "Memory", s: "READY",
                       d: "Facts you asked it to remember, chat history search (RAG) and what it did, so follow-ups make sense." }
                 ]
@@ -53,6 +53,22 @@ Item {
             }
         }
         SectionLabel { text: "ONE-CLICK ROUTINES" }
+        Card {
+            width: parent.width
+            CardTitle { width: parent.width; title: "Saved automations"; status: "READY"; statusText: "OWNER CONTROLLED" }
+            Text {
+                width: parent.width
+                text: "Time, condition and direct-chat event rules use the normal command safety checks. Live message events require a new message stored in the inbox; history and group messages do not trigger rules."
+                color: "#8FB4D6"; font.pixelSize: 14; wrapMode: Text.WordWrap
+            }
+            JButton {
+                text: "LIST AUTOMATIONS"
+                onClicked: if (root.controller) {
+                    root.controller.sendCommand("list my automations")
+                    root.lastRun = "The saved automation list appears on Home and in Activity."
+                }
+            }
+        }
         NoticeBar {
             width: parent.width
             text: root.lastRun
