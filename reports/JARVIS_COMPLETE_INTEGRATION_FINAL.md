@@ -1,5 +1,86 @@
 # JARVIS complete unified integration
 
+## Screenshot follow-up — ordinal action authority, 2026-10-06
+
+The owner's “what isn the last msg in appa” incorrectly opened a previously referenced Markdown file. The recorded trace shows LANE_0/open_file at confidence 1.0. An isolated reproduction with an active fixture file reproduces that same open_file decision when the old ordinal gate is allowed, and no open decision under the new gate. No files were opened during this reproduction.
+
+The existing contextual ordinal shortcut inferred OPEN from the word “last,” before the later question guard ran. It now requires an explicit open/view command or a terse result selection. Questions, send/delete requests and other ordinal-bearing sentences cannot acquire an OPEN action from that shortcut. General interrogative prefixes also retain their informational speech act, including a misspelled copula. Registered read-only query exceptions remain available. This is a targeted production-router safety guard repair; it changes no candidate model, routing architecture or user-phrase dictionary. No “appa” → WhatsApp alias was added: that wording can also denote a person, so the assistant must not invent its target.
+
+An additional action-history prefix was capturing scoped inbox questions such as asking for the last message in WhatsApp. Inbox scope/received-message evidence now excludes that shortcut unless the question explicitly concerns a sent/replied assistant or owner action. Questions about messages JARVIS sent continue using the existing action record.
+
+Focused coverage includes the reported typo, ordinal-bearing message/email questions with active file context, preserved brief selections and explicit opening commands, context carryover, multilingual routing and policy checks: **144 passed** in `ordinal_final_verified.log`. Isolated scope guard checks: **34 passed**. A combined order-sensitive run recorded two scope failures (OTP-read refusal and pause routing), despite those tests passing in isolation; its evidence is retained in `ordinal_final_regression.log`. These results do not erase the older regression limitations below.
+
+Action-history/follow-up checks separately passed **40 tests** in `ordinal_history_regression.log`; counts overlap. Development source release: `68432a24fe56db4a9d153d73c1474b471b819c252a112ef89a0fe5ab622c5c5c`. The local backend was reloaded with the new guards. Stage 2.5 freeze remains valid. The sections below preserve the earlier talkback checkpoint and its measured results.
+
+## TALKBACK_RELIABILITY_FIX — 2026-10-06
+
+**Classification: TALKBACK_REPAIR_REQUIRED / BACKEND_STABLE (measured local probes).** The known delivery races, false queue timeout, identifier rendering and transport-health defects were repaired. Full talkback acceptance remains open: independent owner listening is absent, and a permanently blocked native synthesis/playback call cannot be forcibly terminated by the Python thread watchdog. This report does not claim a hard delivery guarantee or an all-green repository. READY_FOR_DAILY_USE remains NO.
+
+Production remains authoritative in INTEGRATED_SHADOW. Candidate execution and generated WhatsApp auto-replies remain OFF. No router redesign, NLP retraining, translation-first path, exact-user-phrase repair, locked TEST/HOLDOUT read, outbound WhatsApp message or production model promotion occurred. Existing gender preferences, Personal Reply Brain, policy, registry, verification, confirmation and ledger decisions remain in force.
+
+### Talkback delivery and measured counts
+
+PULSE final delivery now delegates to the existing ResponseEngine/JarvisSpeechResponseService pair. An early coordinator claim no longer counts as successful speech. Streamed speech becomes spoken only after successful enqueue, and delivery becomes DELIVERED only after the audio worker actually starts and completes playback. Each chunk has its own response ID. Failed synthesis before any playback permits a later explicit retry; partially played output and cancelled jobs cannot automatically replay the whole answer. Stream errors remain FAILED even when earlier chunks played.
+
+The latest-job diagnostics include request/response IDs, text generated, TTS requested, language, engine, queue entry, synthesis start/completion, playback start/completion, state, latency and failure/cancellation/suppression reasons. Muting/disabled TTS, explicit text-only, remote/background and phone-owned audio destinations are recorded separately. Sensitive text is suppressed. Male/female voice-change cancellation is marshalled onto the runtime event loop.
+
+Speech-lock wait is bounded at 10 seconds, individual synthesis chunks at 15 seconds and the final job at 120 seconds. Queue initialization allows the known duration of audio ahead plus a bounded startup margin. This matters: the first concurrent live probe exposed a false 10-second timeout while a valid summary was already playing. That evidence is retained in `talkback_reliability_evidence/live_backend_before_queue_budget.json`; it was not erased or counted as success. The new backlog-aware watchdog passed both a focused queued-audio test and the subsequent live pair. Playback timeout cancels the affected request, rather than restarting JARVIS. Native thread recovery after a permanently hung OS/model call remains a limitation; asynchronous cancellation cannot kill that native thread safely.
+
+| Evidence window | Text generated | TTS requested | Delivered | Failures | Suppressions | Duplicate suppressions |
+|---|---:|---:|---:|---:|---:|---:|
+| Synthetic fixtures, actual local speaker playback | 6 | 6 | 4 | 1 | 1 | 1 |
+| Final concurrent live WhatsApp probes, completion checked | 2 | 2 | 2 | 0 | 0 | 0 |
+
+The synthetic failure intentionally disables Tamil synthesis and records TTS_UNAVAILABLE_FOR_LANGUAGE; the suppression intentionally supplies credential-like text. A forced English Piper failure successfully used existing Windows SAPI and completed real playback. Hardware error count was 0. The duplicate fixture was suppressed without replay. These are test injections, not six real owner commands or independent listening ratings. Counters cover bounded process-local history, not lifetime reliability.
+
+Evidence: `talkback_reliability_evidence/physical_delivery.json`, `live_backend.json` and `live_delivery_trace.json`. They preserve playback state/timestamps and identifiers for diagnostics; live message bodies are not exported into these probe artifacts.
+
+### WhatsApp response quality
+
+Verified inbox results now produce distinct visual and spoken views from the same data, without a second LLM call. Visual summaries have a headline, counts, bounded important-chat previews and a next-action line. Speech is shorter and normally at most 55 words. An incomplete-sync caveat appears once. Group unread-message counts are described as messages, rather than inventing a count of groups. The main UI shows the first three lines; the existing conversation panel retains the full response.
+
+Rendering resolves saved contact identities through the existing resolver before display names, aliases and conversation labels. Unresolved numeric/JID/hash identifiers become “one contact.” Identifier masking applies to normal WhatsApp final responses and fallback formatting. Credential-like previews are withheld, long previews are shortened and local times use HH:MM without unnecessary “India Standard Time.” English, Tanglish, Tamil and mixed-language rendering tests preserve these safeguards. Explicit technical/debug requests retain the existing diagnostic exception. Pattern-based credential detection is not an exhaustive secret detector.
+
+The current production router still sends the tested latest-message question to `ollama_chat`. A bounded, read-only chronological incoming-direct-message snapshot now grounds that chat answer; it does not invoke a tool or replace the route. Its query orders by timestamp rather than Personal Reply Brain reply priority. Partial WhatsApp LLM output is withheld until the sanitized final is ready, avoiding identifiers split across streaming tokens. The snapshot describes locally available direct messages and warns that remote completeness is not guaranteed. Group-specific latest queries and full factual acceptance across every scope remain unvalidated. Existing tool verification of an LLM completion is not independent proof of message accuracy.
+
+Final live scenarios:
+
+| Scenario | Result | Raw identifier leak | Spoken words | Visual lines |
+|---|---|---|---:|---:|
+| “summarize my whatsapp” | PARTIAL_SUCCESS; verified local summary, sync caveat retained | NO | 36 | 8 |
+| “what is the latest msg i got in whatsapp” | SUCCESS; existing chat route with local snapshot | NO | 16 | 1 |
+
+Both final speech jobs completed playback. Fixtures separately check exact contact-resolution priority, unknown contacts, sensitive previews, short local times, incomplete sync and all four response language modes. Actual latest-message wording is model-dependent; no exact sentence was patched.
+
+### Backend, heartbeat and reconnect
+
+Confirmed defects included ping timing measured at send rather than matching pong receipt, immediate OFFLINE display on socket loss and blocking SQLite audit work on the event loop. A captured regression stack shows the event-loop thread inside AuditLogger SQLite logging. An earlier live backend stack was idle in the asyncio poller, so it does not establish that a backend crash caused every historical disconnect. No single historical root cause is asserted beyond the defects directly observed.
+
+Executor audit/stat/outcome writes now run off the event loop. Ledger admission remains one ordered, locked worker operation: duplicate check, PREPARED, TOCTOU and STARTED retain their existing decisions before execution. No security checks, SQL failure behavior or ledger invariants were weakened. Read-only Personal Reply status no longer initializes/resumes background brain jobs, and contacts/status database work uses thread boundaries.
+
+The desktop bridge tracks socket state, ping/pong/event times, backend health, reconnect attempts and reason. It uses ONLINE/DEGRADED/RECONNECTING/OFFLINE, a 10-second unavailable-health grace and jittered 250/500/1000/2000/5000-ms reconnect delays. Matching pong receipt determines latency. Reconnect restores subscriptions/status and queries existing pending task snapshots without resending commands. Request ID plus outcome version/state prevents duplicate finals while permitting legitimate later outcomes. Existing visible conversation survives transport changes. Diagnostics expose the connection evidence; optional integration health does not determine core ONLINE status.
+
+The Qt test uses a real local WebSocket server that drops the connection after one second: RECONNECTING → ONLINE occurs automatically, with no OFFLINE transition. Separate tests preserve visible conversation and verify correlated pong timing. Gateway socket teardown now finishes subscription/task cleanup under cancellation.
+
+| Probe | Samples | Heartbeat p50 ms | p95 ms | Max ms | Final core health |
+|---|---:|---:|---:|---:|---|
+| Concurrent live WhatsApp summary/latest and TTS | 50 | 1.29 | 3.52 | 332.82 | ready |
+| Synthetic CPU STT load plus actual advisory NLP submissions | 80 | 1.47 | 2.96 | 16.97 | ready |
+
+The inference probe loaded the local small Whisper model on CPU and completed three eight-second synthetic-audio transcriptions in 8.88 seconds including loading. They returned no recognized segments; this measures compute isolation, not STT accuracy. Eight real advisory NLP submissions completed in the backend's existing process-isolated worker: completed counter 23 → 31, worker errors unchanged at 4. No tools ran. This tests local CPU load concurrent with the gateway and actual backend NLP work, not a recorded owner microphone session or the GPU production STT profile. Evidence: `talkback_reliability_evidence/inference_stress.json`.
+
+Gateway health/pong tests pass with optional WhatsApp/model services absent. Actual live probes remained ready while the WhatsApp bridge reported disconnected. Injected unavailable Tamil TTS stayed local to its speech job in the standalone playback fixture; unavailable TTS/optional-worker objects do not prevent test gateway heartbeats. A live kill/restart of every integration was not performed. BACKEND_STABLE applies to these bounded observations, not an indefinite uptime guarantee.
+
+### Verification and remaining acceptance
+
+Final complete relevant regression: **489 passed, 1 skipped** in `talkback_complete_final_regression.log`, covering integration, voice, scope/policy, context, WhatsApp provenance, read-only inbox and phone/web behavior. Core/security checks additionally report **358 passed, 1 skipped** in `talkback_final_core_regression.log`. Latest queue/stream/backend focused verification: **65 passed** in `talkback_queue_watchdog_checks.log`. Production-environment Qt/UI/voice tests: **76 passed, 1 skipped**, with the skip for a singleton lacking qmldir. Counts overlap and must not be added.
+
+The expanded run in `talkback_release_regression.log` reports **398 passed, 16 failed, 3 skipped**. All 16 failures are in `test_whatsapp_personal_reply.py`, including autonomous-send expectations and a drafting timeout; they are unresolved and were not repaired by enabling generated auto-replies. Earlier broader historical failures remain recorded below. This pass does not establish full Personal Reply Brain regression acceptance. Compilation and whitespace checks pass. Stage 2.5 frozen verification reports `frozen: true`, `errors: []`; original model/evaluation artifacts and owner audit decisions remain untouched.
+
+Development source release SHA-256: `007566ecf425d2720bc114bf6e5b028e35749df057aae5c104c3bee150a7f4f8`; prior configuration bytes are archived separately. This refresh authorizes development source drift only; it is not a candidate deployment or changed evaluation manifest. The local backend serves the updated code at port 8765.
+
+**Remaining:** independent owner listening/microphone acceptance, safe recovery from permanently blocked native audio/model calls, broad latest-message scope/factual checks and the unresolved Personal Reply Brain regression failures. Therefore TALKBACK_REPAIR_REQUIRED remains the conservative final talkback classification despite successful measured playback; BACKEND_STABLE is limited to the tested transport/load windows. No new daily-use acceptance claim is made.
+
 2026-10-06 voice preference update: **male across English, Tamil and Tanglish by default**. The existing female/male switch now changes the entire English/Tamil pair, persists across restarts, stops old queued speech and refreshes acknowledgement clips. Eight actual local synthesis cases passed across both genders and four language modes; independent listening acceptance remains pending. Details are recorded in [voice acceptance report](JARVIS_VOICE_DAILY_USE_ACCEPTANCE.md). Development source release: `64b56624b447bb377617630827753ddf503c7fa37b4834f5562343da40e56f84`.
 
 ## 2026-10-06 voice daily-use acceptance update
@@ -151,3 +232,22 @@ Reports from previous passes remain historical evidence. This new report does no
 - Full live English regression, real-command capability recall and calibrated useful execution coverage remain unestablished.
 
 Evidence: `reports/integration_evidence/`; transport/policy documentation: `docs/UNIFIED_INPUT_AND_RESPONSE.md`. No additional project phase was created.
+
+
+## WhatsApp owner conversation flow ? 2026-10-06
+
+Unread discovery speaks recent unique personal contact names in latest-message order, rather than message previews. The inventory includes all unread personal chats, not only urgent/question messages. A contact name selected from this inventory reads that chat's latest actual message; subsequent `reply` selects the same chat. Selection is exact, channel-isolated, expires after 15 minutes and is cleared on a different task. Saved contact names use the same resolver as presentation; ambiguous names require clarification. Group and secret-message presentation policies remain in place.
+
+Manual reply drafting uses actual selected-chat history and the existing truth/provenance validator. Generic acknowledgements, empty generations and unsupported promises do not become fallback drafts. If a safe contextual reply cannot be generated, the owner is asked what to say. Generated drafts are not treated as owner instructions. Bulk contextual drafting also has no static acknowledgement fallback. Sending retains the existing confirmation and authorization gates. Generated automatic replies remain OFF; no live message was sent during verification.
+
+Verification: 73 tests passed in the combined owner-flow/talkback/conversational/AI integration run; 38 passed in the subsequent owner-flow/talkback/AI integration run. After the channel/saved-name repair, all 10 focused owner-flow tests passed. The final combined owner-flow, conversational-search and AI integration run passed all 62 tests. The restarted backend reports ready with 233 tools, database ready and zero dropped persistence events. Frozen Stage 2.5 verification reports `frozen: true`, no errors. These tests use isolated/fake messages and model responses; they establish flow and safeguards, not real-world reply quality or owner listening acceptance.
+
+## CONVERSATIONAL_SEARCH_REPAIR ? development evidence
+
+Bounded per-channel topic state preserves original wording and resolves glossary-supported technical spelling variations without fuzzy matching contacts, filenames or other critical identifiers. Knowledge questions remain questions. Stable concepts use the existing chat model without RAG, planner or browser execution. Explicit web follow-ups construct queries from topic state, rank technical-domain relevance, fetch at most three public pages in parallel, clean HTML and use one grounded model answer. Sources remain untrusted data; absent/rejected evidence produces an explicit failure. Visual answers include source links, while spoken answers are shorter. Diagnostics are developer-only.
+
+The 11-turn read-only English-override live sequence completed through the chat path with the intended topics; independent assistant evidence records web retrieval and one model call per answer. The 39-test conversational suite passed. The larger regression run recorded 531 passes, one skip and one stale fake-search fixture failure; the fetched-source fixture was corrected and all 13 AI integration tests then passed. This is not a claim that the entire repository test suite passes.
+
+Remaining acceptance defects are recorded rather than hidden: warm multilingual measurements include native Tamil relevance/language-output failures and English output contaminated by earlier Tamil conversation history. Explicit language prompting and Tamil relevance morphology were repaired, but final live multilingual acceptance is not established. Measured HTTP command time also exceeded assistant-stage time substantially on some runs; SQL/executor contention remains a hypothesis, not an established diagnosis. TTS delivery was observed but does not validate spoken content or owner listening quality. Bounded fetch count and warm cache are implemented; reliable end-to-end latency under ordinary machine load is not established.
+
+Classification: **CONTEXT_REPAIR_REQUIRED / WEB_SEARCH_REPAIR_REQUIRED / LATENCY_REPAIR_REQUIRED** for final daily-use acceptance. Development tests and successful English probes do not override remaining multilingual and latency evidence. CURRENT_PRODUCTION stays authoritative, multilingual candidate execution stays OFF, and no TEST/HOLDOUT or frozen training artifact was used for this repair.

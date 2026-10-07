@@ -435,6 +435,8 @@ class Runtime:
         response.wake_ack_mode = self.config.voice.wake_ack
         if response.enabled:
             await asyncio.to_thread(response.warm_up)
+        speech_loop = asyncio.get_running_loop()
+        response.tts.on_voice_change = lambda: speech_loop.call_soon_threadsafe(response.stop_speaking)
 
         # Initialize PULSE: Parallel User Latency & Status Engine
         from jarvis.core.pulse import PulseEngine
@@ -447,6 +449,7 @@ class Runtime:
         )
         self.service.pulse = self.pulse
         self.pulse.coordinator = response.coordinator
+        self.pulse.final_delivery = response.schedule_final
 
         if not self.config.features.voice:
             return

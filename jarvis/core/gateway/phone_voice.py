@@ -100,7 +100,7 @@ def register(app, runtime):
             await socket.send_json({'type': 'result', 'language': selected, **result.model_dump(mode='json')})
             if start.get('reply_voice', True):
                 tts = runtime.service.response.tts
-                pcm, backend = await asyncio.to_thread(tts.synthesize, result.message, language=selected, device_target='phone')
+                pcm, backend = await asyncio.to_thread(tts.synthesize, result.spoken_message or result.message, language=selected, device_target='phone')
                 if pcm:
                     buffer = io.BytesIO()
                     with wave.open(buffer, 'wb') as out:

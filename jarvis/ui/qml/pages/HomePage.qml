@@ -281,7 +281,7 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     visible: !root.listening && text.length > 0
-                    text: stateModel && stateModel.response ? stateModel.response
+                    text: stateModel && stateModel.response ? stateModel.response.split("\n").slice(0, 3).join("\n")
                           : (stateModel && stateModel.transcriptFinal ? "" : "Say “Hey Jarvis”, click the reactor, or press Ctrl+Space")
                     color: stateModel && stateModel.response ? "#F0F4F8" : "#56708F"
                     font.pixelSize: 17

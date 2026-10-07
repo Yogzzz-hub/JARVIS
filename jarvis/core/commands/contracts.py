@@ -14,6 +14,7 @@ class CommandRequest(Contract):
     metadata: dict = Field(default_factory=dict)
 
 class CommandResult(Contract):
+    spoken_message: str | None = None
     request_id: str
     state: Literal["SUCCESS", "PARTIAL_SUCCESS", "COMPLETED", "FAILED", "CANCELLED", "WAITING_CONFIRMATION", "UNCERTAIN", "WAITING_FOR_USER"]
     message: str

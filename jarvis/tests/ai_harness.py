@@ -65,6 +65,7 @@ class FakeSearchOutput(Contract):
     summary: str
     results: list[dict]
     count: int
+    sources: list[dict] = Field(default_factory=list)
 
 
 class FakeSearchTool(Tool):
@@ -81,7 +82,9 @@ class FakeSearchTool(Tool):
         query = arguments["query"] if isinstance(arguments, dict) else arguments.query
         self.queries.append(query)
         return {"query": query, "summary": self.summary,
-                "results": [{"title": "Weather", "snippet": self.summary, "url": "https://example.com"}], "count": 1}
+                "results": [{"title": "Weather", "snippet": self.summary, "url": "https://example.com"}], "count": 1,
+                "sources": [{"title": "Chennai weather today", "text": self.summary,
+                    "url": "https://example.com/weather/chennai"}]}
 
 
 def route_by_prompt(rules: list[tuple[str, Any]], default: Any = "OK.") -> Callable[[dict], Any]:

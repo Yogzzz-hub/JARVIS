@@ -30,4 +30,4 @@ class JarvisInputEnvelope(BaseModel):
             conversation_id=request.chat_id or str(metadata.get('conversation_id') or ('phone' if source == 'phone' else 'local')),
             language_hint=metadata.get('language_hint'), device='phone' if source == 'phone' else 'pc',
             context_refs=list(metadata.get('context_refs') or []),
-            reply_channel=source if remote else 'local')
+            reply_channel=source if remote else 'text_only' if metadata.get('response_channel') == 'text_only' else 'local')

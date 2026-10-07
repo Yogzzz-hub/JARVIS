@@ -14,7 +14,7 @@ from jarvis.core.router.fuzzy import match_fuzzy
 from jarvis.core.context.entity_extractor import EntityExtractor
 from jarvis.core.context.followup_detector import FollowupDetector
 from jarvis.core.context.models import FollowupType, ReferenceConfidence
-from jarvis.core.router.guards import check_negation, is_informational_or_question
+from jarvis.core.router.guards import check_negation, is_informational_or_question, allows_ordinal_open
 from jarvis.core.router.matcher import match_patterns
 from jarvis.core.router.models import (
     SubCommand,
@@ -2094,7 +2094,7 @@ class SmartRouter:
                 self._record(ord_decision)
                 return ord_decision
 
-        elif (m_ord or followup.followup_type == FollowupType.ORDINAL_REFERENCE) and self.reference_resolver:
+        elif (m_ord or followup.followup_type == FollowupType.ORDINAL_REFERENCE) and self.reference_resolver and allows_ordinal_open(clean_lower):
             res = self.reference_resolver.resolve(clean_lower)
             if res.referent and res.confidence == ReferenceConfidence.HIGH and res.referent_type in {"FILE", "SEARCH_RESULT", "APP"}:
                 intent_target = "open_file" if res.referent_type in ("FILE", "SEARCH_RESULT") else "open_app"

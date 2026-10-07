@@ -6,6 +6,7 @@ import inspect
 import json
 import time
 import uuid
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from pydantic import ValidationError
@@ -60,6 +61,7 @@ class ExecutionEngine:
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-exec")
         self.policy_evaluator = policy_evaluator or PolicyEvaluator()
         self.confirmation_manager = confirmation_manager or ConfirmationManager()
+        self._ledger_admission_lock = threading.RLock()
         self.ledger = ledger or ActionLedger()
         self.audit_logger = audit_logger or AuditLogger()
         self.undo_manager = undo_manager or UndoManager()
@@ -177,7 +179,7 @@ class ExecutionEngine:
         # Handle Policy Denials and Pauses
         if policy_decision.is_denied:
             dur_ms = (time.perf_counter_ns() - t0) / 1e6
-            self.audit_logger.log(
+            await asyncio.to_thread(self.audit_logger.log,
                 request_id=request_id,
                 graph_id=graph_id,
                 node_id=node_id,
@@ -242,7 +244,7 @@ class ExecutionEngine:
             valid, reason = self.confirmation_manager.consume_ticket(ticket_id, fp)
             if not valid:
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                self.audit_logger.log(
+                await asyncio.to_thread(self.audit_logger.log,
                     request_id=request_id,
                     graph_id=graph_id,
                     node_id=node_id,
@@ -276,66 +278,75 @@ class ExecutionEngine:
                 method_used=definition.execution_method,
             )
 
-        # 5. Duplicate Guard
-        # If an explicit confirmation ticket was provided and approved, the user has directly
-        # authorized this execution; do not suppress it.
-        if not ticket_id:
-            is_dup, prior_entry = self.ledger.check_duplicate(fp, request_id=request_id, risk=definition.risk)
-            if is_dup and prior_entry:
-                if prior_entry.status in (LedgerState.VERIFIED, LedgerState.COMMITTED):
-                    if definition.idempotency != IdempotencyClass.NON_IDEMPOTENT or (prior_entry.request_id and prior_entry.request_id == request_id):
-                        dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                        cached_data = json.loads(prior_entry.output_json) if prior_entry.output_json else {"duplicate_suppressed": True, "action_id": prior_entry.action_id}
-                        return ToolResult(
-                            success=True,
-                            data=cached_data,
-                            evidence={"cached_verified": True, "action_id": prior_entry.action_id},
-                            duration_ms=dur_ms,
-                            tool_name=definition.name,
-                            method_used=definition.execution_method,
-                        )
-                if prior_entry.status in (LedgerState.STARTED, LedgerState.UNCERTAIN):
-                    if definition.idempotency == IdempotencyClass.NON_IDEMPOTENT:
-                        dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                        return ToolResult(
-                            success=False,
-                            error="Duplicate non-idempotent action in UNCERTAIN state; automatic retry forbidden",
-                            duration_ms=dur_ms,
-                            tool_name=definition.name,
-                            method_used=definition.execution_method,
-                        )
+        def admit_action():
+            # Keep duplicate-check/PREPARED/STARTED atomic while SQLite waits off-loop.
+            with self._ledger_admission_lock:
+                # 5. Duplicate Guard
+                # If an explicit confirmation ticket was provided and approved, the user has directly
+                # authorized this execution; do not suppress it.
+                if not ticket_id:
+                    is_dup, prior_entry = self.ledger.check_duplicate(fp, request_id=request_id, risk=definition.risk)
+                    if is_dup and prior_entry:
+                        if prior_entry.status in (LedgerState.VERIFIED, LedgerState.COMMITTED):
+                            if definition.idempotency != IdempotencyClass.NON_IDEMPOTENT or (prior_entry.request_id and prior_entry.request_id == request_id):
+                                dur_ms = (time.perf_counter_ns() - t0) / 1e6
+                                cached_data = json.loads(prior_entry.output_json) if prior_entry.output_json else {"duplicate_suppressed": True, "action_id": prior_entry.action_id}
+                                return ToolResult(
+                                    success=True,
+                                    data=cached_data,
+                                    evidence={"cached_verified": True, "action_id": prior_entry.action_id},
+                                    duration_ms=dur_ms,
+                                    tool_name=definition.name,
+                                    method_used=definition.execution_method,
+                                )
+                        if prior_entry.status in (LedgerState.STARTED, LedgerState.UNCERTAIN):
+                            if definition.idempotency == IdempotencyClass.NON_IDEMPOTENT:
+                                dur_ms = (time.perf_counter_ns() - t0) / 1e6
+                                return ToolResult(
+                                    success=False,
+                                    error="Duplicate non-idempotent action in UNCERTAIN state; automatic retry forbidden",
+                                    duration_ms=dur_ms,
+                                    tool_name=definition.name,
+                                    method_used=definition.execution_method,
+                                )
 
-        # 6. Method Selection
-        selected_variant = self.method_selector.select_variant(definition)
-        method_used = (
-            selected_variant.method
-            if hasattr(selected_variant, "method")
-            else definition.execution_method
-        )
+                # 6. Method Selection
+                selected_variant = self.method_selector.select_variant(definition)
+                method_used = (
+                    selected_variant.method
+                    if hasattr(selected_variant, "method")
+                    else definition.execution_method
+                )
 
-        # 7. Action Ledger PREPARED
-        action_id = f"act_{uuid.uuid4().hex[:12]}"
-        args_hash = hashlib.sha256(json.dumps(arg_dict, sort_keys=True, default=str).encode()).hexdigest()
-        self.ledger.prepare_action(
-            action_id=action_id,
-            fingerprint=fp,
-            request_id=request_id,
-            graph_id=graph_id,
-            node_id=node_id,
-            tool=definition.name,
-            risk=definition.risk,
-            idempotency=definition.idempotency,
-            args_hash=args_hash,
-            confirmation_ticket=ticket_id,
-            method=method_used.value,
-        )
+                # 7. Action Ledger PREPARED
+                action_id = f"act_{uuid.uuid4().hex[:12]}"
+                args_hash = hashlib.sha256(json.dumps(arg_dict, sort_keys=True, default=str).encode()).hexdigest()
+                self.ledger.prepare_action(
+                    action_id=action_id,
+                    fingerprint=fp,
+                    request_id=request_id,
+                    graph_id=graph_id,
+                    node_id=node_id,
+                    tool=definition.name,
+                    risk=definition.risk,
+                    idempotency=definition.idempotency,
+                    args_hash=args_hash,
+                    confirmation_ticket=ticket_id,
+                    method=method_used.value,
+                )
 
-        # 8. TOCTOU Snapshot (for file destinations/sources)
-        path_arg = arg_dict.get("path") or arg_dict.get("source")
-        toctou_snap = toctou_snapshot(path_arg) if path_arg else None
+                # 8. TOCTOU Snapshot (for file destinations/sources)
+                path_arg = arg_dict.get("path") or arg_dict.get("source")
+                toctou_snap = toctou_snapshot(path_arg) if path_arg else None
 
-        # 9. Execution
-        self.ledger.start_action(action_id, fp, definition.risk)
+                # 9. Execution
+                self.ledger.start_action(action_id, fp, definition.risk)
+                return method_used, action_id, toctou_snap
+
+        admission = await asyncio.to_thread(admit_action)
+        if isinstance(admission, ToolResult):
+            return admission
+        method_used, action_id, toctou_snap = admission
         exec_output = None
         exec_err = None
 
@@ -418,7 +429,7 @@ class ExecutionEngine:
                   else LedgerState.FAILED_SAFE_TO_RETRY)
         )
 
-        self.ledger.record_outcome(
+        await asyncio.to_thread(self.ledger.record_outcome,
             action_id=action_id,
             fingerprint=fp,
             risk=definition.risk,
@@ -429,7 +440,7 @@ class ExecutionEngine:
         )
 
         # Update stats
-        self.stats_tracker.record_attempt(
+        await asyncio.to_thread(self.stats_tracker.record_attempt,
             capability=definition.name,
             method=method_used.value,
             success=(exec_err is None),
@@ -439,7 +450,7 @@ class ExecutionEngine:
         )
 
         # Audit log
-        self.audit_logger.log(
+        await asyncio.to_thread(self.audit_logger.log,
             request_id=request_id,
             graph_id=graph_id,
             node_id=node_id,
@@ -456,7 +467,7 @@ class ExecutionEngine:
 
         # Create ActionReceipt for Undo
         if verification.verified and definition.risk != RiskLevel.READ_ONLY:
-            self.undo_manager.create_receipt(
+            await asyncio.to_thread(self.undo_manager.create_receipt,
                 action_id=action_id,
                 tool_name=definition.name,
                 args=arg_dict,

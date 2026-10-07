@@ -1070,7 +1070,7 @@ class WhatsAppInbox:
             "unread_direct_chats": sum(1 for c in chats if not c["is_group"]),
             "generated_at": datetime.now().astimezone().isoformat(),
             "sync_state": sync_state,
-            "unread_chats": [{"chat_id": c["chat_id"], "name": c["name"], "unread": c["unread"], "is_group": c["is_group"]}
+            "unread_chats": [{"chat_id": c["chat_id"], "name": c["name"], "unread": c["unread"], "is_group": c["is_group"], "timestamp": c["last_ts"]}
                              for c in scoped],
             "groups_unread": sum(c["unread"] for c in groups_unread),
             "spoken_summary": spoken,
@@ -1109,7 +1109,10 @@ class WhatsAppInbox:
     @staticmethod
     def _spoken_name(name: str) -> str:
         """'sushmitaa mahesh' -> 'Sushmitaa Mahesh', 'Scooby!!' -> 'Scooby' (names read out naturally)."""
-        n = re.sub(r"[^\w\s.'-]", "", name or "").strip() or "Someone"
+        from jarvis.core.response.whatsapp import IDENTIFIER
+        if IDENTIFIER.search(name or '') or (name or '').isdigit() or '@' in (name or ''):
+            return 'one contact'
+        n = re.sub(r"[^\w\s.'-]", "", name or "").strip() or "one contact"
         return n.title() if n.islower() else n
 
     def _group_label(self, chat_id: Optional[str]) -> str:

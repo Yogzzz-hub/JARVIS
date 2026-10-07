@@ -578,6 +578,7 @@ class WorkingContext:
     recent_failures: List[Dict[str, Any]] = field(default_factory=list)
     constraints: List[Dict[str, Any]] = field(default_factory=list)
     last_user_intent: Optional[str] = None
+    conversational_topics: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     last_command_outcome: Optional[Dict[str, Any]] = None
     turn_index: int = 0
 

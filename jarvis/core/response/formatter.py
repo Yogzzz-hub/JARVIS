@@ -399,7 +399,8 @@ class ResponseFormatter:
             case "read_whatsapp_messages" | "summarize_whatsapp_messages":
                 spoken = data.get("spoken_summary")
                 if spoken:
-                    return spoken
+                    from jarvis.core.response.whatsapp import public_text, SECRET
+                    return '[Private message; view securely]' if SECRET.search(spoken) else public_text(spoken)
                 count = data.get("count", data.get("total_pending", 0))
                 return f"You have {count} WhatsApp messages."
 

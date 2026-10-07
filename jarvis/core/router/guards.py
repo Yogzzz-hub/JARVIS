@@ -21,6 +21,10 @@ NEGATION_STARTS = (
 
 # Question / informational prefixes that ask questions rather than issuing commands
 INFORMATIONAL_PREFIXES = (
+    "what",
+    "who",
+    "whose",
+    "which",
     "why did",
     "why is",
     "why does",
@@ -132,6 +136,21 @@ def check_negation(text: str) -> tuple[bool, list[dict[str, Any]]]:
             return False, constraints
 
     return False, constraints
+
+def allows_ordinal_open(text: str) -> bool:
+    """An ordinal identifies a resource; it does not authorize opening it.
+
+    Permit an explicit opening command or a terse result selection. Questions
+    and other requests containing an ordinal must retain their own action.
+    """
+    from jarvis.core.context.resolver import ORDINAL_MAP
+    clean = text.strip().casefold().rstrip('.!?')
+    if re.match(r'^(?:open|launch|view|show)\b', clean):
+        return True
+    words = clean.split()
+    selection_words = set(ORDINAL_MAP) | {'the', 'one', 'item', 'result', 'file', 'document', 'pdf', 'app', 'application'}
+    return bool(words) and any(w in ORDINAL_MAP for w in words) and all(w in selection_words for w in words)
+
 
 def is_informational_or_question(original_text: str, routing_text: str) -> bool:
     """Detects queries, informational requests, or capability questions that must NOT trigger actions.

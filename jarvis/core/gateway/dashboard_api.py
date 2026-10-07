@@ -161,7 +161,8 @@ def register(app: FastAPI, runtime: Any = None) -> None:
         checks = await asyncio.to_thread(collect)
         for c in checks:  # the audio device table is long: one line is enough on a card
             c["detail"] = str(c.get("detail", "")).splitlines()[0][:300] if c.get("detail") else ""
-        return {"checks": checks, "ms": round((time.perf_counter() - started) * 1000)}
+        return {"checks": checks, "ms": round((time.perf_counter() - started) * 1000),
+            'conversational_search': getattr(getattr(runtime, 'assistant', None), 'latest_debug', {})}
 
     @app.get("/dashboard/whatsapp/diagnostics")
     async def whatsapp_diagnostics() -> dict[str, Any]:

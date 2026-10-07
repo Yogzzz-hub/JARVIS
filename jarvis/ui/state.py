@@ -20,6 +20,7 @@ class JarvisUIState(QObject):
 
     # Signals for property changes
     connectionChanged = Signal(str)
+    connectionDiagnosticsChanged = Signal()
     assistantStateChanged = Signal(str)
     transcriptPartialChanged = Signal(str)
     transcriptFinalChanged = Signal(str)
@@ -133,6 +134,14 @@ class JarvisUIState(QObject):
             self.connectionChanged.emit(status)
             if status == ConnectionState.OFFLINE.value:
                 self.set_assistant_state(AssistantState.OFFLINE.value)
+
+    @Property('QVariantMap', notify=connectionDiagnosticsChanged)
+    def connectionDiagnostics(self):
+        return getattr(self, '_connection_diagnostics', {})
+
+    def set_connection_diagnostics(self, value):
+        self._connection_diagnostics = value
+        self.connectionDiagnosticsChanged.emit()
 
     # --- Assistant State ---
     @Property(str, notify=assistantStateChanged)

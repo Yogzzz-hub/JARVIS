@@ -106,13 +106,15 @@ def register(app: FastAPI, runtime: Any) -> None:
 
     @app.get(f"{base}/contacts")
     async def contacts() -> dict[str, Any]:
-        a = _agent(runtime)
-        return {"contacts": a.contacts_overview(), "grants": a.policy.status(), "activity": a.store.recent_activity(60),
-                "encryption": a.store.box.status, "status_text": a.status_text()}
+        def read():
+            a = _agent(runtime)
+            return {"contacts": a.contacts_overview(), "grants": a.policy.status(), "activity": a.store.recent_activity(60),
+                    "encryption": a.store.box.status, "status_text": a.status_text()}
+        return await __import__('asyncio').wait_for(__import__('asyncio').to_thread(read), 5)
 
     @app.get(base + '/intelligence/overview')
     async def brain_overview() -> dict[str, Any]:
-        a = _agent(runtime)
+        a = await __import__('asyncio').to_thread(_agent, runtime)
         def read() -> dict[str, Any]:
             with a.inbox._get_conn() as con:
                 messages = con.execute('SELECT count(*) FROM whatsapp_messages').fetchone()[0]
@@ -142,7 +144,7 @@ def register(app: FastAPI, runtime: Any) -> None:
                                 'local_history_available': messages > 0,
                                 'imported_history_available': bool(imported),
                                 'remote_history_complete': 'UNKNOWN'},
-                    'memory': a.store.brain_state(), 'latest_job': a.brain_jobs.latest(),
+                    'memory': a.store.brain_state(), 'latest_job': a._brain_jobs.latest() if getattr(a, '_brain_jobs', None) else None,
                     'generated_auto_reply_enabled': False,
                     'language_layer': {'source': 'Unified JARVIS NLP', 'shadow': get_language_service().enabled(),
                                        'controls_tools': False, 'personal_style_source': 'Personal Reply Brain'}}

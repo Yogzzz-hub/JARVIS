@@ -64,6 +64,10 @@ class InteractionScheduler:
 
         if not is_voice:
             return None, None, False
+        if intent == 'conversational_knowledge':
+            return None, None, False
+        if intent == 'conversational_web':
+            return None, 'Checking.', True
 
         # Instant answer queries (e.g. get_time, volume_get) skip pre-action ACK so answer is immediate
         if intent.lower() in ("get_time", "volume_get", "wake_greeting", "show_dashboard"):

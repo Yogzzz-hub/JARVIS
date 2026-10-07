@@ -194,9 +194,19 @@ def create_app(runtime=None):
                                         "error": "Command queue full" if isinstance(exc, asyncio.QueueFull) else str(exc)})
         except WebSocketDisconnect:
             return
+        except asyncio.CancelledError:
+            # Socket teardown is not a core backend failure.
+            return
         finally:
-            await runtime.bus.unsubscribe(subscription)
             sender.cancel()
             executor.cancel()
-            await asyncio.gather(sender, executor, return_exceptions=True)
+            async def cleanup():
+                await runtime.bus.unsubscribe(subscription)
+                await asyncio.gather(sender, executor, return_exceptions=True)
+            cleanup_task = asyncio.create_task(cleanup())
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                # Finish independently of a disconnected client's cancellation scope.
+                return
     return app

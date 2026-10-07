@@ -98,23 +98,50 @@ class ResponseEngine:
         self.event_bus = None
         from jarvis.core.response.coordinator import ResponseCoordinator
         self.coordinator = ResponseCoordinator()
+        from jarvis.core.response.delivery import SpeechDelivery
+        self.delivery = SpeechDelivery()
 
     def schedule_final(self, request_id, text):
-        if not self.coordinator.claim_final(request_id):
+        from jarvis.core.response.coordinator import RESPONSE_LANGUAGE
+        previous_job = self.delivery.jobs.get(request_id)
+        job = self.delivery.begin(request_id, RESPONSE_LANGUAGE.get())
+        if job is None:
             return
+        queue = getattr(self.audio_output, 'queue', None)
+        if previous_job and hasattr(queue, 'reset_undelivered_request'):
+            queue.reset_undelivered_request(request_id)
+        from jarvis.core.language_shadow import safe_text
+        suppression = ('USER_MUTED' if getattr(self.audio_output, 'volume', 1) == 0
+            else 'SENSITIVE_CONTENT' if not safe_text(text) else None)
+        if suppression:
+            self.delivery.update(job, 'CANCELLED', suppression_reason=suppression)
+            return
+        self.coordinator.finals[request_id] = True
+        responses = []
+        def enqueue(response):
+            response.response_id = job['response_id'] + '_' + str(len(responses))
+            if not self.audio_output.play(response):
+                return False
+            responses.append(response)
+            self.delivery.update(job, 'QUEUED', queue_entered=True,
+                synthesis_completed=True, tts_engine=response.source)
+            return True
         self.cancel_pending_ack(request_id)
         self.progress.cancel(request_id)
         generation = self._speech_generation
 
         async def deliver():
             try:
-                async with self._speech_lock:
+                async with self._speech_slot():
                     if generation != self._speech_generation:
+                        self.delivery.update(job, 'CANCELLED', cancel_reason='USER_OR_BARGE_IN')
                         return
 
                     clean_text = text.strip()
                     if not clean_text:
+                        self.delivery.update(job, 'CANCELLED', suppression_reason='EMPTY_TEXT')
                         return
+                    self.delivery.update(job, synthesis_started=True)
 
                     # 1. Zero-latency path: Check generic phrase cache
                     cached_pcm = getattr(self.tts, "_generic_phrase_cache", {}).get(clean_text)
@@ -130,7 +157,7 @@ class ResponseEngine:
                         )
                         resp.tts_start_ns = perf_counter_ns()
                         resp.first_pcm_ready_ns = perf_counter_ns()
-                        if not self.audio_output.play(resp):
+                        if not enqueue(resp):
                             raise RuntimeError("Audio output queue rejected cached final response")
                         return
 
@@ -141,7 +168,7 @@ class ResponseEngine:
                     try:
                         pending_chunk = None
                         pending_backend = "piper"
-                        async for chunk, backend in self.tts.stream(clean_text):
+                        async for chunk, backend in self._bounded_stream(clean_text):
                             if generation != self._speech_generation:
                                 return
                             if getattr(self.tts, 'complete_sentence_chunks', False):
@@ -155,7 +182,7 @@ class ResponseEngine:
                                     chunk_index=chunk_idx, is_last_chunk=chunk.is_final)
                                 resp.tts_start_ns = tts_start
                                 resp.first_pcm_ready_ns = perf_counter_ns()
-                                if not self.audio_output.play(resp):
+                                if not enqueue(resp):
                                     raise RuntimeError('Audio output queue rejected sentence')
                                 chunk_idx += 1
                                 continue
@@ -174,7 +201,8 @@ class ResponseEngine:
                                 )
                                 resp.tts_start_ns = tts_start
                                 resp.first_pcm_ready_ns = perf_counter_ns()
-                                self.audio_output.play(resp)
+                                if not enqueue(resp):
+                                    raise RuntimeError('Audio queue rejected chunk')
                                 chunk_idx += 1
                             pending_chunk = chunk
                             pending_backend = backend
@@ -194,7 +222,7 @@ class ResponseEngine:
                             )
                             resp.tts_start_ns = tts_start
                             resp.first_pcm_ready_ns = perf_counter_ns()
-                            if not self.audio_output.play(resp):
+                            if not enqueue(resp):
                                 raise RuntimeError("Audio output queue rejected final chunk")
                             return
                         if chunk_idx:
@@ -202,6 +230,7 @@ class ResponseEngine:
                     except Exception as st_err:
                         if chunk_idx:
                             logger.warning('TTS stream stopped after %d chunks; do not repeat spoken text: %s', chunk_idx, st_err)
+                            self.delivery.update(job, 'FAILED', failure_reason='PARTIAL_SYNTHESIS_FAILED')
                             return
                         logger.warning("TTS streaming failed (%s); falling back to direct synthesize", st_err)
                         stream_failed = True
@@ -214,27 +243,58 @@ class ResponseEngine:
                             priority=ResponsePriority.FINAL,
                         )
                         response.tts_start_ns = tts_start
-                        pcm, backend = await asyncio.to_thread(self.tts.synthesize, clean_text)
+                        pcm, backend = await asyncio.wait_for(asyncio.to_thread(self.tts.synthesize, clean_text), 15)
                         if generation != self._speech_generation:
                             return
                         if not pcm:
-                            raise RuntimeError("TTS produced no audio (" + backend + ")")
+                            raise RuntimeError('TTS_UNAVAILABLE_FOR_LANGUAGE' if backend == 'tamil_text_only' else 'TTS produced no audio ('+backend+')')
                         response.audio_bytes = pcm
                         response.sample_rate = self.tts.sample_rate
                         response.source = backend
                         response.first_pcm_ready_ns = perf_counter_ns()
-                        if not self.audio_output.play(response):
+                        if not enqueue(response):
                             raise RuntimeError("Audio output queue rejected final response")
             except Exception as exc:
+                self.delivery.update(job, 'FAILED', failure_reason=str(exc) or 'SYNTHESIS_TIMEOUT')
                 logger.exception("Spoken response failed")
                 if self.event_bus:
                     self.event_bus.emit("tts.error", request_id, error=str(exc))
             finally:
                 self._active_requests.discard(request_id)
+                if responses:
+                    prior_failure = job['failure_reason']
+                    await self.delivery.monitor(job, responses, self.audio_output)
+                    if prior_failure:
+                        self.delivery.update(job, 'FAILED', failure_reason=prior_failure)
+                elif job['state'] == 'PENDING':
+                    self.delivery.update(job, 'FAILED', failure_reason='TTS_NOT_DELIVERED')
 
-        task = asyncio.create_task(deliver())
+        async def bounded_delivery():
+            try:
+                await asyncio.wait_for(deliver(), 120)
+            except asyncio.TimeoutError:
+                self.audio_output.cancel_request(request_id)
+                self.delivery.update(job, 'FAILED', failure_reason='SPEECH_JOB_TIMEOUT')
+        task = asyncio.create_task(bounded_delivery())
         self._speech_tasks.add(task)
         task.add_done_callback(self._speech_tasks.discard)
+
+    async def _bounded_stream(self, text):
+        iterator = self.tts.stream(text).__aiter__()
+        while True:
+            try:
+                yield await asyncio.wait_for(iterator.__anext__(), 15)
+            except StopAsyncIteration:
+                break
+
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def _speech_slot(self):
+        await asyncio.wait_for(self._speech_lock.acquire(), 10)
+        try:
+            yield
+        finally:
+            self._speech_lock.release()
 
     def apply_speech_action(self, action: str) -> str:
         """Act on what the owner said about JARVIS's voice; returns a short note for the UI / log."""
@@ -270,6 +330,9 @@ class ResponseEngine:
         """Immediately stop all speech: playing audio, queued audio and responses still being synthesized."""
         # Bumping the generation makes in-flight synthesis tasks drop their audio instead of playing it.
         self._speech_generation += 1
+        for job in self.delivery.jobs.values():
+            if job['state'] in {'PENDING', 'QUEUED', 'PLAYING', 'SYNTHESIZED'}:
+                self.delivery.update(job, 'CANCELLED', cancel_reason='USER_OR_BARGE_IN')
         for task in self._pending_ack_tasks.values():
             task.cancel()
         self._pending_ack_tasks.clear()

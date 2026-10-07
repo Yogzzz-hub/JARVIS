@@ -49,6 +49,8 @@ class JarvisUIController(QObject):
         self.bridge.eventReceived.connect(self._on_event_received)
         self.bridge.responseReceived.connect(self._on_response_received)
         self.bridge.pingUpdated.connect(self._on_ping_updated)
+        if hasattr(self.bridge, 'connectionDiagnostics'):
+            self.bridge.connectionDiagnostics.connect(self.state.set_connection_diagnostics)
 
         # Wire Metrics
         self.metrics.metricsSampled.connect(self._on_metrics_sampled)
@@ -340,6 +342,13 @@ class JarvisUIController(QObject):
         state_str = data.get("state", "SUCCESS")
         msg = data.get("message", "")
         req_id = data.get("request_id", "")
+        if not hasattr(self, '_response_versions'):
+            self._response_versions = set()
+        version = (req_id, data.get('outcome_version', 1), state_str)
+        if req_id and version in self._response_versions:
+            return
+        if req_id:
+            self._response_versions.add(version)
         req_text = self.state.transcriptFinal or "Command"
 
         self.state.set_response(msg)

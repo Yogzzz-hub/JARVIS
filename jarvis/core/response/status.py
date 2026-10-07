@@ -62,6 +62,8 @@ def integration_status(runtime):
             'queue_length': language.pending.qsize(), 'candidate_controls_tools': False},
         'capability_brain': state(getattr(runtime, 'registry', None)),
         'tts': {'state': state(tts), 'engine': getattr(tts, 'active_backend', None),
+            'latest_speech_job': response.delivery.snapshot() if hasattr(response, 'delivery') else None,
+            'speech_counters': response.delivery.counters() if hasattr(response, 'delivery') else None,
             'gender': getattr(tts, 'voice_gender', None),
             'voice': str(getattr(getattr(tts, 'piper', None), 'model_path', '')),
             'response_language': getattr(tts, 'response_language', None),

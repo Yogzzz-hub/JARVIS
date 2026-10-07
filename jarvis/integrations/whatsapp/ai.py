@@ -23,6 +23,9 @@ from jarvis.core.llm.client import LLMError, OllamaClient, get_llm
 
 logger = logging.getLogger("jarvis.integrations.whatsapp.ai")
 
+class ContextualReplyUnavailable(ValueError):
+    """No safe contextual draft; never substitute a canned sendable message."""
+
 _PRONOUNS = [
     (r"\bhe's\b", "you're"), (r"\bshe's\b", "you're"), (r"\bthey're\b", "you're"),
     (r"\bhe is\b", "you are"), (r"\bshe is\b", "you are"), (r"\bthey are\b", "you are"),
@@ -295,8 +298,9 @@ class WhatsAppAI:
             + "\n".join(history or [f"{msg.sender_display_name}: {msg.text}"])
             + f"\n\n{guidance}Write the owner's next reply to {msg.sender_display_name}'s latest message. "
             "Be natural, warm and brief (one to three sentences), first person as the owner. Do not invent plans, "
-            "commitments or facts the owner did not state; if the owner gave no guidance, write a short acknowledgement "
-            "that promises nothing specific. Return JSON {\"message\": \"...\"}.\n"
+            "commitments or facts the owner did not state. Address the latest message using this conversation: "
+            "answer only from evidenced owner facts, or ask a relevant follow-up when those facts are missing. "
+            "Do not return a generic acknowledgement such as 'Got your message'. Return JSON {\"message\": \"...\"}.\n"
             + self.style_hint(msg.chat_id)
         )
         text = ""
@@ -311,15 +315,20 @@ class WhatsAppAI:
                 text = ""
         except LLMError as exc:
             logger.debug("Reply drafting model unavailable: %s", exc)
+        if not instruction and re.fullmatch(r'(?:got (?:it|your message)|noted|ok(?:ay)?|received)[.! ]*',text,re.I):
+            text = ''
         if not text:
-            text = _sentence(instruction) if instruction else "Got your message."
+            text = _sentence(instruction) if instruction else ''
+        if not text: raise ContextualReplyUnavailable('A contextual reply needs owner guidance or a working local model.')
         from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
         from jarvis.core.commands.provenance import draft_instruction
         engine = get_intelligence(self.inbox)
         context = engine.context(msg.chat_id, instruction, msg.message_id)
-        if not engine.validator.validate(text, context, draft_instruction(text)).passed:
-            literal = _sentence(instruction) if instruction else "Got your message."
-            text = literal if engine.validator.validate(literal, context, draft_instruction(literal)).passed else "Got your message."
+        if not engine.validator.validate(text, context, draft_instruction(instruction)).passed:
+            literal = _sentence(instruction) if instruction else ''
+            if not literal or not engine.validator.validate(literal, context, draft_instruction(instruction)).passed:
+                raise ContextualReplyUnavailable('The contextual reply was not supported by the conversation.')
+            text = literal
         return ReplyDraft(
             recipient=msg.sender_display_name or msg.sender_id,
             recipient_jid=msg.chat_id if in_group else (msg.sender_id if "@" in msg.sender_id else msg.chat_id),

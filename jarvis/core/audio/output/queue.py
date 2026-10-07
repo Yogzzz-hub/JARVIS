@@ -51,6 +51,13 @@ class AudioOutputQueue:
             if request_id not in self._request_lifecycles:
                 self._request_lifecycles[request_id] = ResponseLifecycle.NONE
 
+    def reset_undelivered_request(self, request_id):
+        """Caller has delivery evidence that no audio started; permit a new speech attempt."""
+        self.cancel_request(request_id)
+        with self._lock:
+            self._request_lifecycles[request_id] = ResponseLifecycle.NONE
+            self._active_requests.add(request_id)
+
     def put(self, response: SpokenResponse) -> bool:
         """Enqueue a spoken response according to priority and idempotency rules.
 

@@ -139,6 +139,13 @@ FOLLOWUP = re.compile(
 
 def is_followup(text: str) -> bool:
     t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
+    # A question about an external inbox is not a question about JARVIS's
+    # previous action. Preserve explicit outgoing-action history questions.
+    messaging = re.search(r'\b(?:message|msg|text|mail|email|reply)\b', t)
+    outgoing = re.search(r'\b(?:you|u|jarvis|i|we)\s+(?:(?:just|last|already)\s+)?(?:sent|send|replied|reply|messaged|texted)\b', t)
+    inbox_scope = re.search(r'\b(?:received|incoming|got)\b|\b(?:in|on|from)\s+(?:my\s+)?(?:whatsapp|gmail|outlook|telegram|signal)\b', t)
+    if messaging and inbox_scope and not outgoing:
+        return False
     t = re.sub(r"^(?:hey\s+|ok\s+)?jarvis,?\s+", "", t)
     t = re.sub(r"^(?:(?:and|so|wait|but|then|ok|okay|hold\s+on|hang\s+on|um+|uh+|hey|please|jarvis|sorry|pardon|excuse\s+me|"
                r"(?:can|could|would|will)\s+(?:you|u)(?:\s+please)?)\s*,?\s+)+", "", t)

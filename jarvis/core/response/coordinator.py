@@ -7,6 +7,7 @@ from jarvis.core.language_layer import language
 
 RESPONSE_LANGUAGE = ContextVar('unified_response_language', default='ENGLISH')
 UNIFIED_RESPONSE_ACTIVE = ContextVar('unified_response_active', default=False)
+SPEECH_SUPPRESSION = ContextVar('speech_suppression', default=None)
 
 
 class ResponseLanguagePolicy:
@@ -68,7 +69,7 @@ class ResponseCoordinator:
     @staticmethod
     def plan(envelope, language_hint=None):
         selected = language_hint or ResponseLanguagePolicy.choose(envelope.raw_text)
-        silent = envelope.source in {'whatsapp', 'phone', 'benchmark', 'test', 'automation_builder'}
+        silent = envelope.source in {'whatsapp', 'phone', 'benchmark', 'test', 'automation_builder'} or envelope.reply_channel == 'text_only'
         # Phone owns playback: never also speak its response on PC speakers.
         return ResponsePlan(selected, envelope.reply_channel, None if silent else 'pc', not silent)
 

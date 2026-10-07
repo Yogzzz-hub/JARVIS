@@ -387,6 +387,7 @@ class ReadWhatsAppMessagesOutput(Contract):
     filter: str
     messages: list[dict]
     spoken_summary: str
+    selected_sender: str = ''
 
 
 class ReadWhatsAppMessagesTool(Tool):
@@ -443,7 +444,8 @@ class ReadWhatsAppMessagesTool(Tool):
         who_filter = arguments.sender.strip().casefold()
         if who_filter:
             digits = re.sub(r"\D", "", who_filter)
-            msg_dicts = [m for m in msg_dicts if who_filter in (m.get("sender") or "").casefold()
+            msg_dicts = [m for m in msg_dicts if who_filter in {(m.get("chat_id") or "").casefold(),(m.get("sender_id") or "").casefold()}
+                         or who_filter in (m.get("sender") or "").casefold()
                          or (len(digits) >= 6 and digits in re.sub(r"\D", "", m.get("chat_id") or ""))]
         count = len(msg_dicts)
 
@@ -474,7 +476,8 @@ class ReadWhatsAppMessagesTool(Tool):
                       if incomplete else f"No {filt.replace('_', ' ')} WhatsApp messages from {arguments.sender.strip()}.")
             return {"status": "PARTIAL_SYNC" if incomplete else "SUCCESS", "count": 0, "filter": filt,
                     "messages": [], "spoken_summary": spoken}
-        msg_dicts = msg_dicts[:max(arguments.limit, 5)] if who_filter else msg_dicts
+        msg_dicts = msg_dicts[:arguments.limit]
+        if who_filter and arguments.limit==1: count=len(msg_dicts)
         if count == 0:
             spoken = ("WhatsApp history is not fully synced, so I can't verify whether you have unread messages."
                       if filt == "unread" and self.inbox.sync_state() != "READY" else
@@ -497,6 +500,7 @@ class ReadWhatsAppMessagesTool(Tool):
             "filter": filt,
             "messages": msg_dicts,
             "spoken_summary": spoken,
+            "selected_sender": arguments.sender,
         }
 
     def _badge_count_summary(self, chats: list[dict], where: str, arguments: Any) -> str:
@@ -561,6 +565,7 @@ class SummarizeWhatsAppMessagesOutput(Contract):
     spoken_summary: str
     urgent_messages: list[dict]
     normal_messages: list[dict]
+    unread_chats: list[dict] = Field(default_factory=list)
     unread_count: int = 0
     sync_state: str = "PARTIAL_SYNC"
     total_direct_chats: int = 0
@@ -617,6 +622,7 @@ class SummarizeWhatsAppMessagesTool(Tool):
             "spoken_summary": spoken,
             "urgent_messages": data["urgent_messages"],
             "normal_messages": data["normal_messages"],
+            "unread_chats": data.get('unread_chats', []),
             "unread_count": data.get("unread_count", 0),
             "sync_state": data.get("sync_state", "PARTIAL_SYNC"),
             "total_direct_chats": data.get("total_direct_chats", 0),
@@ -686,7 +692,12 @@ class DraftWhatsAppReplyTool(Tool):
                     "next_action": {"tool": "send_whatsapp_message",
                                     "arguments": {"recipient": group_id, "message": draft.text, "allow_group": True},
                                     "display_recipient": f"the {label} group"}}
-        draft = await ai.draft_reply(arguments.recipient, arguments.instruction)
+        from jarvis.integrations.whatsapp.ai import ContextualReplyUnavailable
+        try:
+            draft = await ai.draft_reply(arguments.recipient, arguments.instruction)
+        except ContextualReplyUnavailable:
+            return {"status": "NEEDS_GUIDANCE", "recipient": arguments.recipient, "recipient_jid": "",
+                "original_message": "", "draft": "", "message": "I couldn't create a safe contextual reply. Tell me what you'd like to say.", "next_action": {}}
         if draft is None:
             who = f" from {arguments.recipient}" if arguments.recipient else ""
             return {"status": "NOT_FOUND", "recipient": arguments.recipient, "recipient_jid": "", "original_message": "",
@@ -783,7 +794,10 @@ class ReplyWhatsAppAllTool(Tool):
                 text = await ai.compose_for_person(name, msg.chat_id, message, msg.text)
             else:
                 reply = await ai.draft_reply(msg.sender_id if "@" in msg.sender_id else msg.chat_id)
-                text = reply.text if reply else "Got your message, I'll get back to you soon."
+                if not reply:
+                    from jarvis.integrations.whatsapp.ai import ContextualReplyUnavailable
+                    raise ContextualReplyUnavailable('No conversation was available for a contextual draft.')
+                text = reply.text
             target = msg.chat_id if "@" in msg.chat_id else msg.sender_id
             return {"recipient": target, "name": name, "message": text, "their_message": (msg.text or "")[:200]}
 

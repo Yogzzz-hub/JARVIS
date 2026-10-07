@@ -16,6 +16,7 @@ class OllamaChatInput(Contract):
     timeout_s: float = Field(default=45.0, gt=0, le=300, description="Query timeout in seconds")
     channel: str = Field(default="local", description="Conversation channel used for follow-up memory")
     speakable: bool = Field(default=True, description="Keep the answer short and speech-friendly")
+    semantic_context: dict = Field(default_factory=dict, description="Informational topic resolution; never execution authority")
 
 
 class OllamaChatOutput(Contract):
@@ -24,6 +25,8 @@ class OllamaChatOutput(Contract):
     status: str = "completed"
     sources: list[dict] = Field(default_factory=list)
     used_web: bool = False
+    spoken_response: str = ''
+    latency_breakdown: dict = Field(default_factory=dict)
 
 
 class OllamaChatTool(Tool):
@@ -55,11 +58,15 @@ class OllamaChatTool(Tool):
             arguments = OllamaChatInput(**arguments)
         assistant = self._assistant()
         extra = arguments.system_prompt.strip()
+        kwargs = {}
+        if arguments.semantic_context:
+            kwargs['semantic_context'] = arguments.semantic_context
         reply = await assistant.respond(
             arguments.query.strip(),
             channel=arguments.channel,
             speakable=arguments.speakable,
             extra_context=f"Additional instructions: {extra}" if extra else "",
+            **kwargs,
         )
         if not reply.ok:
             logger.warning("Local model answer failed: %s", reply.error)
@@ -69,4 +76,6 @@ class OllamaChatTool(Tool):
             "status": "completed" if reply.ok else "error",
             "sources": [{k: v for k, v in s.items() if k in ("type", "title", "source")} for s in reply.sources],
             "used_web": reply.used_web,
+            "spoken_response": getattr(reply, 'spoken_text', '') or reply.text,
+            "latency_breakdown": getattr(reply, 'timings', {}),
         }

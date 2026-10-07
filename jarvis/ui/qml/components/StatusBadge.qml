@@ -15,6 +15,8 @@ Item {
             case "SLEEPING":
             case "WAITING":
             case "BUSY": return "#FFB300"     // Amber
+            case "DEGRADED":
+            case "RECONNECTING": return "#FFB300"
             case "OFFLINE":
             case "DISCONNECTED":
             case "FAILED":
