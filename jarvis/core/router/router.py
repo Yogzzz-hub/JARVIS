@@ -190,7 +190,18 @@ class SmartRouter:
             if d1.lane in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.CONTROL, RouteLane.REJECT) and (d1.intent or d1.subcommands):
                 return d1
         decision = await self._route_once(request)
-        if not self._unresolved(decision) or len((request.text or "").split()) > 18:
+        if len((request.text or "").split()) > 18:
+            return decision
+        if not self._unresolved(decision):
+            # a mistyped command word can still land on a loose pattern for a different tool ("clos the pop up" -> close_app
+            # "pop"): when repairing the spelling gives a different, resolved reading, that one wins
+            fixed = self._typo_reading(request)
+            if fixed is not None:
+                d3 = await self._route_once(request.model_copy(update={"text": fixed}))
+                if d3.lane in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.CONTROL) and (d3.intent or d3.subcommands) \
+                        and (d3.intent, bool(d3.subcommands)) != (decision.intent, bool(decision.subcommands)) \
+                        and decision.lane not in (RouteLane.REJECT, RouteLane.CONTROL):
+                    return d3
             return decision
         alts = fallbacks(request.text or "")
         for alt in alts:
@@ -199,7 +210,45 @@ class SmartRouter:
             d2 = await self._route_once(request.model_copy(update={"text": alt}))
             if d2.lane in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.CONTROL, RouteLane.REJECT) and (d2.intent or d2.subcommands or d2.lane == RouteLane.REJECT):
                 return d2
-        return decision
+        asked = self._dangling_reference(request, decision)
+        return asked or decision
+
+    _CARRIES_WORDS = re.compile(r"\b(?:send|text|message|msg|tell|type|write|dictate|note|remember|remind|reply|email|mail|say|saying|ask|draft|caption|"
+                                r"post|search|google|look\s*up|play|find|call|ring)\b|[\"'“”]", re.I)
+
+    def _typo_reading(self, request: CommandRequest) -> str | None:
+        """The request with misspelt command words repaired, when it has any and carries no words of the owner's own
+        (a message, a note, a search, a name) that repair could damage."""
+        text = request.text or ""
+        if self._CARRIES_WORDS.search(text) or len(text.split()) > 12:
+            return None
+        from jarvis.core.router.lexicon_rewrite import global_repair
+        try:
+            g = global_repair(text)
+        except Exception:
+            return None
+        return g if g and g != " ".join(text.lower().split()) else None
+
+    _DANGLING = re.compile(
+        r"^(?:(?:please|just|go\s+ahead\s+and|now|then|and)\s+)*(?P<v>set|switch|turn|change|give|rename|put|move|copy|snap|replace|paste|read|open|close|"
+        r"go|confirm|mark|install|update|send|share|play|stop|pause|resume|show|make|add|save|run|start|restart|kill|fix|undo|redo|click|press|"
+        r"tap|select|drag|zoom|scroll|check|cancel|finish|do|repeat|try|use|enable|disable|toggle|bring|take|hide|clear|apply|upload|download)\b"
+        r"(?P<mid>.*?)\b(?P<ref>it|that|this|them|those|these|there|that\s+one|this\s+one|the\s+other\s+(?:one|tab|window|folder|file)|the\s+same|the\s+box|the\s+doc)"
+        r"(?P<rest>(?:\s+(?:up|on|off|in|back|again|now|please|there|here|over|out|down|to\s+\d+|as\s+\w+|to\s+(?:the\s+)?(?:other\s+\w+|desktop|documents)))*)\s*$", re.I)
+
+    def _dangling_reference(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision | None:
+        """A command whose object is only a pronoun ("rename it", "turn that off", "set it to 50") with nothing in the
+        conversation for it to point at (carry-over resolves references before routing): ask what is meant."""
+        t = " ".join((request.text or "").lower().split()).strip(" .!?")
+        t = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*|(?:can|could|would)\s+you\s+)", "", t)
+        if not t or len(t.split()) > 9 or not self._unresolved(decision):
+            return None
+        m = self._DANGLING.match(t)
+        if not m or re.search(r"\b(?:saying|that\s+(?:i|you|we|the|my)|if|when|because)\b", t):
+            return None
+        ref = m.group("ref")
+        return self._decision(request, RouteLane.CLARIFY, "clarify", {}, f"What should I {m.group('v')}? I don't have anything on hand "
+                              f"that '{ref}' points to - tell me which one.", ReasonCode.MISSING_REQUIRED_SLOT)
 
     async def _route_once(self, request: CommandRequest) -> RouteDecision:
         """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
@@ -368,6 +417,13 @@ class SmartRouter:
             media_target_resolved = (decision.intent == "media_control"
                                      and decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1)
                                      and bool((decision.slots or {}).get("action")))
+            # the language adapter's slot hints are advisory (see above): an object it could not name ("anirudh songs" in
+            # "youtube la anirudh songs podu") does not undo a capability the router resolved with its slots filled
+            if not media_target_resolved and decision.intent and decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) \
+                    and set(language_frame.missing) <= {"audio_selection", "media", "object", "target", "resource", "app", "query", "topic", "item"}:
+                from jarvis.core.semantics.references import is_reference
+                vals = [v for v in (decision.slots or {}).values() if isinstance(v, str) and v.strip()]
+                media_target_resolved = bool(vals) and not any(is_reference(v) for v in vals)
             if not media_target_resolved:
                 return RouteDecision(request_id=request.request_id, lane=RouteLane.CLARIFY, intent=None, slots={},
                     confidence=language_frame.confidence, source=RouteSource.GRAMMAR, normalized_text=raw_language,

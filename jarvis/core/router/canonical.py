@@ -321,7 +321,7 @@ def canonicalize(text: str) -> str:
 
     # where is my <thing> -> find it (not a device, not an installed app)
     m = re.match(r"^where(?:'s|\s+is|\s+are|\s+did\s+i\s+(?:put|save|keep))\s+(?:my|the)\s+(?P<x>[a-z][\w .-]{2,40}?)(?:\s+(?:saved|stored|kept))?$", t)
-    if m and not re.search(r"\b(?:phone|mobile|charger|keys?|wallet|laptop|pc|installed)\b", m.group("x")):
+    if m and not re.search(r"\b(?:phone|mobile|charger|keys?|wallet|laptop|pc|installed|defined|declared|function|class|method|variable|implemented)\b", m.group("x")):
         return f"find my {m.group('x')}"
 
     # no construction matched: the router sees exactly what was said (minus a filler tail that changes nothing)

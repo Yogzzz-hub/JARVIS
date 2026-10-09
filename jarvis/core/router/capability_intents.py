@@ -349,8 +349,13 @@ def _domains(t, raw, rid, mode):
     return None
 
 
+def _extra(t: str, raw: str, rid: str, mode: str = "") -> Optional[RouteDecision]:
+    from jarvis.core.router.extra_intents import match_extra
+    return match_extra(t, raw, rid)
+
+
 def match_capability(t: str, raw: str, rid: str, mode: str = "") -> Optional[RouteDecision]:
-    for fn in (_dry_run, _danger, _zip, _generic_site, _domains, _app_in_browser, _pc_radio, _schedule, _conditional, _orchestration, _device_refs, _messages, _assistant, _workflow,
+    for fn in (_dry_run, _danger, _extra, _zip, _generic_site, _domains, _app_in_browser, _pc_radio, _schedule, _conditional, _orchestration, _device_refs, _messages, _assistant, _workflow,
                _system, _phone, _pc, _ide, _files, _browser, _text, _controls, _windows):
         d = fn(t, raw, rid, mode)
         if d is not None:

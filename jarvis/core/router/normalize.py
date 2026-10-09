@@ -685,6 +685,14 @@ def _swaps(w: str) -> set[str]:
     return {w[:i] + w[i + 1] + w[i] + w[i + 2:] for i in range(len(w) - 1) if w[i] != w[i + 1]}
 
 
+def _tamil_words() -> frozenset:
+    try:
+        from jarvis.core.multilingual import _LEXICON
+        return _LEXICON
+    except Exception:
+        return frozenset()
+
+
 def repair_swapped_letters(text: str) -> str:
     """'open the rceycle bin' -> 'open the recycle bin', 'chrome open pnanu' -> 'chrome open pannu'.
 
@@ -707,6 +715,9 @@ def repair_swapped_letters(text: str) -> str:
                     prev = ""
                 continue
             low = tok.lower()
+            if low in _tamil_words():
+                prev = low           # a Thanglish word ("mani" is not "main")
+                continue
             if len(low) >= 4 and low not in known and not _inflected(low, known):
                 hits = [c for c in _swaps(low) if c in vocab or _inflected(c, vocab)]
                 if prev in _BEFORE_NAME:

@@ -32,7 +32,7 @@ anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thor
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
 sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu
 pannitu pannittu panitu pannanum manikku nyabagam yaar yaaru pannirukka pannirukanga panniruka anupchaa anupiyaa anuppiyaa anupicha poyiducha enga engey
-iruku irukku romba adikudhu adikuthu thookam varudhu pasikudhu velicham inniku innaiku naalaikku ennoda""".split())
+iruku irukku kaatu kaatunga mani aachu ippo panniru panniruga padichu padithu eduda koraiyi koraiyu kuraiyu kuraiyi nimisham nimidam kaalaila kaalaiyil ezhuppu sathama satham saththama valikuthu valikkudhu kann theerndhuduma theernthuduma venum vennum mudiyuma poren veliya yaaravathu pannangala pannangalaa ellarukkum thavira vaangi kudikka romba adikudhu adikuthu thookam varudhu pasikudhu velicham inniku innaiku naalaikku ennoda""".split())
 
 
 def _tamil_lexicon() -> frozenset[str]:
@@ -342,7 +342,70 @@ def to_english_command(text: str) -> str:
     m = re.fullmatch(r"(?:(?P<place>[a-z ]{2,20}?)\s*(?:la|le)\s+)?(?:weather|climate|mazhai)\s+(?:eppadi|epdi|enna)(?:\s+(?:iruku|irukku|irukum))?", body)
     if m:
         return f"what's the weather in {keep(m.group('place'))}" if m.group("place") else "what's the weather"
-    return text
+    return _gloss(body, keep) or text
+
+
+# ------------------------------------------------------------------ gloss: shapes the fixed patterns above do not cover
+_NOW = r"(?:ippo|ippodhu|ipo)\s+"
+
+
+def _gloss(body: str, keep) -> Optional[str]:
+    """Further Thanglish shapes: an object-marker + show / read, a spoken remark after the command, setting words
+    (volume, brightness, battery) said around a state, a request for something with "venum"."""
+    # a first-person remark after the command is not part of it: "pc ah lock pannidu, naan veliya poren"
+    head, sep, rest = body.partition(",")
+    if sep and re.match(r"\s*(?:naan|nan|en|enakku|ennaku|naa)\b", rest) and len(head.split()) >= 2:
+        out = to_english_command(head)
+        if out != head:
+            return out
+    # show / open a folder: "downloads folder ah kaatu", "desktop ah kaattu"
+    m = re.fullmatch(r"(?P<f>downloads?|documents?|desktop|pictures?|music|videos?)(?:\s+folder)?\s+(?:ah|a)?\s*(?:kaatu|kaattu|kattu|kaatunga|open\s+" + _PANNU + r")", body)
+    if m:
+        return f"open my {m.group('f')} folder"
+    # read the unread messages
+    if re.fullmatch(r"(?:unread|pudhu|new|puthu)\s+(?:messages?|msgs?)\s+(?:ellam|ellaa|ellame|all)\s+(?:padichu|padithu|padi)\s+(?:kaattu|kaatu|sollu|kattu)", body):
+        return "read my unread messages"
+    if re.fullmatch(r"(?:yaar|yaaravathu|yarum|yaarum)\s+(?:message|msg|text)\s+(?:pannangala|pannangalaa|pannaangala|pannirukangala|anupnangala)", body):
+        return "who messaged me on whatsapp"
+    # settings said around a Tanglish verb
+    if re.fullmatch(r"(?:volume|volum|sound|saththam|sattham)\s+(?:ah\s+)?(?:koraiyi|koraiyu|korai|kuraiyu|kuraiyi|kammi|korachidu|koraichidu|kuraichidu)(?:\s+" + _PANNU + ")?", body):
+        return "volume down"
+    if re.fullmatch(r"(?:romba\s+)?(?:sathama|satham|saththama|sattama)\s+(?:irukku|iruku|irukkudhu|adikudhu)", body):
+        return "volume down"
+    if re.fullmatch(r"(?:sound|volume|saththam)\s+(?:ah\s+)?(?:full|max|maximum)(?:\s+ah)?\s+(?:vachidu|vechidu|vai|vei|podu|" + _PANNU + ")", body):
+        return "set volume to 100"
+    if re.fullmatch(r"(?:screen|display|brightness|velicham)\s+(?:ah\s+)?(?:konjam\s+)?(?:dim|kammi|korai|korachidu|koraichidu)(?:\s+" + _PANNU + ")?", body) \
+            or re.fullmatch(r"(?:kann|kan|kannu)\s+(?:valikuthu|valikkudhu|valikudhu|erichal)\s*,?\s*(?:screen\s+)?(?:romba\s+)?(?:bright|velicham)", body):
+        return "dim the screen"
+    if re.fullmatch(r"(?:laptop|pc|en)?\s*(?:battery|charge)\s+(?:evlo|evvalavu|eppadi)(?:\s+percent)?\s+(?:iruku|irukku|irukkudhu)", body) \
+            or re.fullmatch(r"(?:laptop|pc)\s+(?:charge|battery)\s+(?:theerndhuduma|theerndhuduchaa|theernthuduma|kammi\s+aagiduma|mudinjiduma)", body):
+        return "what's my battery level"
+    m = re.fullmatch(r"(?P<x>wifi|bluetooth|hotspot|data|mobile\s+data|torch|flashlight)\s+(?P<s>on|off|aaf|of|aff)\s+" + _PANNU + r"\s+(?P<d>phone|mobile|phonela|phone\s*la|mobilela)", body)
+    if m:
+        return f"turn {'on' if m.group('s') == 'on' else 'off'} {m.group('x')} on my phone"
+    m = re.fullmatch(r"(?:phone|mobile)\s*(?:la|le)\s+(?P<x>wifi|bluetooth|hotspot|data|torch|flashlight)\s+(?:ah\s+)?(?P<s>on|off)\s+(?:pannu|panniru|pannidu|pannunga)", body)
+    if m:
+        return f"turn {m.group('s')} {m.group('x')} on my phone"
+    # a thing wanted: "enakku oru 12 letter password venum"
+    m = re.fullmatch(r"(?:enakku|ennaku)\s+(?:oru\s+)?(?P<n>\d{1,3})\s*(?:letter|character|char|digit)s?\s+password\s+(?:venum|vennum|venumnga)", body)
+    if m:
+        return f"generate a {m.group('n')} character password"
+    if re.fullmatch(r"(?:tamil|thamizh|thanglish|tanglish)\s*(?:la|le)\s+(?:pesu|pesunga|sollu)(?:\s+ini\s+mel)?", body):
+        return "reply in thanglish"
+    # reminders: "anju nimisham la water kudikka sollu", "naalaiku kaalaila 7 manikku ennai ezhuppu"
+    num = {"oru": 1, "onnu": 1, "rendu": 2, "moonu": 3, "naalu": 4, "anju": 5, "aaru": 6, "ezhu": 7, "ettu": 8, "onbadhu": 9, "pathu": 10}
+    m = re.fullmatch(r"(?P<n>\d{1,3}|" + "|".join(num) + r")\s+(?:nimisham|nimidam|minutes?|mins?)\s*(?:la|le|ku|kku)?\s+(?P<what>.+?)\s+(?:sollu|sollunga|solliru|nyabagam\s+" + _PANNU + ")", body)
+    if m:
+        n = m.group("n") if m.group("n").isdigit() else str(num[m.group("n")])
+        what = m.group("what")
+        what = {"water kudikka": "drink water", "saapida": "eat", "thoongu": "sleep"}.get(what, what)
+        return f"remind me in {n} minutes to {keep(what)}"
+    m = re.fullmatch(r"(?:(?P<d>naalaiku|naalaikku|nalaiku|inniku|innaiku)\s+)?(?:kaalaila|kaalaiyil|morning)\s+(?P<n>\d{1,2})\s*(?:manikku|mani\s*ku)\s+(?:ennai|enna|ennaa)\s+(?:ezhuppu|ezhuppunga|ezhupu|eluppu)", body)
+    if m:
+        day = "tomorrow" if (m.group("d") or "").startswith(("naal", "nal")) else "today"
+        return f"remind me {day} at {m.group('n')} am to wake up"
+    return None
+
 
 
 # ------------------------------------------------------------------ replies

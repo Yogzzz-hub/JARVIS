@@ -86,8 +86,10 @@ def repair(text: str) -> str:
 
 # ------------------------------------------------------------------------------------------------------- concepts
 _NEG = re.compile(r"\b(?:don'?t|do\s+not|never|not|no|without|except|but|instead|rather|sorry|actually|wait|scratch|nevermind|never\s*mind|illa|venam|"
-                  r"vendam|unless|until|only\s+if|if)\b")
-_CONTENT = re.compile(r"\b(?:send|text|message|msg|tell|type|write|dictate|note|remind|reply|email|mail|say|saying|ask|draft|compose|caption|post)\b")
+                  r"vendam|unless|only\s+if|if)\b")
+_CV = r"(?:send|text|message|msg|tell|type|write|dictate|note|remind|reply|email|mail|say|ask|draft|compose|caption|post|forward|share)"
+# the owner's own words: a content verb that starts a clause ("text divya ...", "... and tell him ..."), or "saying" / quotes anywhere
+_CONTENT = re.compile(rf"(?:^|\b(?:and|then|also|plus|after\s+that|,)\s*|\b(?:please|pls|can\s+you|could\s+you|just)\s+){_CV}\b|\bsaying\b|[\"“”]|\bthat\s+says\b")
 
 
 def _has(t: str, pat: str) -> bool:
@@ -413,8 +415,11 @@ def rewrite(text: str) -> str | None:
         t = re.sub(r"^(?:(?:hey|hi|ok|okay)\s+)?jarvis\s*[,.!:]?\s+|^(?:um+|uh+|hmm+|so|well|alright|quick\s+question)\s*,?\s+|"
                    r"^(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+|kindly\s+)?|please\s+|kindly\s+)", "", t)
         t = re.sub(r"\s*,?\s+(?:jarvis|please|pls|thanks|thank\s+you|for\s+me|now|right\s+now|quickly|real\s+quick)$", "", t)
-    if not t or len(t.split()) > 14 or _CONTENT.search(t) or _NEG.search(t):
+    if not t or len(t.split()) > 14 or _NEG.search(t):
         return None
+    if _CONTENT.search(t):
+        r0 = repair(t)
+        return _whatsapp_read(r0) if re.match(r"^(?:did|has|have)\b", r0) else None
     r = repair(t)
     for fn in (_levels_status, _phone_toggle, _call, _clipboard, _speech, _browser, _snap, _text_edit, _batch2):
         try:
