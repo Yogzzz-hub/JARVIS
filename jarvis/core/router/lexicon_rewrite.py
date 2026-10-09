@@ -29,7 +29,7 @@ escape enter tab tabs page browser chrome whatsapp gmail drive youtube spotify n
 contacts contact message messages reply group groups birthday meeting meetings schedule events event todo tasks task notification
 notifications popup dialog button click press double tap swipe call dial ring camera photo photos record recording capture
 transfer upload share print rename move duplicate compress extract zip folder workflow workflows project projects logs test tests
-whenever every after before once until while schedule weekday weekdays morning evening night daily minutes hours seconds
+whenever every after before once until while schedule weekday weekdays morning evening night daily minutes hours seconds speaking talking reading writing opening closing playing running testing sending messages tests projects
 """.split()
 _ALIASES = {
     "fone": "phone", "phne": "phone", "fon": "phone", "cellphone": "phone", "cell": "phone", "mob": "mobile",
@@ -243,7 +243,7 @@ def _text_edit(t: str) -> str | None:
         return "undo"
     if _has(t, r"^(?:please\s+)?redo\b") or _has(t, r"\bredo\s+what\b|\bput\s+back\s+what\s+i\s+undid\b"):
         return "redo"
-    if _has(t, r"^(?:please\s+)?paste\b") and len(t.split()) <= 5 and not _has(t, r"\b(?:history|from)\b"):
+    if re.fullmatch(r"(?:please\s+)?paste(?:\s+(?:it|that|this))?(?:\s+(?:here|there|in\s+here))?", t):
         return "paste"
     m = re.fullmatch(r"(?:make|convert|change|turn)\s+(?:all\s+of\s+it|everything|it|that|this|the\s+text|all\s+of\s+(?:this|that))\s+(?:into\s+|to\s+)?(?P<c>upper\s*case|lower\s*case|capital\w*|caps)", t)
     if m:
@@ -291,7 +291,8 @@ def _calendar(t: str) -> str | None:
         return None
     if _has(t, r"\b(?:add|create|schedule\s+a|book|set\s+up|put|new|cancel|delete|move|reschedule|invite|that|write|wirte|whatsapp|here|scheduled|shceduled|schedul\w*|jobs|tasks)\b"):
         return None
-    if not _has(t, r"^(?:what|which|show|list|any|do\s+i|have\s+i|how|tell|read|check|see|open|calendar|calender|my|today|tomorrow|get)\b|\bon\s+(?:my|the|today'?s)\b"):
+    if not _has(t, r"^(?:what|which|show|list|any|do\s+i|have\s+i|how\s+(?:does|do\s+i\s+look|is|busy)|tell\s+me\s+(?:what|my)|read|check|see|open|calendar|calender|my|today|tomorrow|get)\b|\bon\s+(?:my|the|today'?s)\b") \
+            or _has(t, r"\b(?:say|translate|mean|hindi|tamil|english|word|spell)\b"):
         return None
     if _has(t, r"\bweek\b") and _has(t, r"\bnext\b"):
         w = "next week"
@@ -421,7 +422,10 @@ def rewrite(text: str) -> str | None:
         r0 = repair(t)
         return _whatsapp_read(r0) if re.match(r"^(?:did|has|have)\b", r0) else None
     r = repair(t)
-    for fn in (_levels_status, _phone_toggle, _call, _clipboard, _speech, _browser, _snap, _text_edit, _batch2):
+    fns = (_levels_status, _phone_toggle, _call, _clipboard, _speech, _browser, _snap, _text_edit, _batch2)
+    if re.search(r"\b(?:and|then|after\s+that|also|plus)\b|,", r):
+        fns = (_phone_toggle,)       # a longer plan is the planner's; only "turn on wifi and bluetooth on the phone" is one shape
+    for fn in fns:
         try:
             out = fn(r)
         except Exception:
@@ -473,11 +477,16 @@ def _global_vocab() -> dict:
                     c[w] += 1
     except Exception:
         pass
-    for w, n in list(c.items()):      # inflections of command words: "speaking", "screenshots", "closed"
+    from jarvis.core.router.normalize import _english_word
+    for w, n in list(c.items()):      # inflections of command words that are themselves real words: "speaking", "screenshots"
         if len(w) >= 4 and w.isalpha():
             stem = w[:-1] if w.endswith("e") else w
             for form in (w + "s", stem + "ing", stem + "ed", w + "ing"):
-                c.setdefault(form, max(1, n // 3))
+                if form not in c and _english_word(form):
+                    c[form] = max(1, n // 3)
+    # words only seen in capability descriptions are not command words: keep the curated ones and keywords/examples
+    for w in [w for w, n in c.items() if n == 1 and w not in _VOCAB and not _english_word(w)]:
+        del c[w]
     _GLOBAL = dict(c)
     return _GLOBAL
 

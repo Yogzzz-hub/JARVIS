@@ -213,6 +213,18 @@ class SmartRouter:
         asked = self._dangling_reference(request, decision)
         return asked or decision
 
+    def _read_only_answer_available(self, text: str) -> bool:
+        """A strongly anchored read-only capability matches this question (its answer is the capability's own output)."""
+        try:
+            top = self.capability_retriever.retrieve(text, top_k=3, min_score=8.5)
+        except Exception:
+            return False
+        if not top:
+            return False
+        cap, score = top[0]
+        anchored = getattr(self.capability_retriever, "anchored", lambda *_: False)(cap, text)
+        return bool(anchored and score >= 8.5 and self._is_read_only(cap.target_tool) and self._retrieval_ok(cap.target_tool, text))
+
     _CARRIES_WORDS = re.compile(r"\b(?:send|text|message|msg|tell|type|write|dictate|note|remember|remind|reply|email|mail|say|saying|ask|draft|caption|"
                                 r"post|search|google|look\s*up|play|find|call|ring)\b|[\"'“”]", re.I)
 
@@ -279,7 +291,11 @@ class SmartRouter:
                 return RouteDecision(request_id=request.request_id, lane=RouteLane.REJECT, intent=None, slots={},
                     confidence=1.0, source=RouteSource.GRAMMAR, normalized_text=raw_language,
                     reason_code=ReasonCode.NEGATED_ACTION)
-            if language_frame.speech_act in {"QUESTION", "STATEMENT"}:
+            from jarvis.core.multilingual import to_english_command as _to_en
+            _bare = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+|kindly\s+)?|please\s+|kindly\s+)+", "",
+                           raw_language.strip(), flags=re.I)
+            polite_command = _bare != raw_language.strip() and _to_en(_bare) != _bare      # "could you please chrome open pannu"
+            if language_frame.speech_act in {"QUESTION", "STATEMENT"} and not polite_command:
                 return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={},
                     confidence=0.8, source=RouteSource.GRAMMAR, normalized_text=raw_language,
                     reason_code=ReasonCode.QUESTION_NOT_COMMAND)
@@ -420,7 +436,8 @@ class SmartRouter:
             # the language adapter's slot hints are advisory (see above): an object it could not name ("anirudh songs" in
             # "youtube la anirudh songs podu") does not undo a capability the router resolved with its slots filled
             if not media_target_resolved and decision.intent and decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) \
-                    and set(language_frame.missing) <= {"audio_selection", "media", "object", "target", "resource", "app", "query", "topic", "item"}:
+                    and set(language_frame.missing) <= {"audio_selection", "media", "object", "target", "resource", "app", "query", "topic", "item",
+                                                       "verb_sense", "channel"}:
                 from jarvis.core.semantics.references import is_reference
                 vals = [v for v in (decision.slots or {}).values() if isinstance(v, str) and v.strip()]
                 media_target_resolved = bool(vals) and not any(is_reference(v) for v in vals)
@@ -430,7 +447,10 @@ class SmartRouter:
                     clarification="I need " + ", ".join(language_frame.missing).replace("_", " ") + " before acting.",
                     reason_code=ReasonCode.MISSING_REQUIRED_SLOT, missing_slots=language_frame.missing,
                     context_trace={"language_frame": language_frame.asdict()})
-        if language_frame.language == "tanglish" and language_frame.speech_act == "COMMAND" \
+        _send_filled = decision.intent in self._SEND_INTENTS and all(
+            isinstance((decision.slots or {}).get(k), str) and (decision.slots or {}).get(k, "").strip() for k in ("recipient", "message")) \
+            and bool(re.search(r"\b(?:anuppu|anupu|anuppidu|anuppunga|sollu|sollidu|solliru|sollunga|nu)\b", raw_language, re.I))
+        if language_frame.language == "tanglish" and language_frame.speech_act == "COMMAND" and not _send_filled \
                 and language_frame.action not in {"SEND", "DRAFT_REPLY"} and decision.intent in self._SEND_INTENTS:
             return RouteDecision(request_id=request.request_id, lane=RouteLane.CLARIFY, intent=None, slots={},
                 confidence=language_frame.confidence, source=RouteSource.GRAMMAR, normalized_text=raw_language,
@@ -2990,7 +3010,10 @@ class SmartRouter:
             return install_decision
 
         # 4. QUESTION / INFORMATIONAL GUARD
-        if is_informational_or_question(clean_text, routing_text):
+        informational = is_informational_or_question(clean_text, routing_text)
+        if informational and re.match(r"^\W*(?:what|which|who|whose)\b", clean_lower) and self._read_only_answer_available(routing_text):
+            informational = False      # "which apps are hogging memory": a look-up a read-only capability answers
+        if informational:
             # Extract entities from question and track active topic (Sections 5, 6, 14, 16)
             ents = EntityExtractor.extract_from_utterance(original_text)
             if ents and self.working_memory:
