@@ -20,6 +20,21 @@ _FRACTIONS = {"half": 50, "a half": 50, "quarter": 25, "a quarter": 25, "one qua
 _NUMWORD = r"(?:" + "|".join(sorted(list(_UNITS) + list(_TENS) + ["hundred"], key=len, reverse=True)) + r")"
 
 
+def fix_number_typos(text: str) -> str:
+    """"sixy" -> "sixty", "fiftyy" -> "fifty", "twnty" -> "twenty": a mistyped number word (never a real English word)."""
+    from jarvis.core.router.normalize import _edit_distance, _english_word
+    known = list(_UNITS) + list(_TENS) + ["hundred"]
+    out = []
+    for w in (text or "").split():
+        core = w.strip(".,!?;:'\"%").lower()
+        if len(core) >= 4 and core.isalpha() and core not in known and not _english_word(core):
+            hits = [k for k in known if len(k) >= 4 and abs(len(k) - len(core)) <= 1 and k[0] == core[0] and _edit_distance(core, k) <= 1]
+            if len(hits) == 1:
+                w = w.lower().replace(core, hits[0])
+        out.append(w)
+    return " ".join(out)
+
+
 def words_to_int(text: str) -> int | None:
     """"fourty" -> 40, "one fifty" -> 150, "hundred" -> 100, "twenty five" -> 25, "a quarter" -> 25, "7" -> 7."""
     t = re.sub(r"[-,]", " ", (text or "").lower()).strip()
@@ -89,6 +104,7 @@ def settings_command(t: str) -> str | None:
     """"crank the sound all the way up" -> "set volume to 100"; "dim the screen down to a quarter" -> "set brightness to 25";
     "set volum to fourty" -> "set volume to 40". None when the text is not a level command."""
     t = " ".join(t.lower().split())
+    t = fix_number_typos(t)
     if _NOT_CONTENT.search(t) or len(t.split()) > 14:
         return None
     if re.search(r"\b(?:every|whenever|when|once|after|before|tomorrow|tonight|daily|weekdays?|mornings?|evenings?|if|until|till|while|schedule\w*)\b|"

@@ -292,11 +292,21 @@ def match_bulk_reply(text: str, request_id: str) -> Optional[RouteDecision]:
     if re.match(r"^(?:who|what|how many|did|has|have|is|are)\b", t) and not re.search(r"\b(?:reply|respond|send|tell)\b", t):
         return None
     tail = t[m.end():]
+    hours = None
+    w = re.match(r"^\s*(?:in|over|during|within|from)\s+the\s+(?:last|past)\s+(?P<n>\d+(?:\.\d+)?|[a-z]+(?:\s+[a-z]+)?)\s+(?P<u>hours?|hrs?|minutes?|mins?|days?)\b", tail)
+    if w:
+        from jarvis.core.router.paraphrase import words_to_int
+        n = words_to_int(w.group("n"))
+        if n:
+            hours = n * (1 if w.group("u").startswith(("h")) else (1 / 60 if w.group("u").startswith("m") else 24))
+            tail = tail[w.end():]
     tail = re.sub(r"^\s*(?:,|\.|;|:|-)?\s*(?:and\s+)?(?:please\s+)?(?:just\s+)?(?:(?:tell|say|saying|inform|let)\s+(?:them|those|everyone|all)?\s*(?:know)?\s*)?"
                   r"(?:know\s+)?(?:that|saying|with|:)?\s*", "", tail)
     tail = re.sub(r"^(?:is|as|like|with|to)\s+", "", tail.strip())  # "... typing to me is i am at work"
     body = raw_body(raw, tail).strip(" ,.;:") if tail.strip() else ""
     slots = {"message": body, "request": raw}
+    if hours:
+        slots["hours"] = max(0.05, min(168.0, round(hours, 2)))
     return _decision(request_id, t, "reply_whatsapp_all", slots, context_trace={"bulk_reply": True})
 
 
@@ -573,7 +583,7 @@ def match_utilities(t: str, raw: str, request_id: str) -> Optional[RouteDecision
         return _decision(request_id, t, "create_shortcut", {"phrase": m.group("p").strip(), "steps": split_steps(raw_body(raw, m.group("steps")))})
     if re.match(r"^(?:list|show|what are)\s+(?:all\s+)?(?:my\s+)?(?:shortcuts|macros|routines|voice commands|custom commands)$", t):
         return _decision(request_id, t, "list_shortcuts", {})
-    m = re.match(r"^(?:delete|remove|forget)\s+(?:the\s+)?(?:shortcut|macro|routine)\s+(?:called\s+|named\s+)?[\"']?(?P<p>.+?)[\"']?$", t) \
+    m = re.match(r"^(?:delete|remove|forget|cancel|drop|scrap|clear)\s+(?:the\s+)?(?:shortcut|macro|routine)\s+(?:called\s+|named\s+)?[\"']?(?P<p>.+?)[\"']?$", t) \
         or re.match(r"^(?:delete|remove|forget)\s+(?:the\s+|my\s+)?[\"']?(?P<p>(?!.*\bdesktop\b)[^\"']{2,40}?)[\"']?\s+(?:voice\s+)?(?:shortcut|macro|routine)$", t)
     if m:
         return _decision(request_id, t, "delete_shortcut", {"phrase": m.group("p")})

@@ -177,6 +177,23 @@ class SmartRouter:
         return False
 
     async def route(self, request: CommandRequest | str) -> RouteDecision:
+        decision = await self._route_chain(request)
+        return self._unresolved_content_guard(decision)
+
+    def _unresolved_content_guard(self, decision: RouteDecision) -> RouteDecision:
+        """"forward that to everyone" with nothing in the conversation for "that": a broadcast never goes out with a pronoun
+        for its content - ask what to send."""
+        slots = decision.slots or {}
+        if decision.intent in ("reply_whatsapp_all", "send_whatsapp_bulk") and slots.get("pronoun") and \
+                re.fullmatch(r"(?:to\s+)?(?:everyone|everybody|all|them|all of them)?", str(slots.get("message") or "").strip(" .!?").lower()):
+            return RouteDecision(request_id=decision.request_id, lane=RouteLane.CLARIFY, intent=decision.intent,
+                                 slots={k: v for k, v in slots.items() if k not in ("message", "pronoun")}, confidence=0.4,
+                                 source=decision.source, complexity=ComplexityLevel.SIMPLE, normalized_text=decision.normalized_text,
+                                 clarification="What should I send to everyone? Tell me the message, or name the file.",
+                                 reason_code=ReasonCode.LOW_CONFIDENCE, missing_slots=["message"])
+        return decision
+
+    async def _route_chain(self, request: CommandRequest | str) -> RouteDecision:
         """Route; when the rules find nothing, try the request again in the wordings the lexicon layer recognises
         (paraphrase shapes, repaired spelling). The first wording that reaches a real capability wins; a request that
         was already understood is never reinterpreted."""

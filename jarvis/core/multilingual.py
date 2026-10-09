@@ -27,7 +27,7 @@ REPLY_LANGUAGE: ContextVar[str] = ContextVar("reply_language", default=ENGLISH)
 _STATE = Path(__file__).resolve().parents[2] / "data" / "language.json"
 
 # Verbs and particles that only occur in Thanglish commands (added to the WhatsApp detector's Tamil lexicon).
-_COMMAND_WORDS = frozenset("""mattum matum ellaa ellam ellame ellathaiyum ellathayum paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
+_COMMAND_WORDS = frozenset("""thorandhu thirandhu mattum matum ellaa ellam ellame ellathaiyum ellathayum paatu paattu paadal adutha aduththa munnadi munnaadi pannu panu pannunga pannuga pannidu panniduda panni podu podunga pottu potu anuppu anupu anuppidu
 anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thora thorakku thiranthu edu eduthu edunga
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
 sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu
@@ -114,8 +114,8 @@ def match_language_switch(text: str) -> Optional[str]:
 
 # ------------------------------------------------------------------ Thanglish command -> English command
 _P_END = r"(?:\s+(?:da|di|dei|pa|ma|please|plz|jarvis|ippo|seekiram|konjam|ok|sari|seri|bro|machi|macha|dude|ji|nga|boss))*"
-_OPEN = r"(?:(?:open|launch|start|run)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|panniduda)|thora|thorakku|thiranthu\s+vidu|open)"
-_CLOSE = r"(?:(?:close|quit|exit|kill)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu)|moodu|mudu|moodunga)"
+_OPEN = r"(?:(?:open|launch|start|run)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|panniduda|pannuda)|thora|thorakku|thiranthu\s+vidu|thorandhu(?:\s+(?:vidunga|vidu|kudu|kudunga))?|thirandhu(?:\s+(?:vidunga|vidu|kudu))?|open)"
+_CLOSE = r"(?:(?:close|quit|exit|kill)\s+(?:pannu|panu|pannunga|pannidu|panni\s+vidu|pannuda|panniduda)|moodu|mudu|moodunga)"
 _PLAY = r"(?:podu|podunga|pottu\s+vidu|potu\s+vidu|play\s+(?:pannu|panu|pannunga|panni\s+vidu))"
 _SEND = r"(?:anuppu|anupu|anuppidu|anuppunga|anuppi\s+vidu|send\s+(?:pannu|panu|pannunga|pannidu)|(?:message|msg|text|whatsapp)\s+(?:pannu|panu|pannunga|pannidu|panniru|pannu\s+da))"
 _TELL = r"(?:sollu|sollidu|sollunga|solli\s+vidu|solliru|solliduda|sollirunga)"
@@ -147,7 +147,7 @@ def _clean(text: str) -> str:
 def to_english_command(text: str) -> str:
     """English command for a Thanglish one ("chrome open pannu" -> "open chrome"); ``text`` itself otherwise."""
     raw = _clean(text)
-    t = raw.lower()
+    t = re.sub(r"\b(pannu|panu|pannunga)(da|dei|di|pa)\b", r"\1 \2", raw.lower())          # "pannuda" = "pannu da"
     if not t or not (set(_WORD.findall(t)) & _LEXICON):
         return text
     if re.search(r"\b(?:venam|vendam|vendaam|vendaa|pannadha|pannaadha|pannatha|koodadhu|illa\s+illa|illa\s+venam)\b\s*,|,\s*(?:illa|illa\s+illa)\b", t):
@@ -354,6 +354,20 @@ def _gloss(body: str, keep) -> Optional[str]:
     (volume, brightness, battery) said around a state, a request for something with "venum"."""
     # a first-person remark after the command is not part of it: "pc ah lock pannidu, naan veliya poren"
     head, sep, rest = body.partition(",")
+    if sep and re.match(r"\s*(?:naan|nan|naa|enakku|ennaku)\b", head) and len(rest.split()) >= 2:
+        out = to_english_command(rest.strip())          # "naan veliya poren, pc ah lock pannidu": the remark first, then the command
+        if out != rest.strip():
+            return out
+    m = re.fullmatch(r"(?P<s>vol\w*|bright\w*|saththam|sound)\s+(?P<n>\d{1,3})\s*(?:percent|%|per\s*cent)?\s*(?:ku|kku|la|ah)?\s+(?:vei|vai|vechidu|vachidu|podu|maathu|mathu|maatru|set\s+" + _PANNU + r")(?:\s+(?:da|dei|pa|nga))?", body)
+    if m:
+        what = "brightness" if m.group("s").startswith("bright") else "volume"
+        return f"set {what} to {m.group('n')}"
+    m = re.fullmatch(r"(?P<f>[\w.()-]+\.\w{2,5})\s+(?:ah|a)?\s*(?P<s>desktop|downloads?|documents?|pictures?|music|videos?)\s*(?:la|le)\s+(?:irundhu|irunthu)\s+(?P<d>desktop|downloads?|documents?|pictures?|music|videos?)\s*(?:ku|kku)\s+(?P<v>move|copy)\s*(?:" + _PANNU + r")?", body)
+    if m:
+        return f"{m.group('v')} {keep(m.group('f'))} from {m.group('s')} to {m.group('d')}"
+    m = re.fullmatch(r"(?:adha|atha|adhu|athu|idha|itha)\s+(?:mudi|moodu|mudu|close\s+" + _PANNU + r")", body)
+    if m:
+        return "close that"
     if sep and re.match(r"\s*(?:naan|nan|en|enakku|ennaku|naa)\b", rest) and len(head.split()) >= 2:
         out = to_english_command(head)
         if out != head:
@@ -400,7 +414,7 @@ def _gloss(body: str, keep) -> Optional[str]:
         what = m.group("what")
         what = {"water kudikka": "drink water", "saapida": "eat", "thoongu": "sleep"}.get(what, what)
         return f"remind me in {n} minutes to {keep(what)}"
-    m = re.fullmatch(r"(?:(?P<d>naalaiku|naalaikku|nalaiku|inniku|innaiku)\s+)?(?:kaalaila|kaalaiyil|morning)\s+(?P<n>\d{1,2})\s*(?:manikku|mani\s*ku)\s+(?:ennai|enna|ennaa)\s+(?:ezhuppu|ezhuppunga|ezhupu|eluppu)", body)
+    m = re.fullmatch(r"(?:(?P<d>naalaiku|naalaikku|nalaiku|inniku|innaiku)\s+)?(?:kaalaila|kaalaiyil|morning)\s+(?P<n>\d{1,2})\s*(?:manikku|mani\s*ku)\s+(?:ennai|enna|ennaa)\s+(?:ezhuppu|ezhuppunga|ezhupu|eluppu|ezhuppi\s+vidu|ezhuppi\s+vidunga|ezhuppi)", body)
     if m:
         day = "tomorrow" if (m.group("d") or "").startswith(("naal", "nal")) else "today"
         return f"remind me {day} at {m.group('n')} am to wake up"

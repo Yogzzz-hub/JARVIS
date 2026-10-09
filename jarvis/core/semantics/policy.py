@@ -83,16 +83,41 @@ _OTHER_PERSON = r"(?:(?:my\s+)?(?:friend|roommate|room\s*mate|flatmate|colleague
                 r"his|her|their|(?-i:(?!(?:What|That|It|There|Here|He|She|Let|Who|Where|How|When|Why)'s)[A-Z][a-z]+'s))"
 # devices and data that are someone else's when another person possesses them; their messages / mail / photos only with a
 # covert or remote marker ("her messages" usually means the owner's own chat with her)
-_THEIR_DEVICE = r"(?:laptop|pc|computer|desktop|phone|mobile|tablet|device|screen|notifications?|account|camera|webcam|" \
-                r"location|gallery|browser\s+history|search\s+history|call\s+log)"
+_THEIR_DEVICE = r"(?:laptop|pc|computer|desktop|phone|mobile|tablet|device|screen|notifications?|accounts?|camera|webcam|" \
+                r"location|gallery|browser\s+history|search\s+history|command\s+history|call\s+log)"
+# apps and networks are someone else's only when said with a possessive: "his instagram", "my wife's facebook" - never "send uncle an instagram reel"
+_THEIR_APP = r"(?:facebook|instagram|snapchat|telegram|whatsapp(?:\s+(?:chats?|messages?|account))?|gmail|inbox|e-?mail\s+account|wi-?fi|network)"
 _CONTROL_VERB = r"(?:read|check|see|view|look\s+at|open|access|get\s+into|log\s+into|monitor|track|spy|watch|record|control|send|share|" \
-                r"shut\s*down|turn\s+off|switch\s+off|power\s+off|restart|reboot|lock|wipe|delete|hack|read\s+out|forward|copy)"
-_THIRD_PARTY = re.compile(rf"\b{_CONTROL_VERB}\b\s+(?:\w+\s+){{0,2}}?{_OTHER_PERSON}\s+(?:(?!my\b|our\b|your\b)\w+\s+){{0,2}}?{_THEIR_DEVICE}\b", re.I)
-_COVERT = re.compile(r"\b(?:without\s+(?:him|her|them|my\s+\w+|\w+)\s+(?:knowing|noticing|finding\s+out)|without\s+(?:telling|informing|asking)\s+(?:him|her|them)|secretly|spy(?:ing)?\s+on|"
+                r"shut\s*down|turn\s+off|switch\s+off|power\s+off|restart|reboot|lock|wipe|clear|erase|delete|hack|read\s+out|forward|copy|" \
+                r"scroll|screen\s*shots?|screenshot|capture|grab|take|go\s+through|dig\s+through|break\s+into|intercept|listen\s+(?:in\s+)?(?:to|on)|pull|download)"
+_THIRD_PARTY = re.compile(rf"\b{_CONTROL_VERB}\b\s+(?:[\w']+\s+){{0,5}}?{_OTHER_PERSON}\s+(?:(?!my\b|our\b|your\b)[\w']+\s+){{0,2}}?{_THEIR_DEVICE}\b(?!\s+numbers?\b)", re.I)
+_THIRD_APP = re.compile(rf"\b{_CONTROL_VERB}\b\s+(?:[\w']+\s+){{0,5}}?(?:(?:his|her|their)|{_OTHER_PERSON}(?<='s))\s+(?:[\w']+\s+){{0,2}}?{_THEIR_APP}\b", re.I)
+# private data of another person, when it is reached remotely / covertly / "off her phone" ("her messages" alone is the owner's own chat)
+_THEIR_DATA = r"(?:chats?|messages?|texts?|notes?|reminders?|photos?|pictures?|files?|e-?mails?|diary|browsing|history|contacts?|location|passwords?)"
+_PRIVATE_MARK = r"(?:(?:off|from|on|straight\s+off)\s+(?:his|her|their|{p}'?s?)\s+(?:phone|laptop|pc|device|mobile)|private|secret(?:ly)?|"  \
+                r"while\s+(?:she|he|they)(?:'s|\s+is|\s+are)?\s+(?:out|away|asleep|busy|not|logged|shopping|at)|without\s+(?:her|him|them)|behind\s+(?:his|her|their)\s+back)"
+_THIRD_DATA = re.compile(rf"\b{_CONTROL_VERB}\b\s+(?:me\s+)?(?:[\w']+\s+){{0,3}}?{_OTHER_PERSON}\s+(?:[\w']+\s+){{0,3}}?{_THEIR_DATA}\b.*" + _PRIVATE_MARK.replace("{p}", "[\\w']+"), re.I)
+_IMPERSONATE = re.compile(r"\b(?:as\s+if\s+(?:you|i)\s+(?:were|are|was)|pretend(?:ing)?\s+(?:to\s+be|you(?:'re|\s+are)|i(?:'m|\s+am))|pos(?:e|ing)\s+as|"
+                          r"impersonat\w+|in\s+the\s+name\s+of\s+(?:the\s+)?(?:ceo|boss|manager|bank|police))\b", re.I)
+_SEND_VERB = re.compile(r"\b(?:send|message|text|whatsapp|mail|email|write\s+to|ping|dm|reply\s+to)\b|\btell\s+(?!me\b|us\b|you\b)\w+|\bcall\s+(?!me\b)\w+", re.I)
+_HARASS = re.compile(r"\b(?:nasty|abusive|threatening|rude|insulting|hateful|vile|obscene|offensive|creepy|filthy)\s+(?:messages?|texts?|mails?|emails?|notes?)\b|"
+                     r"\b(?:harass\w*|stalk\w*|threaten\w*|cyber\s*bull\w*|doxx?\w*)\b|"
+                     r"\b(?:from|using)\s+(?:a\s+)?(?:fake|burner|unknown|another|different|anonymous)\s+(?:number|account|profile|sim)\b|"
+                     r"\bso\s+(?:he|she|they)\s+(?:can'?t|cannot|won'?t|couldn'?t)\s+(?:trace|track|identify|find\s+out|know)\b|"
+                     r"\bnumber\s+(?:he|she|they)\s+won'?t\s+recogni[sz]e\b", re.I)
+_TRACK_PERSON = re.compile(rf"\bwhere\s+(?:she|he|they|{_OTHER_PERSON})\s+(?:is|lives|stays|works|are|went|goes)\b|"
+                           rf"{_OTHER_PERSON}\s+(?:[\w']+\s+){{0,2}}?(?:home|house|residential|current)\s+address\b|\baddress\s+of\s+(?:my\s+)?(?:neighbou?r|ex|colleague|boss|classmate)\b|"
+                           r"\bwhen\s+(?:she|he|they)(?:'s|\s+is|\s+are)?\s+(?:usually\s+)?(?:out|away|alone|not\s+(?:at\s+)?home)\b", re.I)
+_TRACK_VERB = re.compile(r"\b(?:find|work\s+out|figure\s+out|track|trace|locate|tell\s+me|search|look\s+up|dig\s+up|get|discover|identify)\b", re.I)
+_SOCIAL_ENG = re.compile(r"\b(?:caller|someone|somebody|person|guy|man|woman|lady|agent|executive|officer|representative|stranger|they)\b.{0,60}?"
+                         r"\b(?:says?|said|claims?|claiming|asks?|asking|wants?|needs?|demand\w*)\b.{0,70}?\b(?:otp|code|pin|password|cvv|verification|passcode|one[\s-]time)\b", re.I)
+_SECRET_PUBLIC = re.compile(rf"\b{_SECRET_NOUN}\b.{{0,80}}\b(?:post|upload|share|publish|tweet|put|send)\b.{{0,50}}\b(?:public(?:ly)?|online|twitter|facebook|instagram|reddit|story|status|forum|everyone|internet|group)\b|"
+                            rf"\b(?:post|upload|share|publish|tweet)\b.{{0,80}}\b{_SECRET_NOUN}\b.{{0,80}}\b(?:public(?:ly)?|online|twitter|facebook|instagram|reddit|story|status|forum|everyone|internet|group)\b", re.I)
+_COVERT = re.compile(r"\b(?:quietly|silently|discreetly|stealthily|in\s+secret|without\s+(?:him|her|them|my\s+\w+|\w+)\s+(?:knowing|noticing|finding\s+out)|without\s+(?:telling|informing|asking)\s+(?:him|her|them)|secretly|spy(?:ing)?\s+on|"
                      r"behind\s+(?:his|her|their)\s+back|remotely|over\s+the\s+network|through\s+(?:teamviewer|anydesk)|"
                      r"(?:via|over|using)\s+(?:teamviewer|anydesk|remote\s+desktop))\b", re.I)
 
-_DRIVE_WIPE = re.compile(r"\b(?:format|re-?format|wipe|erase|nuke|zero\s+out|clean\s+install|factory\s+reset|reset)\s+(?:\w+\s+){0,2}?"
+_DRIVE_WIPE = re.compile(r"\b(?:format|re-?format|wipe|erase|nuke|zero\s+out|clean\s+install|factory\s+reset|reset)(?:s|es)?\s+(?:\w+\s+){0,2}?"
                          r"(?:c\s*:|[a-z]\s+drive|drive|disk|hard\s*(?:drive|disk)|ssd|hdd|partition|system|windows|computer|pc|laptop|"
                          r"phone|mobile|everything|every\s+single\s+thing)\b"
                          r"|\b(?:clear|clean|empty|delete|remove|wipe|erase)\s+(?:out\s+)?(?:\w+\s+){0,3}?(?:system\s*32|windows\s+folder|"
@@ -104,7 +129,9 @@ _SCAM = re.compile(r"\b(?:tech\s+support|microsoft\s+support|windows\s+support|a
                    r"refund\s+(?:pending|available)|claim\s+(?:your\s+)?(?:reward|prize|gift)|account\s+(?:suspended|blocked|locked))\b"
                    r"|\b(?:pop-?up|warning|alert|message|website|site|page|window|banner)\b.{0,40}\b(?:says|saying|claims|telling)\b.{0,60}"
                    r"\b(?:virus|infected|hacked|malware|trojan|compromised)\b", re.I)
-_OTHER_CREDENTIAL = re.compile(rf"(?:{_OTHER_PERSON}|someone(?:\s+else)?'?s?|anyone'?s?|other\s+people'?s)\s+(?:\w+\s+){{0,2}}?(?:password|passcode|pin|otp|login|credentials?|account)\b"
+_OTHER_CREDENTIAL = re.compile(rf"\b(?:password|passcode|key|code)\s+(?:of|for|to)\s+(?:the\s+)?(?:[\w']+\s+){{0,3}}?(?:next\s+door|neighbou?ring)\b|"
+                               rf"\b(?:password|passcode|key|code)\s+(?:of|for|to)\s+(?:the\s+)?{_OTHER_PERSON}\s+(?:[\w']+\s+){{0,2}}?(?:network|wi-?fi|router|account|phone|laptop|pc|device)\b|"
+                               rf"(?:{_OTHER_PERSON}|someone(?:\s+else)?'?s?|anyone'?s?|other\s+people'?s)\s+(?:\w+\s+){{0,2}}?(?:password|passcode|pin|otp|login|credentials?|account)\b"
                                rf"|\blog\s*(?:in|into)\s+(?:to\s+)?{_OTHER_PERSON}\s+\w+", re.I)
 _IDENTITY = re.compile(r"\b(?:aadhaa?r|aadhar|pan\s*(?:card|number|no)|passport\s+(?:number|no|details)|ssn|social\s+security|"
                        r"voter\s+id|driving\s+licen[cs]e\s+number|bank\s+account\s+(?:number|details)|ifsc\s+and\s+account)\b", re.I)
@@ -139,7 +166,7 @@ _PERSONAL_DATA = re.compile(r"\b(?:location|live\s+location|where\s+i\s+am|my\s+
 _SHARE_VERB = re.compile(r"\b(?:send|share|forward|post|upload|give)\b", re.I)
 _PIRACY = re.compile(r"\b(?:cracked|crack(?:ed)?\s+version|keygen|pirated|piracy|warez|nulled|patched\s+(?:exe|version)|"
                      r"activat(?:e|or)\s+without\s+(?:a\s+)?licen[cs]e|license\s+bypass|serial\s+key\s+generator)\b", re.I)
-_WITHOUT_ASKING = re.compile(r"\bwithout\s+(?:asking|confirm(?:ing|ation)?|checking|permission|telling\s+me|my\s+(?:ok|okay|approval|permission))\b|"
+_WITHOUT_ASKING = re.compile(r"\bno\s+(?:more\s+)?confirm\w*|\bwithout\s+(?:asking|confirm(?:ing|ation)?|checking|permission|telling\s+me|my\s+(?:ok|okay|approval|permission))\b|"
                              r"\b(?:don'?t|do\s+not|no\s+need\s+to|never)\s+(?:ask|confirm|check\s+with\s+me)\b|\bskip\s+(?:the\s+)?confirmation\b",
                              re.I)
 _NEGATED_CLAUSE = re.compile(r"^\s*(?:(?:please|but|and|so|just|jarvis)\s*,?\s+)*(?:don'?t|do\s+not|never|no\s+need\s+to|without|not|"
@@ -174,6 +201,12 @@ class RiskSignals:
     standing_share: bool = False
     piracy: bool = False
     other_credential: bool = False
+    third_party_data: bool = False
+    impersonation: bool = False
+    harassment: bool = False
+    stalking: bool = False
+    social_engineering: bool = False
+    secret_public: bool = False
     identity_share: bool = False
     exfiltrate: bool = False
     content_authority: bool = False
@@ -190,7 +223,7 @@ class RiskSignals:
     @property
     def must_never(self) -> Optional[str]:
         """The first signal that refuses every acting capability, or None."""
-        for name in ("payment", "drive_wipe", "credential_wipe", "credential_change", "third_party", "other_credential", "scam_ui",
+        for name in ("payment", "drive_wipe", "credential_wipe", "credential_change", "third_party", "third_party_data", "other_credential", "impersonation", "harassment", "stalking", "social_engineering", "secret_public", "scam_ui",
                      "payment_ui", "captcha", "standing_share", "piracy", "memory_of_secret", "login_with_secret", "identity_share",
                      "exfiltrate", "content_authority", "academic", "hoax", "mass_contact", "destructive_dev", "secret_expose"):
             if getattr(self, name):
@@ -232,6 +265,23 @@ def directed_text(text: str) -> str:
 
 
 def read_signals(text: str) -> RiskSignals:
+    """Risk signals of the text as said and, when it carries misspelt command words, as repaired ("inxtall crackd photoshp")."""
+    s = _read_signals(text)
+    try:
+        from jarvis.core.router.lexicon_rewrite import global_repair
+        fixed = global_repair(text or "")
+    except Exception:
+        return s
+    if fixed and fixed != " ".join((text or "").lower().split()):
+        s2 = _read_signals(fixed)
+        for k, v in s2.__dict__.items():
+            if v is True and not getattr(s, k):
+                setattr(s, k, True)
+        s.reasons = [k for k, v in s.__dict__.items() if v is True]
+    return s
+
+
+def _read_signals(text: str) -> RiskSignals:
     raw = " ".join((text or "").replace("’", "'").split())
     low = raw.lower()
     pos_all = " , ".join(positive_clauses(raw))
@@ -249,7 +299,14 @@ def read_signals(text: str) -> RiskSignals:
     s.credential_change = bool(_CREDENTIAL_CHANGE.search(pos_low)) and bool(re.search(r"\b(?:password|passcode|pin|login|lock\s*screen|2fa|two[\s-]factor)\b", pos_low))
     s.login_with_secret = bool(_LOGIN_WITH_SECRET.search(pos_low))
     s.third_party = bool(_THIRD_PARTY.search(pos)) or (bool(_COVERT.search(pos_low)) and bool(re.search(_OTHER_PERSON, pos))
-                                                        and bool(re.search(rf"\b{_CONTROL_VERB}\b", pos_low)))
+                                                        and bool(re.search(rf"\b{_CONTROL_VERB}\w*\b", pos_low)))
+    s.third_party = s.third_party or bool(_THIRD_APP.search(pos))
+    s.third_party_data = bool(_THIRD_DATA.search(pos))
+    s.impersonation = bool(_IMPERSONATE.search(pos_low)) and bool(_SEND_VERB.search(pos_low))
+    s.harassment = bool(_HARASS.search(pos_low))
+    s.stalking = bool(_TRACK_PERSON.search(pos)) and bool(_TRACK_VERB.search(pos_low))
+    s.social_engineering = bool(_SOCIAL_ENG.search(low)) and not s.advice_question
+    s.secret_public = bool(_SECRET_PUBLIC.search(pos_low))
     s.drive_wipe = bool(_DRIVE_WIPE.search(pos_low))
     s.credential_wipe = bool(_CREDENTIAL_WIPE.search(pos_low))
     ui = bool(_UI_ACT.search(pos_low))
@@ -286,6 +343,12 @@ _REFUSALS = {
     "memory_of_secret": "I don't store PINs, passwords, OTPs or card details - keep those in a password manager.",
     "login_with_secret": "I never type passwords, PINs or OTPs - enter those yourself.",
     "without_asking": "I always ask before doing something like that - I won't skip the confirmation.",
+    "third_party_data": "That's someone else's private data - I only act on yours, and never behind their back.",
+    "impersonation": "I won't message anyone while pretending to be someone else.",
+    "harassment": "I won't send abusive or threatening messages, or hide who is sending them.",
+    "stalking": "I won't track down where a private person is or lives.",
+    "social_engineering": "Someone asking you for a code or password on a call is a classic scam - I won't read it out or pass it on.",
+    "secret_public": "I won't post card numbers, passwords or other secrets publicly.",
     "other_credential": "That's someone else's password or account - I won't find, store, use or share it.",
     "identity_share": "I won't send or type identity numbers (Aadhaar, PAN, passport, bank account) - share those yourself if you must.",
     "exfiltrate": "I won't copy a whole drive and upload it anywhere.",

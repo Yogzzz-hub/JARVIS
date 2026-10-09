@@ -19,6 +19,7 @@ from jarvis.core.router.paraphrase import rewrite as _levels_status, words_to_in
 # ------------------------------------------------------------------------------------------------------- spelling
 # canonical command vocabulary: a token one or two slips from one of these (and not an ordinary English word) is repaired
 _VOCAB = """
+cracked torrent keygen confirmation everything documents format
 phone mobile android wifi bluetooth hotspot airplane torch flashlight screenshot clipboard volume brightness battery calendar
 tomorrow today yesterday email emails inbox unread notes memos memo reminders reminder history uninstall install restart shutdown
 lock sleep zoom refresh reload scroll window windows snap left right dictation password generate remember forget copy paste undo
@@ -174,6 +175,10 @@ def _speech(t: str) -> str | None:
     """Controls of JARVIS's own voice: "raise your speaking voice a bit", "you're rushing, take it easy" -> speak louder|slower."""
     if _has(t, r"\b(?:while|when|whenever|if|during|runs?|running)\b"):
         return None
+    if _has(t, r"\b(?:you|yourself)\b") and _has(t, r"\b(?:booming|blasting|deafening|shouting|yelling|too\s+loud)\b"):
+        return "speak quieter"
+    if _has(t, r"\byou(?:'re|\s+are)?\b") and _has(t, r"\b(?:rattling|racing|speeding|too\s+fast|too\s+quickly|so\s+fast|too\s+quick)\b"):
+        return "speak slower"
     me = _has(t, r"\b(?:voice|speak\w*|talk\w*|pace|rushing|spoken)\b|\byou(?:'re|\s+are)\s+(?:too\s+)?(?:loud|fast|slow|quiet|soft)\b")
     if not me or _has(t, r"\b(?:volume|brightness|music|song|video|phone|screen|open|launch|start|close|fire|pull|bring)\b"):
         return None
@@ -195,10 +200,10 @@ def _browser(t: str) -> str | None:
     """Browser quick actions by intent: back, forward, reopen closed tab, zoom, new tab, reload, top / bottom."""
     if _has(t, r"\b(?:phone|mobile|android)\b"):
         return None
-    if _has(t, r"\b(?:bring|get|restore|reopen|undo)\b.*\b(?:closed|tab)\b.*\b(?:mistake|accident|closed)\b|\b(?:reopen|restore|bring\s+back|undo)\b.*\b(?:closed|last)\b.*\btab\b|"
+    if _has(t, r"\b(?:bring|get|restore|reopen|undo)\b.*\b(?:closed|tab)\b.*\b(?:mistake|accident|closed|shut)\b|\b(?:reopen|restore|bring\s+back|undo)\b.*\b(?:closed|last)\b.*\btab\b|"
               r"\b(?:didn'?t|did\s+not)\s+mean\s+to\s+close\b|\bclosed\s+(?:that|the)\s+tab\b.*\bby\s+mistake\b|\boops\b.*\bclose"):
         return "reopen the closed tab"
-    if _has(t, r"\b(?:head|go|get|take\s+me|navigate)\s+back\b|\bprevious\s+page\b|\bback\s+(?:one\s+)?page\b|\bpage\s+back\b") \
+    if _has(t, r"\b(?:head|go|get|take\s+me|navigate)\s+back\b|\bprevious\s+page\b|\bback\s+(?:one\s+)?page\b|\bpage\s+back\b|\bwherever\s+i\s+was\s+before\s+this\s+page\b") \
             and not _has(t, r"\b(?:window|windows|desktop|app|application|program|previous\s+(?:window|app)|spreadsheet|document|file|folder|tab|editor|ide|code|chat|topic|conversation|subject|video|song|track|audio|playlist)\b") \
             and not _has(t, r"\bback\s+(?:to|into|in|at|on)\b|\bback\s+\d|\b\d+\s*(?:sec|secs|seconds?|min|mins|minutes?|hours?|steps?|lines?|pages)\b|\bme\s+back\s+to\b"):
         return "go back a page"
@@ -416,8 +421,129 @@ def _memory(t: str) -> str | None:
     return None
 
 
+_FILEISH = re.compile(r"\.\w{2,4}\b|\b(?:file|files|folder|photo|pic|picture|image|doc|document|pdf|video|song|invoice|report|log|screenshot)\b")
+
+
+def _everyday(t: str) -> str | None:
+    """Everyday phrasings of capabilities the first parsers know under one wording only: settings sections, dark mode, uninstall,
+    news, bookmark, zoom, private window, voice stop / repeat, list add / strike, "what did you just do"."""
+    if _has(t, r"\b(?:phone|mobile|android)\b"):
+        return None
+    m = re.fullmatch(r"(?:the\s+)?(?P<p>bluetooth|wi-?fi|display|sound|battery|network|privacy|update|storage|apps|accounts|time|language|notifications|"
+                     r"personali[sz]ation|ethernet|vpn|hotspot|airplane|camera|microphone|printers?|mouse|keyboard|power|sleep|focus|about|bluetooth\s+&\s+devices)"
+                     r"\s+settings(?:\s+(?:page|menu|panel))?", t)
+    if m:
+        return f"open {m.group('p')} settings"
+    m = re.fullmatch(r"(?:take\s+me|go|head|jump|navigate|bring\s+up|pull\s+up|show\s+me|open)(?:\s+me)?(?:\s+(?:up|over))?(?:\s+to)?\s+(?:the\s+)?"
+                     r"(?P<p>[a-z][a-z -]{2,24}?)\s+(?:section|page|panel|screen|options|tab|area)?\s*(?:in|of|within|inside)\s+(?:the\s+)?(?:windows\s+)?settings", t)
+    if m:
+        return f"open {m.group('p').strip()} settings"
+    m = re.fullmatch(r"(?:switch|set|change|turn|flip|put|move)(?:\s+the)?(?:\s+(?:whole|entire))?(?:\s+(?:system|computer|pc|windows|laptop|screen|display))?"
+                     r"(?:\s+over)?\s+(?:to|into)\s+(?P<m>dark|light)\s+(?:mode|theme)", t)
+    if m:
+        return f"switch to {m.group('m')} mode"
+    m = re.fullmatch(r"(?:take|get|remove|rip|kick)\s+(?:the\s+|my\s+)?(?P<a>[a-z][a-z0-9 .+-]{1,24}?)\s+(?:app\s+)?(?:off|out\s+of|from)(?:\s+of)?\s+(?:this|my|the)\s+"
+                     r"(?:computer|pc|laptop|machine|system|device)", t)
+    if m and not _FILEISH.search(m.group("a")) and not _has(m.group("a"), r"\b(?:me|it|them|that|this|those|everything|all)\b"):
+        return f"uninstall {m.group('a').strip()}"
+    m = re.fullmatch(r"(?:read|tell|give|show|get|fetch|bring)(?:\s+me)?(?:\s+out)?(?:\s+the|\s+a|\s+today'?s)?(?:\s+(?:top|latest|main|big))?(?:\s+(?:\w+))?"
+                     r"\s+(?:headlines|news\s+headlines|top\s+stories|news|rundown\s+of\s+(?:the\s+)?(?:news|headlines))(?:\s+(?:to\s+me|out\s+loud|aloud))?"
+                     r"(?:\s+(?:out\s+of|from|in|about|on|for)\s+(?P<w>[a-z][a-z ]{1,30}))?", t) \
+        or re.fullmatch(r"(?:give\s+me\s+)?a\s+rundown\s+of\s+(?:today'?s\s+)?(?:headlines|news)(?:\s+(?:out\s+of|from|in|about|on|for)\s+(?P<w2>[a-z][a-z ]{1,30}))?", t)
+    if m and not _has(t, r"\b(?:skip|except|without|but|rss|feeds?|blog|website|site|app)\b"):
+        w = (m.groupdict().get("w") or m.groupdict().get("w2") or "").strip()
+        return f"latest news about {w}" if w else "today's headlines"
+    if re.fullmatch(r"(?:save|add|put|stick|bookmark|pin)(?:\s+(?:this|the\s+current))?(?:\s+(?:page|site|tab|link))?(?:\s+(?:to|in|into|as))?(?:\s+my)?\s+(?:favou?rites|bookmarks?)", t):
+        return "bookmark this page"
+    if re.fullmatch(r"zoom(?:\s+the)?(?:\s+page)?\s+in(?:\s+(?:a|by)\s+(?:couple|few|bit|little|notch|notches|step|steps)(?:\s+of\s+(?:notches|steps))?)?", t):
+        return "zoom in"
+    if re.fullmatch(r"(?:open|give\s+me|start|launch|get\s+me|show\s+me)(?:\s+(?:me|up))?\s+(?:a\s+|an\s+)?(?:new\s+)?(?:private|incognito)(?:\s+browsing)?\s+(?:window|tab|mode|session)", t):
+        return "open an incognito window"
+    if re.fullmatch(r"(?:pipe\s+down|shut\s+up|hush|be\s+quiet|quiet\s+down|zip\s+it|silence)(?:\s+(?:a|for\s+a)\s+(?:sec|second|moment|minute|bit|while))?", t):
+        return "stop talking"
+    if re.fullmatch(r"(?:repeat|repete|repeet)\s+(?:yourself|that|it)(?:\s*,?\s+(?:i|my|it).*)?|(?:what|wat)\s+did\s+(?:you|u)\s+(?:just|jus|jst)\s+say(?:\s*,?\s*(?:repeat|repete).*)?|say\s+(?:that|it)\s+again|come\s+again", t):
+        return "say that again"
+    if re.fullmatch(r"(?:go|switch)\s+back\s+to\s+(?:talking|speaking|replying)?\s*(?:in\s+)?(?:plain\s+|just\s+)?english(?:\s+with\s+me)?", t) \
+            or re.fullmatch(r"(?:talk|speak|reply|respond)\s+(?:to\s+me\s+)?(?:in\s+)?(?:plain\s+|just\s+)?english(?:\s+(?:only|again|with\s+me))?", t):
+        return "reply in english"
+    m = re.fullmatch(r"(?:put|send)\s+(?:the\s+)?(?P<a>[a-z][a-z0-9 .+-]{1,20}?)\s+out\s+of\s+its\s+misery", t)
+    if m:
+        return f"close {m.group('a').strip()}"
+    if re.fullmatch(r"(?:let|make)\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|machine)\s+(?:doze\s+off|nap|go\s+to\s+sleep|snooze|sleep)", t):
+        return "put the pc to sleep"
+    m = re.fullmatch(r"(?:add|pop|put|stick|throw|jot|drop)\s+[\"']?(?P<x>[a-z][\w ,'-]{2,40}?)[\"']?\s+(?:on|onto|to|in|into)\s+(?:my\s+|the\s+)?"
+                     r"(?:todo|to-do|to\s+do|chores?|task|tasks|shopping|grocery|errands?)\s*(?:list)?", t)
+    if m and not _FILEISH.search(m.group("x")):
+        return f"add {m.group('x').strip()} to my todo list"
+    m = re.fullmatch(r"(?:strike|cross|tick|scratch|check|knock)\s+[\"']?(?P<x>[a-z][\w ,'-]{2,40}?)[\"']?\s+(?:off|out)\s+(?:of\s+)?(?:the|my)\s+(?:todo\s+|to-do\s+|chores?\s+|task\s+)?list(?:\s*,.*)?", t)
+    if m:
+        return f"mark {m.group('x').strip()} as done"
+    if re.fullmatch(r"(?:run|walk|take)\s+me\s+through\s+what\s+you\s+(?:just\s+)?(?:did|have\s+done)(?:\s+for\s+me)?(?:\s*,?\s*step\s+by\s+step)?|"
+                    r"(?:wut|wat|what)\s+did\s+(?:you|u)\s+(?:jst|just|jus)\s+do", t):
+        return "what did you do last"
+    return None
+
+
+_APP = r"(?P<a>[a-z][a-z0-9 .+-]{1,22}?)"
+
+
+def _ops(t: str) -> str | None:
+    """Editing, window and call-screen requests said in other words: stop dictating, take that back, drop the last three words,
+    copy whatever is highlighted, tuck an app onto the taskbar, put the call on loudspeaker."""
+    if _has(t, r"\b(?:phone|mobile|android)\b") and not _has(t, r"\bcall\b"):
+        return None
+    if re.fullmatch(r"(?:stop|quit|end|finish|cease|halt)\s+(?:the\s+)?(?:dictating|dictation|taking\s+(?:down\s+)?my\s+words)(?:\s+(?:now|here))?", t):
+        return "stop dictation"
+    if re.fullmatch(r"(?:take|put)\s+back\s+(?:what|whatever)\s+i\s+(?:just\s+)?(?:did|typed|wrote|changed)|(?:revert|reverse|rewind)\s+(?:what\s+i\s+just\s+did|that\s+(?:last\s+)?(?:change|edit))|"
+                    r"(?:take|put|bring)\s+(?:it\s+|that\s+)?back\s+the\s+way\s+it\s+was", t):
+        return "undo"
+    if re.fullmatch(r"(?:whoops|oops|sorry)?,?\s*(?:bring|put|get)\s+back\s+(?:what|whatever)\s+i\s+(?:just\s+)?(?:rubbed|wiped|deleted|erased|removed|undid|took)\s+(?:out|away|off)?", t):
+        return "redo"
+    m = re.fullmatch(r"(?:wipe|rub|erase|remove|delete|drop|scrap|cut)(?:\s+out)?\s+(?:the\s+)?(?:last|final)\s+(?P<n>\w+)\s+(?P<u>words?|characters?|letters?|lines?|sentences?)(?:\s+i\s+(?:typ(?:ed|e)|wrote|write|said|say|dictated|dictate))?", t)
+    if m:
+        return f"delete the last {m.group('n')} {m.group('u')}"
+    m = re.fullmatch(r"(?:wipe|rub|erase|remove|delete|drop|scrap)(?:\s+out)?\s+(?:the\s+)?(?P<u>sentence|line|paragraph|word)\s+i\s+(?:just\s+)?(?:finished|typ(?:ed|e)|wrote|write|said|say|dictated|dictate)", t)
+    if m:
+        return f"delete the last {m.group('u')}"
+    if re.fullmatch(r"(?:copy|duplicate|grab|take)\s+(?:(?:whatever|what)(?:\s+text)?|the\s+(?:selected\s+)?text|that)(?:'s|\s+is)?\s+(?:highlighted|selected|marked)", t) \
+            or re.fullmatch(r"(?:copy|duplicate)\s+(?:the\s+)?(?:selection|highlighted\s+(?:text|part))", t):
+        return "copy that"
+    if re.fullmatch(r"cut\s+(?:that|it|this|(?:that|this|the)\s+(?:selected\s+)?(?:text|line|sentence|part|bit))(?:\s+out)?(?:\s+(?:and|so\s+i\s+can)\s+keep\s+it(?:\s+handy)?)?", t):
+        return "cut that"
+    if re.fullmatch(r"(?:drop|put|stick|place|throw)\s+(?:the\s+)?(?:clipboard(?:\s+stuff|\s+contents?)?|what\s+i\s+(?:copied|have\s+copied))\s+(?:in|into|on)\s+(?:here|this|there)", t):
+        return "paste"
+    m = re.fullmatch(r"(?:shout|make|turn|change|convert)\s+(?:the\s+)?(?:selected\s+text|selection|it|that|all\s+of\s+it)\s+(?:in|into|to)?\s*(?P<c>capitals|caps|upper\s*case|all\s+caps|lower\s*case|small\s+letters)", t)
+    if m:
+        return "make all of it " + ("lowercase" if re.search(r"lower|small", m.group("c")) else "uppercase")
+    if re.fullmatch(r"(?:hop|jump|move|take|go|bring|send)\s+(?:the\s+)?cursor\s+(?:to|back\s+to)\s+the\s+(?P<w>start|beginning|end)\s+of\s+the\s+(?:line|sentence|paragraph)", t):
+        pos = "start" if re.search(r"start|beginning", t) else "end"
+        return f"go to the {pos} of the line"
+    m = re.fullmatch(rf"(?:tuck|send|put|shove|park|stash|drop)\s+(?:the\s+)?{_APP}\s+(?:down\s+)?(?:onto|to|on|in|into)\s+the\s+taskbar(?:\s+for(?:\s+now)?)?", t)
+    if m and not _has(m.group("a"), r"\b(?:it|this|that|them)\b"):
+        return f"minimize {m.group('a').strip()}"
+    if re.fullmatch(r"(?:throw|move|send|shift|push|slide|put)\s+this\s+window\s+(?:across\s+)?(?:over\s+)?to\s+(?:my\s+|the\s+)?(?:other|second|next)\s+(?:display|monitor|screen)", t):
+        return "move this window to the other monitor"
+    m = re.fullmatch(rf"(?:slide|move|shift|push|send|put|throw)\s+(?:the\s+)?{_APP}\s+(?:over\s+)?(?:to|onto|on)\s+the\s+(?P<s>left|right)(?:\s+(?:side|half))?(?:\s+of\s+(?:the|my)\s+(?:screen|display))?", t)
+    if m and not _has(m.group("a"), r"\b(?:it|this|that|them|window|file|mouse|cursor)\b"):
+        return f"snap {m.group('a').strip()} to the {m.group('s')}"
+    if re.fullmatch(r"(?:switch|put|turn|move|set|take|flip)\s+(?:the|this|my)\s+call\s+(?:over\s+)?(?:on|to|onto)\s+(?:the\s+)?(?:loud\s*speaker|speaker|speakerphone)", t) \
+            or re.fullmatch(r"(?:put|turn)\s+(?:it|this)\s+on\s+(?:the\s+)?(?:loud\s*speaker|speakerphone)", t):
+        return "put the call on speaker"
+    return None
+
+
+def _autoreply(t: str) -> str | None:
+    """"switch on whatsapp auto-reply for my brother for two hours", "auto reply on for appa till 9" -> the canonical enable phrase."""
+    m = re.match(r"^(?:switch|turn|put|set)\s+(?P<s>on|off)\s+(?:the\s+)?(?:whatsapp\s+)?auto[- ]?(?:reply|replies|responder)\s+(?P<rest>for\s+.+)$|"
+                 r"^(?:whatsapp\s+)?auto[- ]?(?:reply|replies|responder)\s+(?P<s2>on|off)\s+(?P<rest2>for\s+.+)$", t)
+    if not m:
+        return None
+    state = m.group("s") or m.group("s2")
+    return f"turn {state} auto reply " + (m.group("rest") or m.group("rest2"))
+
+
 def _batch2(t: str) -> str | None:
-    for fn in (_mail, _calendar, _whatsapp_read, _lists, _history, _files, _memory):
+    for fn in (_everyday, _ops, _autoreply, _mail, _calendar, _whatsapp_read, _lists, _history, _files, _memory):
         out = fn(t)
         if out:
             return out
@@ -434,18 +560,21 @@ def rewrite(text: str) -> str | None:
         t = re.sub(r"^(?:(?:hey|hi|ok|okay)\s+)?jarvis\s*[,.!:]?\s+|^(?:um+|uh+|hmm+|so|well|alright|quick\s+question)\s*,?\s+|"
                    r"^(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+|kindly\s+)?|please\s+|kindly\s+)", "", t)
         t = re.sub(r"\s*,?\s+(?:jarvis|please|pls|thanks|thank\s+you|for\s+me|now|right\s+now|quickly|real\s+quick)$", "", t)
+        t = re.sub(r"^(?:whoops|oops|sorry|ah|oh|hmm+|uh|actually|wait|right|fine|alright|okay|ok)\s*,\s+", "", t)
+    t = re.sub(r"^(?:i'?m|i\s+am|i'?ll\s+be|we'?re|since|because|as)\s+(?:[a-z']+\s+){1,6}?[a-z']+\s*,\s+(?=(?:let|make|put|turn|switch|lock|close|open|set|take|bring|play|pause|mute|dim|snap|show|pull|fire|start|stop|go|get|give|bump|raise|lower)\b)", "", t)
     if not t or len(t.split()) > 14 or _NEG.search(t):
         return None
-    if _SCHEDULED.search(t) or _META.search(t):
+    if _SCHEDULED.search(t) or _META.search(t) or re.search(r"[<>=]", t):
         return None
     if (text or "").strip().endswith("?") and re.match(r"^(?:(?:can|could|would|will)\s+(?:you|u)\s+)?(?:remember|forget|save|store|keep)\b", " ".join((text or "").lower().split())):
         return None      # a question about the assistant's abilities is not an instruction
-    if _CONTENT.search(t):
+    if _CONTENT.search(re.sub(r"[\"“‘'][^\"”’']{2,60}[\"”’']", " ", t)):
         r0 = repair(t)
         return _whatsapp_read(r0) if re.match(r"^(?:did|has|have)\b", r0) else None
     r = repair(t)
     fns = (_levels_status, _phone_toggle, _call, _clipboard, _speech, _browser, _snap, _text_edit, _batch2)
-    if re.search(r"\b(?:and|then|after\s+that|also|plus)\b|,", r):
+    head = re.sub(r",?\s+(?:you(?:'re|\s+are)|i(?:'m|\s+am|\s+need|\s+want|\s+can'?t|\s+cannot)|it(?:'s|\s+is)|that(?:'s|\s+is)|because|since|so\s+i|cause|coz)\b.*$", "", r)
+    if re.search(r"\b(?:and|then|after\s+that|also|plus)\b|,", head):
         fns = (_phone_toggle,)       # a longer plan is the planner's; only "turn on wifi and bluetooth on the phone" is one shape
     for fn in fns:
         try:
@@ -525,6 +654,20 @@ def _inflection_of_vocab(w: str, vocab: dict) -> bool:
     return False
 
 
+_APPV: frozenset | None = None
+
+
+def _app_vocab() -> frozenset:
+    global _APPV
+    if _APPV is None:
+        try:
+            from jarvis.core.router.normalize import APP_ALIASES, _app_names
+            _APPV = frozenset(w for w in set(_app_names()) | set(APP_ALIASES) if re.fullmatch(r"[a-z]{5,14}", w))
+        except Exception:
+            _APPV = frozenset()
+    return _APPV
+
+
 def global_repair(text: str) -> str:
     """Repair misspelt command words anywhere in a command by spelling distance or consonant skeleton, preferring the
     commonest command word. Ordinary English words, short words and the owner's own words are left alone."""
@@ -551,6 +694,12 @@ def global_repair(text: str) -> str:
         if _known_app(core):                                         # an app name is never a misspelling ("sharex")
             out.append(w)
             continue
+        if len(core) >= 4 and not _english_word(core):                # an app name with one slip: "chrom", "spotfy", "whatsap"
+            apps = _app_vocab()
+            near = [a for a in apps if len(a) >= 5 and a[0] == core[0] and abs(len(a) - len(core)) <= 1 and _edit_distance(core, a) == 1]
+            if len(near) == 1:
+                out.append(near[0] + tail)
+                continue
         if _inflection_of_vocab(core, vocab):       # "deleted", "opened", "files": a real inflection, not a misspelling
             out.append(w)
             continue
@@ -609,6 +758,9 @@ def fallbacks(text: str) -> list[str]:
     """Wordings to try only when the rules found nothing: the spelling-repaired request, with and without a paraphrase shape."""
     t = " ".join((text or "").split())
     outs: list[str] = []
+    m = re.match(r"^(?P<h>[^,;]{4,60}?)\s*,\s*(?:i|so|because|since|cause|coz|it'?s|that'?s|you'?re)\b.*$", t, re.I)
+    if m:
+        outs.append(m.group("h"))             # "pull up Spotify, I want something playing while I cook": the command, then why
     try:
         g = global_repair(t)
     except Exception:

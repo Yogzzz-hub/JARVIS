@@ -56,6 +56,7 @@ def canonicalize(text: str) -> str:
         t = re.sub(r"\s*,?\s+(?:jarvis|please|pls|thanks|thank\s+you|for\s+me|(?<!from\s)(?<!till\s)(?<!until\s)(?<!by\s)(?:right\s+)?now)$",
                    "", t)
         t = re.sub(r"^(?:(?:can|could|would|will)\s+you\s+(?:please\s+|kindly\s+)?|please\s+|kindly\s+)", "", t)
+        t = re.sub(r"\s*,\s*(?:yeah|yep|yes|okay|ok|right|alright|eh|will\s+you|would\s+you)$", "", t)       # a tag question: "get rid of that file, yeah?"
 
     # trailing filler that never changes the command
     t2 = re.sub(r"\s+(?:again\s+)?(?:like\s+(?:last\s+time|before|usual|always)|as\s+(?:usual|always|before))$", "", t)
@@ -91,6 +92,21 @@ def canonicalize(text: str) -> str:
     if m and m.group("p") not in ("he", "she", "it", "who", "everyone", "someone", "that", "this", "there"):
         j = raw.lower().find(m.group("p"))
         return f"reply to {raw[j:j + len(m.group('p'))] if j >= 0 else m.group('p')}"
+    # "fire the same note off to Mala and Revathi", "shoot 'on my way' off to Arun": send
+    m = re.match(r"^(?:fire|shoot|zap)\s+(?P<x>.+?)\s+off\s+to\s+(?P<r>[a-z][a-z' ,&-]{1,60})$", t)
+    if m:
+        j = raw.lower().find(m.group("x")); k = raw.lower().rfind(m.group("r"))
+        body = raw[j:j + len(m.group("x"))] if j >= 0 else m.group("x")
+        who = raw[k:k + len(m.group("r"))] if k >= 0 else m.group("r")
+        return f"send {body} to {who}"
+    # "bin the scratch file", "throw away screenshot_0413", "chuck that old log into the bin": delete, for a file-like object
+    m = re.match(r"^(?:bin|chuck|toss|junk|scrap|dump|trash|throw\s+away|throw\s+out|get\s+rid\s+of)\s+(?P<x>.+?)"
+                 r"(?:\s+(?:in|into)\s+the\s+(?:bin|trash|recycle\s*bin|garbage|dustbin))?$", t)
+    if m and re.search(r"\b(?:file|log|logs|installer|screenshot|screenshots|photo|pic|picture|image|doc|document|pdf|folder|download|video|song|invoice|report)\b|"
+                       r"\.\w{2,4}\b|\b\w+_\d+\b|\bscreenshot_\w+", m.group("x")) \
+            and not re.search(r"\b(?:phone|mobile|whatsapp|chat|email|mail|message)\b", m.group("x")):
+        j = raw.lower().find(m.group("x"))
+        return "delete " + (raw[j:j + len(m.group("x"))] if j >= 0 else m.group("x"))
     if _CONTENT.match(t):
         return raw
     # speech recognition often hears "open" as "on": "on calculator on chrome", "on notepad"

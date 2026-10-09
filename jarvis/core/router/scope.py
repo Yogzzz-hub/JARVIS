@@ -38,7 +38,8 @@ DESTRUCTIVE = {"delete_file", "move_file", "rename_file", "batch_rename", "unins
 _QUANT = re.compile(r"\b(?:everything|every\s*thing|all|every|entire|whole|each|anything|ellam|ellathayum|ellathaiyum|motham|"
                     r"everyone|everybody|the\s+lot)\b")
 _VAGUE = re.compile(r"^(?:some|any|a|the|that|this|my)?\s*(?:something|anything|stuff|things?|whatever|some\s+(?:app|apps|file|files|"
-                    r"program|software))$")
+                    r"program|software)|duplicates?|dupes?|duplicate\s+files?|junk|clutter|old\s+(?:stuff|files)|one\s+file|that\s+one\s+file|"
+                    r"(?:that|this|the)\s+(?:one|other)\s+(?:file|folder|doc|document|one))$")
 _PRONOUN = re.compile(r"^(?:it|that|this|them|those|these|that\s+one|this\s+one|the\s+one|one|that\s+1|this\s+1|the\s+other\s+one)$")
 # nouns that belong to another capability, never to the file system / installer
 _FOREIGN = re.compile(r"\b(?:e-?mails?|mails?|inbox|messages?|chats?|whats\s*app|history|histories|workflows?|shortcuts?|routines?|"

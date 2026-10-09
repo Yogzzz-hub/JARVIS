@@ -36,7 +36,84 @@ def _nums(text: str) -> Optional[int]:
     return words_to_int(m.group("n") or m.group("n2") or "")
 
 
+_PNAME = r"[A-Za-z][A-Za-z'.-]{1,19}"
+_PNAMES = rf"(?P<names>{_PNAME}(?:\s*(?:,|&|\band\b)\s*{_PNAME}){{1,5}})"
+_NOT_NAMES = frozenset("the my me him her them us you it all everyone everybody group groups chat chats contacts friends family team class "
+                       "phone laptop pc computer file files folder screen".split())
+_DETERMINER = re.compile(r"^(?:the|my|this|that|these|those|a|an|our|your|his|her|their|some)\b", re.I)
+
+
+def _multi_send(raw: str, rid: str) -> Optional[RouteDecision]:
+    """One message to several named people: "send good night to Mala and Revathi", "message Arun, Ravi and Divya saying I'm late",
+    "fire 'Pongal at our place' off to Mala and Revathi" -> one send per person (each confirmed)."""
+    r = " ".join((raw or "").split()).strip(" .!?")
+    r = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?", "", r, flags=re.I)
+    m = re.match(rf"^(?:send|text|whatsapp|message|msg|ping|dm)\s+(?:a\s+message\s+)?(?P<msg>.+?)\s+to\s+{_PNAMES}$", r, re.I) \
+        or re.match(rf"^(?:fire|shoot|zap)\s+(?P<msg>.+?)\s+off\s+to\s+{_PNAMES}$", r, re.I)
+    msg = ""
+    spoken = False
+    if m:
+        msg = m.group("msg").strip()
+    else:
+        spoken = True
+        m = re.match(rf"^(?:message|text|whatsapp|msg|ping|dm|tell)\s+{_PNAMES}\s*(?:,|:|-)?\s*(?:saying|that|to\s+say|with|:)\s*(?P<msg>.+)$", r, re.I)
+        if m:
+            msg = m.group("msg").strip()
+    if not m or not msg:
+        return None
+    names = [n.strip() for n in re.split(r"\s*(?:,|&|\band\b)\s*", m.group("names")) if n.strip()]
+    if len(names) < 2 or any(n.lower() in _NOT_NAMES for n in names):
+        return None
+    qm = re.search(r"[\"“‘](.+?)[\"”’]|(?<!\w)'(.+?)'(?!\w)", msg)
+    if qm:
+        msg = (qm.group(1) or qm.group(2)).strip()          # "the same note — 'Pongal at our place' —": the quoted words are the message
+    quoted = bool(qm) or re.match(r"^[\"'“‘].*[\"'”’]$", msg) is not None
+    if not quoted and not spoken and (_DETERMINER.match(msg) or re.search(r"\.\w{2,4}\b|\b(?:file|files|photo|photos|pic|pics|picture|screenshot|document|pdf|report|link|location)\b", msg, re.I)):
+        return None
+    msg = msg.strip("\"'“”‘’ ")
+    from jarvis.core.router.models import ComplexityLevel, ReasonCode, RouteLane, RouteSource, SubCommand
+    subs = [SubCommand(intent="send_whatsapp_message", tool="send_whatsapp_message", arguments={"recipient": n, "message": msg}) for n in names]
+    return RouteDecision(request_id=rid, lane=RouteLane.LANE_0, intent="compound", slots={"steps": ["send_whatsapp_message"] * len(subs)},
+                         confidence=0.93, source=RouteSource.EXACT, complexity=ComplexityLevel.COMPOUND, risk="EXTERNAL_EFFECT",
+                         normalized_text=" ".join(raw.lower().split()), reason_code=ReasonCode.COMPOUND_COMMAND, subcommands=subs,
+                         candidate_count=len(subs))
+
+
+_KNOWN_FOLDERS = ("desktop", "downloads", "download", "documents", "document", "pictures", "picture", "music", "videos", "video", "home")
+
+
+def _folder_name(f: str) -> str:
+    f = f.strip()
+    low = f.lower()
+    if low in _KNOWN_FOLDERS:
+        return low.capitalize() + ("s" if low in ("download", "document", "picture", "video") else "")
+    return f
+
+
+def _file_transfer(raw: str, rid: str) -> Optional[RouteDecision]:
+    """"copy holiday_video.mp4 from Downloads into the Videos folder", "move beach.jpg from Pictures onto the Desktop": the file is
+    the source, "from <folder>" says where it is (never the thing to copy)."""
+    r = " ".join((raw or "").split()).strip(" .!?")
+    r = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?", "", r, flags=re.I)
+    m = re.match(r"^(?P<v>copy|move|duplicate|shift|transfer|relocate)\s+(?:the\s+|my\s+)?(?P<x>[\w .()-]+?\.[A-Za-z0-9]{2,5})\s+"
+                 r"(?:from\s+(?:the\s+|my\s+|inside\s+)?(?P<f>[\w .-]+?)(?:\s+folder)?\s+)?"
+                 r"(?:(?:in)?to|onto|over\s+to|in)\s+(?:the\s+|my\s+)?(?P<d>[\w .-]+?)(?:\s+folder)?(?:\s+(?:please|now))?$", r, re.I)
+    if not m or not m.group("f"):
+        return None            # without "from <folder>" the router's own file rules already read it correctly
+    f, d, x = m.group("f").strip(), m.group("d").strip(), m.group("x").strip()
+    if re.search(r"\b(?:phone|mobile|android|whatsapp|drive|cloud|email|mail)\b", " ".join((f, d)), re.I):
+        return None
+    intent = "copy_file" if m.group("v").lower() in ("copy", "duplicate") else "move_file"
+    return _d(rid, " ".join(r.lower().split()), intent, {"source": f"{_folder_name(f)}/{x}", "destination": _folder_name(d)})
+
+
 def match_extra(t: str, raw: str, rid: str) -> Optional[RouteDecision]:
+    xfer = _file_transfer(raw, rid)
+    if xfer is not None:
+        return xfer
+    multi = _multi_send(raw, rid)
+    if multi is not None:
+        return multi
     t = " ".join(t.lower().split()).strip(" .!?")
     # ---- project logs
     m = re.match(rf"^{_VERB_SHOW}\s+(?:me\s+)?(?:the\s+)?(?:(?P<c>{_COMPONENT})\s+)?logs?\s+(?:for|of|from|in)\s+{_PROJ}(?P<tail>.*)$", t)
