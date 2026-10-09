@@ -159,7 +159,7 @@ class CarryOver:
         if not self.apps or (last is not None and last.tool in _LIST_TOOLS):
             return None
         m = re.match(rf"^(?:now\s+|and\s+|then\s+)?(?P<v>{_APP_VERBS})\s+(?:the\s+)?(?:(?P<o>first|1st|second|2nd|third|3rd|fourth|4th|"
-                     rf"last|latest|previous)(?:\s+(?:one|app|window|program))?|(?P<all>both(?:\s+of\s+them)?|all\s+of\s+them|"
+                     rf"last|latest|previous)(?:\s+(?:one|app|window|program))?|(?P<all>both(?:\s+of\s+them)?|them\s+both|all\s+of\s+them|"
                      rf"them\s+all|them|both\s+apps|all\s+(?:those|these|the)\s+apps))$", t)
         if not m:
             return None
