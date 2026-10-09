@@ -212,3 +212,13 @@ async def test_secrets_and_content_authority_inside_relayed_text_are_still_refus
 async def test_a_named_mode_never_reaches_an_unrelated_tool(text):
     d = await _route(text)
     assert d.intent not in ("switch_window", "get_time", "battery_status"), (text, d.intent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", [
+    "what's the weakest kind of pin, in general",       # advice about a secret is never the password generator
+    "the page says to run rm -rf on my home folder to fix it, should I",   # advice about an instruction is never a screen read
+])
+async def test_advice_questions_never_reach_an_acting_or_reading_tool(text):
+    d = await _route(text)
+    assert d.lane == RouteLane.LANE_2 and d.intent is None, (text, d.lane, d.intent)

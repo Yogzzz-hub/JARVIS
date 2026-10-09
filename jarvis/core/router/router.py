@@ -538,9 +538,8 @@ class SmartRouter:
         if verdict is None:
             return decision
         if verdict["kind"] == "chat" and verdict.get("reason") == "question" and decision.lane in (RouteLane.LANE_0, RouteLane.LANE_1) \
-                and (all(t and self._is_read_only(t) for t in tools)
-                     or str((decision.slots or {}).get("action") or "") in ("explain", "describe", "read", "status", "check", "diagnose")):
-            return decision   # "why is the continue button greyed out": a question a read-only / explaining capability answers
+                and decision.intent == "ui_op" and str((decision.slots or {}).get("action") or "") == "explain":
+            return decision   # "why is the continue button greyed out": the explaining UI capability answers the question
         if verdict["kind"] == "chat":
             return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={}, confidence=0.7,
                                  source=RouteSource.COMPLEXITY_GATE, complexity=ComplexityLevel.SIMPLE,
