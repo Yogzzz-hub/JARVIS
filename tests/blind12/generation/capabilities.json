@@ -1,0 +1,1890 @@
+{
+ "tools": [
+  {
+   "tool": "android_back",
+   "description": "Press Back button on connected Android phone",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_close_control",
+   "description": "Close phone screen mirror / scrcpy window",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_connect",
+   "description": "Connects the Android phone to the PC over USB or Wi-Fi (wireless debugging pairing), remembers the Wi-Fi address, and explains exactly what to do on the phone when it cannot connect.",
+   "args": {
+    "address": "Phone Wi-Fi address, e.g. 192.168.1.23:5555 (optional)",
+    "pairing_code": "6-digit Wireless debugging pairing code (optional)",
+    "pair_address": "IP:port shown next to the pairing code (optional)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_dial",
+   "description": "Opens the phone's dialer with a number or a saved contact's number ready to call (you tap call).",
+   "args": {
+    "number": "Phone number or contact name to dial"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_home",
+   "description": "Press Home button on connected Android phone",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_input",
+   "description": "Types text into the focused field on the phone, taps a screen position, or swipes up/down/left/right.",
+   "args": {
+    "action": "text = type text, tap = tap at x,y, swipe = swipe up/down/left/right",
+    "text": "Text to type (for action=text)",
+    "x": "Tap X coordinate",
+    "y": "Tap Y coordinate",
+    "direction": "typing.Literal['up', 'down', 'left', 'right']"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_key",
+   "description": "Presses a key on the connected Android phone: volume up/down/mute, lock (sleep) or wake the screen, play/pause/next/previous media, home, back, recent apps, camera.",
+   "args": {
+    "key": "Phone key to press: volume_up, volume_down, volume_mute, sleep (lock), wakeup, media_play_pause, media_next, media_previous, home, back, app_switch, camera, power",
+    "times": "How many times to press it"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_notifications",
+   "description": "Reads the notifications currently showing on the connected Android phone (app, title, text).",
+   "args": {
+    "limit": "How many notifications to read"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "android_open_app",
+   "description": "Launch an application on connected Android phone",
+   "args": {
+    "app_name": "Name or package name of the app to open, e.g. 'Spotify', 'camera', 'settings'"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_open_control",
+   "description": "Show Android phone screen on PC desktop via scrcpy (mirror phone)",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_open_url",
+   "description": "Opens a web page on the connected Android phone's browser.",
+   "args": {
+    "url": "Web address to open on the phone"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_pull_file",
+   "description": "Copies files from the phone to the PC (newest photos, screenshots, videos, downloads, documents, recordings, WhatsApp media, or a file by name) into Downloads/From Phone.",
+   "args": {
+    "kind": "What to copy from the phone: photo, screenshot, video, download, document, recording, whatsapp_media",
+    "count": "How many of the newest items",
+    "name": "Part of a file name to search for instead (e.g. 'resume')"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_push_file",
+   "description": "Copies a file from the PC to the phone's Download folder over USB/ADB (no internet needed).",
+   "args": {
+    "path": "File on the PC to copy to the phone's Download folder"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_quick_action",
+   "description": "Fast phone controls over ADB: quick settings, notification shade, open a settings page (wifi, bluetooth, battery, display, sound, location, apps, storage, hotspot), set brightness %, set media volume, which app is open, screen on/off, and prepare an SMS for you to send.",
+   "args": {
+    "action": "quick_settings, notifications_panel, collapse_panels, settings (value = page: main, wifi, bluetooth, battery, display, sound, location, apps, storage, hotspot, data_usage), brightness (value 0-100), media_volume (value 0-15), current_app, screen_off, screen_on, sms_draft (number + text)",
+    "value": "Settings page, brightness % or volume level",
+    "number": "Phone number for sms_draft",
+    "text": "Message for sms_draft (you tap send on the phone)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_screenshot",
+   "description": "Takes a screenshot of the connected Android phone's screen and saves it on the PC.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_status",
+   "description": "Check Android device connection, scrcpy availability, and battery status",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "android_tap_text",
+   "description": "Taps the button or item with the given label on the phone's current screen (reads the screen, finds the label, taps it).",
+   "args": {
+    "text": "Label of the button / item to tap on the phone screen, e.g. 'Settings', 'Send', 'Allow'"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "android_toggle",
+   "description": "Turns a phone setting on or off: Wi-Fi, Bluetooth, mobile data, airplane mode, do not disturb, auto-rotate.",
+   "args": {
+    "setting": "wifi, bluetooth, mobile_data, airplane_mode, do_not_disturb, auto_rotate or flashlight",
+    "on": "true = turn on, false = turn off"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "antigravity_ide_control",
+   "description": "Automates Antigravity / VS Code IDE actions: live dictate/type prompts, open files, switch tabs, save files, open terminal/problems panels, explain visible errors, and submit prompts.",
+   "args": {
+    "action": "IDE action: open_ide, open_project, focus_prompt, type_prompt, edit_prompt, submit_prompt, save_file, open_terminal, open_problems, open_source_control, switch_tab, select_file, explain_error, ide_screenshot",
+    "text": "Text or prompt to type/edit",
+    "path": "Project path or filename to open"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "arrange_windows",
+   "description": "Arranges two applications side-by-side or lays out multiple visible windows in a clean grid.",
+   "args": {
+    "layout": "Layout: side_by_side, grid, cascade",
+    "app1": "First application name or title",
+    "app2": "Second application name or title"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "batch_rename",
+   "description": "Performs batch file renaming with preview, conflict safety, and per-item status reporting.",
+   "args": {
+    "directory": "<class 'str'>",
+    "pattern": "<class 'str'>",
+    "replacement": "<class 'str'>",
+    "dry_run": "<class 'bool'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "battery_status",
+   "description": "Reports laptop battery percentage, whether it is charging and the time left.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "brightness_get",
+   "description": "Read the current screen brightness percentage.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "brightness_set",
+   "description": "Set the screen brightness to an exact percentage (0-100).",
+   "args": {
+    "percent": "<class 'int'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_autofill",
+   "description": "Fills the form on the current page of the JARVIS browser with the owner's saved details (name, email, phone, address, college, ...). Never fills passwords/OTPs/card numbers and never submits.",
+   "args": {
+    "only": "Fill only these profile fields (optional)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_click",
+   "description": "Clicks an interactive element on the active browser web page using semantic locators (role, name, text, label).",
+   "args": {
+    "role": "typing.Optional[str]",
+    "name": "typing.Optional[str]",
+    "text": "typing.Optional[str]",
+    "label": "typing.Optional[str]",
+    "test_id": "typing.Optional[str]"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_navigate",
+   "description": "Navigates the managed browser to a specified web URL.",
+   "args": {
+    "url": "Web URL to navigate to"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_op",
+   "description": "Operate the browser: open/search, tabs (switch by name/number, close, list), back/forward/reload, read a page, list and open search results by number, find on page, scroll.",
+   "args": {
+    "action": "open | search | tab_new | tab_close | tab_next | tab_previous | tab_switch | tab_list | back | forward | reload | results | open_result | read | find | scroll | duplicate | stop | url | title | copy_url | heading | site_search | official | detect_login | open_link | upload | download",
+    "target": "url, site name or query; text to find",
+    "engine": "search engine/site for action=search",
+    "which": "tab: index, title word, 'first', 'last'",
+    "ordinal": "result number (-1 = last)",
+    "new_tab": "<class 'bool'>",
+    "direction": "<class 'str'>",
+    "n": "<class 'int'>",
+    "files": "paths for upload ('it' = the last file/screenshot)",
+    "read": "heading: read the section instead of jumping to it"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_open_url",
+   "description": "Open a web URL using the existing Playwright browser manager with semantic wait",
+   "args": {
+    "url": "URL to open in the browser"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_quick_action",
+   "description": "Instant browser controls in the browser you are using: new/close/reopen tab, next/previous tab, go to tab N, back, forward, reload, zoom in/out/reset, bookmark, history, downloads, incognito window, find on page, address bar, scroll, top/bottom, full screen.",
+   "args": {
+    "action": "Browser action, e.g. new_tab, close_tab, reopen_tab, next_tab, previous_tab, go_to_tab, back, forward, reload, zoom_in, zoom_out, zoom_reset, bookmark, history, downloads, incognito, find, address_bar, scroll_down, scroll_up, top, bottom, fullscreen",
+    "tab": "Tab number for go_to_tab (1-8; 9 = last tab)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "browser_snapshot",
+   "description": "Captures the DOM accessibility tree and interactive elements of the active browser page.",
+   "args": {
+    "max_elements": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "browser_type",
+   "description": "Fills text into an input or textarea on the active browser web page.",
+   "args": {
+    "text": "Text to enter into the input element",
+    "role": "typing.Optional[str]",
+    "name": "typing.Optional[str]",
+    "label": "typing.Optional[str]",
+    "placeholder": "typing.Optional[str]"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "calendar_create_event",
+   "description": "Add an event to Google Calendar ('dentist tomorrow at 4'). Asks first.",
+   "args": {
+    "summary": "<class 'str'>",
+    "when": "'tomorrow at 4', 'monday 10am'",
+    "duration_minutes": "<class 'int'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "calendar_list_events",
+   "description": "List Google Calendar events for today, tomorrow, a weekday (and part of day) or a week.",
+   "args": {
+    "time_window": "<class 'str'>",
+    "limit": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "capture_note",
+   "description": "Quickly captures ideas, snippets, or links into plain Markdown files with timestamps and tags.",
+   "args": {
+    "content": "<class 'str'>",
+    "tag": "<class 'str'>",
+    "source": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "check_app_installed",
+   "description": "Checks whether a specific software or application is installed on the PC. Risk level: READ_ONLY.",
+   "args": {
+    "name": "Name or alias of the software to check"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "clipboard_intelligence",
+   "description": "Reads clipboard, pastes text, preserves clipboard state, or acts on selected text (explain, summarize, rewrite, copy).",
+   "args": {
+    "action": "Clipboard action: read, copy, paste, act_on_selected",
+    "text": "Text to copy or paste",
+    "operation": "Operation on selected text: explain, summarize, rewrite, copy"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "clipboard_op",
+   "description": "Read the clipboard as a typed resource, copy the current selection (waiting for the clipboard to change), put text on it, or restore the previous clipboard.",
+   "args": {
+    "action": "read | copy_selection | set | restore | history | paste_nth | clear_history",
+    "text": "<class 'str'>",
+    "n": "paste_nth: 1 = the latest copy, 2 = the one before, ...",
+    "paste": "paste_nth: paste it (true) or only put it back on the clipboard"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "close_app",
+   "description": "Close / terminate a running desktop application by name.",
+   "args": {
+    "name": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "close_window",
+   "description": "Closes the currently active foreground window using Win32 API in under 200 microseconds.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "code_edit",
+   "description": "Applies a minimal targeted patch to a source file, records baseline, verifies replacement, and returns the resulting git diff.",
+   "args": {
+    "file_path": "Relative or absolute path to the target file",
+    "target_content": "Exact lines or block of code to replace",
+    "replacement_content": "New code to replace target_content with",
+    "project_path": "Project root directory"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "code_repair_loop",
+   "description": "Executes a bounded development repair loop: inspects failure, locates source, applies patch, reruns tests, and reports verified outcome.",
+   "args": {
+    "error_summary": "Error message, stack trace, or failing test output",
+    "project_path": "Project root directory",
+    "test_command": "Command to verify fix (e.g. 'pytest', 'npm test')",
+    "max_attempts": "Maximum bounded fix attempts"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "code_search",
+   "description": "Searches for symbols (classes, functions, methods, routes) and references within a project repository.",
+   "args": {
+    "query": "Symbol name, function, class, or text to search for",
+    "project_path": "Project root directory",
+    "file_extension": "Filter by extension (e.g. '.py', '.ts')"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "command_history",
+   "description": "Tells you the last things you asked JARVIS.",
+   "args": {
+    "limit": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "compress_files",
+   "description": "Compresses (zips) a file or folder into a .zip archive next to it.",
+   "args": {
+    "path": "File or folder to put into a .zip archive"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "computer_task",
+   "description": "Operates ANY desktop app by looking at the screen and using mouse and keyboard, step by step, until a goal is done (e.g. 'in Settings turn on dark mode', 'in Excel make row 1 bold'). Stops before sending, paying or deleting.",
+   "args": {
+    "goal": "What to do on the computer, e.g. 'in Settings turn on dark mode'",
+    "max_steps": "<class 'int'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "connected_devices",
+   "description": "Lists active connected audio input, output, and primary display devices. Risk level: READ_ONLY.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "contact_info",
+   "description": "Tells who one of the owner's contacts is: number, last WhatsApp message, how often they chat and the owner's usual style with them. Read only.",
+   "args": {
+    "name": "Contact name to describe"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "controlled_chrome_launch",
+   "description": "Launches Google Chrome with remote debugging (--remote-debugging-port=9222) and loads the project's Chrome extension (e.g. Internship Autofill Assistant).",
+   "args": {
+    "project_name": "Project name",
+    "port": "Chrome remote debugging port",
+    "url": "URL to open",
+    "load_extension": "Whether to load project's Chrome extension"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "copy_file",
+   "description": "Copies a file from source to destination.",
+   "args": {
+    "source": "<class 'str'>",
+    "destination": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "create_folder",
+   "description": "Creates a directory or folder path if it does not exist.",
+   "args": {
+    "path": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "create_shortcut",
+   "description": "Creates a voice shortcut that runs several commands, e.g. 'when I say goodnight, lock the pc and mute the volume'.",
+   "args": {
+    "phrase": "What you will say, e.g. 'goodnight'",
+    "steps": "Commands to run in order, e.g. ['lock the pc', 'mute']"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "database_schema_read",
+   "description": "Inspects schema and table names of local development database (e.g. SQLite) without modifying data or exposing secrets.",
+   "args": {
+    "project_name": "Project name",
+    "path": "Direct project directory or db path",
+    "table_name": "Optional specific table name to inspect"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "database_status",
+   "description": "Checks database connection status and availability for local development projects without exposing credentials.",
+   "args": {
+    "project_name": "Project name or query",
+    "path": "Direct project directory or db path",
+    "db_type": "Database type: postgres, sqlite, mongo, redis, mysql",
+    "port": "Database port if custom"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "delete_file",
+   "description": "Safely moves a file or folder to the Windows Recycle Bin using send2trash.",
+   "args": {
+    "path": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "delete_shortcut",
+   "description": "Deletes a voice shortcut.",
+   "args": {
+    "phrase": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "deliver_op",
+   "description": "Put a resource (screenshot, file, download, copied text, answer) into an app or control, or onto the phone - as paste/attachment - and verify it arrived. Sending is separate and needs approval.",
+   "args": {
+    "resource": "what: 'screenshot', 'the download', 'clipboard', 'it'",
+    "to": "where: an app/window ('antigravity', 'chrome'), 'phone'",
+    "field": "control inside the app ('prompt box', 'message box')",
+    "send": "also press send (needs the owner's OK)",
+    "capture_first": "take a new screenshot first",
+    "scope": "what to capture when capture_first",
+    "how": "paste | upload",
+    "action": "deliver | verify (did it really arrive?)",
+    "approved": "<class 'bool'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "describe_screen",
+   "description": "Looks at the PC screen (or the phone screen) with the local vision model and answers a question about it: read an error, describe what is open, find a button, summarise what is shown.",
+   "args": {
+    "question": "What to find out from the screen (empty = describe it)",
+    "device": "Which screen to look at: the PC or the connected phone"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "desktop_ui_click",
+   "description": "Clicks a button, menu item, or control inside a desktop window using Windows UI Automation.",
+   "args": {
+    "name": "typing.Optional[str]",
+    "automation_id": "typing.Optional[str]",
+    "control_type": "typing.Optional[str]",
+    "window_id": "typing.Optional[str]"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "desktop_ui_snapshot",
+   "description": "Captures accessibility DOM elements and interactive controls from a focused desktop window using Windows UI Automation (UIA).",
+   "args": {
+    "window_id": "Window title or handle, or None for foreground window",
+    "max_elements": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "diagnose_error",
+   "description": "Analyzes error stack traces or logs, redacts sensitive tokens, and suggests a concrete fix.",
+   "args": {
+    "error_log": "<class 'str'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "dialog_interaction",
+   "description": "Inspects active window for modal/confirmation dialogs, checks if app is not responding, or responds to dialogs.",
+   "args": {
+    "action": "Action: detect, check_hung, confirm, dismiss",
+    "window_title": "Optional target window title"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "dictate_text",
+   "description": "Formats and inserts spoken dictation into an active or chosen application without interpreting commands.",
+   "args": {
+    "text": "Spoken text to format and type",
+    "target_app": "Optional target app name or window title",
+    "action": "Dictation action (e.g. start, insert)",
+    "auto_punctuate": "<class 'bool'>",
+    "streaming": "<class 'bool'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "dictation_mode_control",
+   "description": "Explicitly activates or stops dictation mode for continuous voice typing into any active editable field.",
+   "args": {
+    "action": "Action: start, stop, status, toggle",
+    "target_app": "Optional target application"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "document_qa",
+   "description": "Answers a question about a local document (PDF, Word, text, code) or about everything in the knowledge base, with citations. Abstains when evidence is insufficient.",
+   "args": {
+    "question": "Question to answer",
+    "document_path": "Document to read; empty = search all indexed knowledge"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "empty_recycle_bin",
+   "description": "Permanently empties the Windows Recycle Bin (asks for confirmation first).",
+   "args": {},
+   "risk": "DESTRUCTIVE",
+   "read_only": false
+  },
+  {
+   "tool": "exam_assessment_helper",
+   "description": "Assists with study material, mock quizzes, and practice problems while enforcing strict academic integrity blocking for active graded exams.",
+   "args": {
+    "question": "Question or study topic",
+    "context": "Optional supporting text, problem statement, or options",
+    "is_practice_or_mock": "True if practice question, mock test, or authorized study",
+    "assessment_mode": "'practice', 'mock_quiz', 'study', or 'live_exam'"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "explain_route",
+   "description": "Dry run: say which capability a command would use, with which details, whether it changes anything and whether it would ask first - without running it.",
+   "args": {
+    "command": "the command to explain without running it"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "extract_audio",
+   "description": "Extracts audio track from a video file into an MP3/WAV file using FFmpeg.",
+   "args": {
+    "video_path": "<class 'str'>",
+    "output_audio_path": "str | None"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "file_op",
+   "description": "Work with a specific file: filter by type/size and sort by size or age, reveal it in Explorer, open its folder, copy its path, duplicate it, open it with a chosen app, open the newest download, find a moved file again, verify a move or delete, restore from the Recycle Bin.",
+   "args": {
+    "action": "search | open | reveal | open_folder | copy_path | duplicate | open_with | open_newest | open_latest_download | relocate | verify | verify_deleted | restore",
+    "target": "'this' / 'that download' / a path / a file name",
+    "folder": "folder to search (default: home, or Downloads for newest)",
+    "types": "pdf | images | videos | documents | ... or '.ext'",
+    "min_size": "'20 MB'",
+    "max_size": "'200 MB'",
+    "sort": "newest | oldest | largest | smallest",
+    "limit": "<class 'int'>",
+    "app": "app for open_with ('edge', 'an editor')",
+    "destination": "where the file should now be (verify)",
+    "folder_path": "copy_path: the containing folder's path"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "find_duplicates",
+   "description": "Finds verified duplicate files grouped first by exact byte size then SHA-256 content hash. Filenames alone are not duplicates.",
+   "args": {
+    "directory": "<class 'str'>",
+    "min_size_bytes": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "find_file",
+   "description": "Searches local indexed files using multi-tier cascaded search (FTS5 + semantic).",
+   "args": {
+    "query": "<class 'str'>",
+    "type_hint": "str | None",
+    "time_hint": "str | None",
+    "directory_hint": "str | None",
+    "limit": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "forget_fact",
+   "description": "Forgets a remembered personal fact.",
+   "args": {
+    "query": "What to recall; empty = recent facts"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "generate_meeting_notes",
+   "description": "Generates timestamped summary and proposed action items from meeting transcript without inventing speakers.",
+   "args": {
+    "title": "<class 'str'>",
+    "transcript": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "generate_password",
+   "description": "Generates a strong random password and copies it to the clipboard (it is never spoken or saved).",
+   "args": {
+    "length": "<class 'int'>",
+    "symbols": "<class 'bool'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "get_app_location",
+   "description": "Gets the verified installation location and executable path of an installed application. Risk level: READ_ONLY.",
+   "args": {
+    "name": "Name or alias of the software to find"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "get_time",
+   "description": "Return the current local time and date.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "git_diff",
+   "description": "Inspects uncommitted changes and displays the exact unified git diff without remote mutations.",
+   "args": {
+    "repo_path": "Repository root directory"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "git_status",
+   "description": "Inspects Git status and modified files in an approved developer repository without remote mutations.",
+   "args": {
+    "repo_path": "<class 'str'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "gmail_list_recent",
+   "description": "Read the latest emails in the Gmail inbox (optionally unread / from someone).",
+   "args": {
+    "limit": "<class 'int'>",
+    "unread_only": "<class 'bool'>",
+    "sender": "<class 'str'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "ide_op",
+   "description": "Work in Antigravity / VS Code / Cursor: write (and send) a prompt to the agent, attach a screenshot/file, accept or reject its changes, open a file, run a palette command, read its reply, check whether it is still generating - each verified in the IDE's UI.",
+   "args": {
+    "action": "prompt | send | attach | accept | reject | open_file | command | key | read | status | focus | tab_next | tab_previous | tab_close | cancel | copy_response | definition | references | rename | format | save | save_all | remove_attachment | list_attachments | docs | read_error | copy_error | open_project | find_symbol | search",
+    "ide": "antigravity | vs code | cursor | windsurf (default: the IDE in use)",
+    "text": "prompt text / command name / file name",
+    "send": "<class 'bool'>",
+    "name": "named IDE key action for action=key",
+    "resource": "resource to attach"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "install_software",
+   "description": "Installs verified software packages via winget, verifies installation, and automatically updates the application catalog. Risk level: REVERSIBLE.",
+   "args": {
+    "name": "Name of the software or application to install",
+    "package_id": "Optional explicit package ID"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "keyboard_shortcut",
+   "description": "Presses standard keyboard keys and shortcuts: Enter, Escape, Tab, Shift+Tab, Arrow keys, Home/End, Page Up/Down, Ctrl+A/C/V/X/Z/Y/F/S.",
+   "args": {
+    "key": "Shortcut to trigger: enter, escape, tab, shift_tab, up, down, left, right, home, end, page_up, page_down, ctrl_a, ctrl_c, ctrl_v, ctrl_x, ctrl_z, ctrl_y, ctrl_f, ctrl_s"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "knowledge_ingest",
+   "description": "Adds a file or folder (PDF, Word, text, markdown, code) to JARVIS's knowledge base so questions can be answered from it later.",
+   "args": {
+    "path": "File or folder to add to the knowledge base",
+    "collection": "Knowledge collection name"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "knowledge_search",
+   "description": "Answers a question from everything in JARVIS's knowledge base (indexed documents, notes, WhatsApp files) with citations.",
+   "args": {
+    "question": "Question to answer from the knowledge base"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "launch_workspace",
+   "description": "Launches and restores a previously saved workspace manifest.",
+   "args": {
+    "name": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "list_directory",
+   "description": "List the files inside a folder and reveal it in File Explorer (path may be Desktop, Downloads, Documents or an absolute path).",
+   "args": {
+    "path": "<class 'str'>",
+    "limit": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "list_installed_applications",
+   "description": "Lists verified installed applications tracked in the application catalog. Risk level: READ_ONLY.",
+   "args": {
+    "filter": "Optional search term to filter applications",
+    "limit": "Max applications to return"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "list_reminders",
+   "description": "Lists pending reminders and when they are due.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "list_shortcuts",
+   "description": "Lists your voice shortcuts.",
+   "args": {
+    "phrase": "<class 'str'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "localsend_file",
+   "description": "Send a file to Android phone via LocalSend over local Wi-Fi / LAN",
+   "args": {
+    "path": "Path to the file to send. If empty, resolves from active file or recent files.",
+    "target_alias": "Optional target device alias"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "localsend_text",
+   "description": "Send text, clipboard content, or URL to phone via LocalSend",
+   "args": {
+    "text": "Text or URL to send to phone. If empty, the copied (clipboard) text is sent.",
+    "from_selection": "copy the current selection first and send that",
+    "target_alias": "Optional target device alias"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "maximize_window",
+   "description": "Maximizes the currently active window in under 200 microseconds.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "media_control",
+   "description": "Controls media playback (play, pause, next track, previous track, mute, volume keys) using hardware keys in under 100 microseconds.",
+   "args": {
+    "action": "Media action: play, pause, play_pause, next, previous, mute, volume_up, volume_down"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "memos_create",
+   "description": "Save a human-readable note or reminder into Memos inbox",
+   "args": {
+    "content": "Note text to save to Memos",
+    "tags": "Optional tags for the note"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "memos_recent",
+   "description": "List recent human-readable notes from Memos",
+   "args": {
+    "query": "Search query",
+    "limit": "Max number of notes"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "microphone_status",
+   "description": "Checks default audio input microphone status and health. Risk level: READ_ONLY.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "minimize_window",
+   "description": "Minimizes the currently active window in under 200 microseconds.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "morning_briefing",
+   "description": "Execute morning briefing: parallel gathering of RSS, Memos, system health, and downloads",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "move_file",
+   "description": "Moves a file or directory from source to destination.",
+   "args": {
+    "source": "<class 'str'>",
+    "destination": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "move_resize_window",
+   "description": "Moves, resizes, or restores the currently active window, or moves it to the other monitor.",
+   "args": {
+    "action": "Action: move, resize, restore, next_monitor, previous_monitor",
+    "x": "X coordinate",
+    "y": "Y coordinate",
+    "width": "Width in pixels",
+    "height": "Height in pixels"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "network_info",
+   "description": "Shows this PC's IP address, the Wi-Fi network it is on and whether the internet is reachable.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "notification_send",
+   "description": "Send a push notification to phone via ntfy or Gotify",
+   "args": {
+    "title": "Notification title",
+    "message": "Message body to send",
+    "priority": "Priority 1-5"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "ollama_chat",
+   "description": "Answers questions, explains concepts, writes or summarizes text using the local AI model, grounded in the user's documents, conversation and live web results.",
+   "args": {
+    "query": "User question, text, or instruction for the local AI model",
+    "system_prompt": "Optional system prompt override",
+    "timeout_s": "Query timeout in seconds",
+    "channel": "Conversation channel used for follow-up memory",
+    "speakable": "Keep the answer short and speech-friendly"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "open_app",
+   "description": "Launch a Windows application, Start-menu app, folder shortcut or web service by name (e.g. chrome, notepad, calculator, spotify, youtube).",
+   "args": {
+    "name": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "open_file",
+   "description": "Opens an existing validated file using default Windows application and records usage.",
+   "args": {
+    "path": "str | None",
+    "file_id": "int | None"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "open_known_folder",
+   "description": "Opens Windows known folders (Downloads, Documents, Desktop, Pictures, Music, Videos) resolving exact paths dynamically.",
+   "args": {
+    "folder": "Known folder: downloads, documents, desktop, pictures, music, videos, explorer"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "open_system_settings",
+   "description": "Opens Windows Settings directly to specified pages (sound, display, network, Wi-Fi, Task Manager, system info).",
+   "args": {
+    "page": "Page: settings, sound, display, network, wifi, bluetooth, apps, task_manager, system_info, device_manager",
+    "want": "What the owner wants to change there (e.g. 'on' / 'off'); the reply says it is left to them"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "open_website",
+   "description": "Opens a website or web search results page in the user's default browser (e.g. an Amazon, Google or YouTube search URL).",
+   "args": {
+    "url": "Web address or search URL to open",
+    "title": "Optional human description of the page",
+    "browser": "Optional browser: chrome, edge, firefox or brave (default browser if empty)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "organize_downloads",
+   "description": "Categorizes completed downloads into subfolders with preview, collision avoidance, and undo support.",
+   "args": {
+    "downloads_path": "<class 'str'>",
+    "dry_run": "<class 'bool'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "pc_quick_action",
+   "description": "Instant Windows actions: Task Manager, Settings, File Explorer, Run box, clipboard history, emoji panel, snipping (screen clip), task view, new/next/previous/close virtual desktop, project display, notification centre, quick settings, Windows search.",
+   "args": {
+    "action": "Windows action: task_manager, settings, file_explorer, run_dialog, clipboard_history, emoji_panel, snip, task_view, new_desktop, next_desktop, previous_desktop, close_desktop, project_display, notification_center, quick_settings, windows_search, select_all, copy, cut, paste, undo, redo, press_enter, save, screenshot_to_clipboard, screenshot_paste, copy_paste_to_app, paste_to_app",
+    "app": "Target app for copy_paste_to_app / paste_to_app / screenshot_paste, e.g. notepad"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "personal_briefing",
+   "description": "Generates an actionable daily briefing from local tasks, active projects, and notes without third-party news APIs.",
+   "args": {
+    "include_calendar": "<class 'bool'>",
+    "include_notes": "<class 'bool'>",
+    "project_path": "str | None"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "phone_op",
+   "description": "Operate the owner's authorized Android phone with typed operations: tap a control by its text, type into a field, keys, open/close apps, media, notifications, screenshot, push a file, allow-listed developer operations. Never unlocks or enters PINs.",
+   "args": {
+    "action": "tap | type | key | open_app | close_app | media | notifications | screenshot | push | dev | recent | previous_app | settings | volume | media_state | current_app | relaunch | installed | ui_tree | read_screen | find | focus | clear | swipe | open_notification | dismiss_notification | status | pull | open_url | pc_url | record | logs | clipboard | dictate | notify",
+    "target": "control on the phone screen / app name / file path",
+    "text": "<class 'str'>",
+    "key": "back | home | recents | enter | volume_up | volume_down | wake | lock | ...",
+    "op": "media op or dev op (logcat, packages, battery, install_apk, uninstall, open_url, ...)",
+    "arg": "<class 'str'>",
+    "value": "volume percent / seek seconds",
+    "app": "app filter (notifications, settings, logs)",
+    "approved": "<class 'bool'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "play_youtube",
+   "description": "Opens YouTube and plays or searches for a song, video, or query.",
+   "args": {
+    "query": "Video, song, or search query to play on YouTube"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "powershell_command",
+   "description": "Executes a PowerShell command or script, running as administrator by default. Ideal for software installations (winget, choco), configuration, and admin automations.",
+   "args": {
+    "command": "PowerShell command or script to execute",
+    "as_admin": "Run in administrator context by default",
+    "timeout_s": "Execution timeout in seconds"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "project_discover",
+   "description": "Discovers and inspects a software project, builds a knowledge summary of architecture, entrypoints, frontend/backend, and registers valid tasks.",
+   "args": {
+    "project_name": "Project name or query (e.g. 'Automate', 'my project')",
+    "path": "Explicit project directory path"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "project_file_read",
+   "description": "Reads, inspects, and analyzes any file within a user project or user directories (e.g. Chrome extension files, scripts, configs, sources).",
+   "args": {
+    "file_path": "Relative path in project (e.g. 'chrome_extension/background.js', 'run_all.bat', 'backend/main.py') or path on disk",
+    "project_name": "Project name (e.g. 'Automate')",
+    "start_line": "1-indexed line to start reading from",
+    "max_lines": "Max lines to read"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "project_file_run",
+   "description": "Executes a specific project file, script (e.g. run_all.bat, start_controlled_chrome.ps1), or test runner within the user's project directory.",
+   "args": {
+    "file_path": "Script or file to run in the project (e.g. 'run_all.bat', 'start_controlled_chrome.ps1', 'backend/main.py')",
+    "project_name": "Project name",
+    "args": "Optional arguments to pass to the script"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "project_logs",
+   "description": "Reads real project output and background logs, diagnoses errors/tracebacks, and extracts concise root causes.",
+   "args": {
+    "project_name": "Project name",
+    "component": "Specific component: backend, frontend, worker",
+    "tail": "Number of lines to read"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "project_run",
+   "description": "Starts registered components (frontend, backend, database, workers) for a project and verifies real port/process readiness without fixed sleeps.",
+   "args": {
+    "project_name": "Project name or query (e.g. 'Automate')",
+    "components": "Specific components to run: frontend, backend, database, worker, or None for all"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "project_stop",
+   "description": "Gracefully stops tracked project processes (frontend, backend, workers) owned by JARVIS without touching unrelated processes.",
+   "args": {
+    "project_name": "Project name to stop (e.g. 'Automate')"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "quick_answer",
+   "description": "Instantly answers calculations, percentages, unit and temperature conversions, date maths (days until, what day is), world clock, coin flips, dice and random numbers - offline.",
+   "args": {
+    "query": "Math, unit conversion, date or world-time question"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "read_file_metadata",
+   "description": "Reads metadata (size, timestamps, MIME type) for a local path.",
+   "args": {
+    "path": "<class 'str'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "read_whatsapp_messages",
+   "description": "Reads incoming WhatsApp messages filtered by unread status, urgency, or reply requirements. Risk level: READ_ONLY.",
+   "args": {
+    "filter": "Filter: 'unread' (as WhatsApp shows it), 'needs_reply', 'urgent', or 'all'",
+    "limit": "Max messages to retrieve",
+    "include_groups": "Also read group chats (only when the owner asks about groups)",
+    "group": "Read only this named group (only when the owner names it)",
+    "sender": "Only messages from this person (name or number)",
+    "count_only": "Answer 'how many' questions: the exact total, per person"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "recall_facts",
+   "description": "Recalls personal facts you asked JARVIS to remember (e.g. 'where did I park', 'what do you remember about my car').",
+   "args": {
+    "query": "What to recall; empty = recent facts"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "recent_actions",
+   "description": "Answers follow-up questions about what JARVIS just did (who a message went to, what it said, whether it worked) from JARVIS's own action record - never guessed.",
+   "args": {
+    "question": "The follow-up question"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "refresh_applications",
+   "description": "Refreshes the application catalog across registry, shortcuts, UWP, and PATH entries without modifying system PATH. Risk level: READ_ONLY.",
+   "args": {
+    "force": "Force a full rescan of all registration sources"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "remember_fact",
+   "description": "Remembers a personal fact for later (stored locally and added to the knowledge base), e.g. 'remember that my car is on level 2'.",
+   "args": {
+    "fact": "The fact to remember, e.g. 'my car is parked on level 2'"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "rename_file",
+   "description": "Renames a file or directory.",
+   "args": {
+    "source": "<class 'str'>",
+    "new_name": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "reply_whatsapp_all",
+   "description": "Replies to everyone who messaged you recently on WhatsApp (e.g. 'tell everyone who texted me I'm busy'). One-to-one chats only - groups are skipped unless asked. Drafts a personal message per person, then asks before sending.",
+   "args": {
+    "message": "What to tell everyone who messaged (e.g. \"I'm in a meeting, free in an hour\"); empty = reuse the last instruction or draft a reply per chat",
+    "request": "The owner's full request (used for constraints like 'don't reply in groups')",
+    "hours": "Only people who messaged within this many hours",
+    "include_groups": "Also reply in group chats (off by default)",
+    "max_people": "Maximum number of chats to reply to"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "reply_whatsapp_message",
+   "description": "Drafts a reply to the latest WhatsApp message (from a person, or the latest needing a reply) using the conversation and optional guidance, then asks to send it.",
+   "args": {
+    "recipient": "Whose message to reply to (name/number); empty = latest message needing a reply",
+    "instruction": "Optional guidance for what the reply should say"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "rss_latest",
+   "description": "Fetch the latest news headlines and articles from FreshRSS feeds",
+   "args": {
+    "query": "Query or topic to filter, e.g. 'AI', 'tech'",
+    "limit": "Max number of items to return"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "run_project_tests",
+   "description": "Runs local unit tests for an approved trusted project and collects pass/fail metrics.",
+   "args": {
+    "repo_path": "<class 'str'>",
+    "test_target": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "save_workspace",
+   "description": "Saves a workspace manifest (notes, folders, browser tabs, timer) for future resumption.",
+   "args": {
+    "name": "<class 'str'>",
+    "folders": "tuple[str, ...]",
+    "urls": "tuple[str, ...]",
+    "notes_path": "str | None",
+    "editor_command": "str | None",
+    "timer_minutes": "int | None"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "screen_click",
+   "description": "Clicks an element in ANY app by describing it (e.g. 'the Save button', 'the search box'): JARVIS finds it on screen with the local vision model and clicks it.",
+   "args": {
+    "target": "What to click, described as seen on screen, e.g. 'the Save button', 'Wi-Fi toggle'",
+    "button": "typing.Literal['left', 'right']",
+    "double": "<class 'bool'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "screen_op",
+   "description": "Capture the screen, the active window or a named window as a screenshot resource (optionally on the clipboard), or read a window's text from its accessibility tree.",
+   "args": {
+    "action": "capture | read",
+    "scope": "screen | active | <window description>",
+    "to_clipboard": "<class 'bool'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "search_news",
+   "description": "Searches for real-time news in India or specified topic, extracts live headlines, opens browser results, and returns speakable summary.",
+   "args": {
+    "query": "News topic or region to search",
+    "open_browser": "Whether to open the news page in browser"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "search_notes",
+   "description": "Searches previously captured local notes by keyword.",
+   "args": {
+    "query": "<class 'str'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "search_web",
+   "description": "Searches the web for live information.",
+   "args": {
+    "query": "<class 'str'>",
+    "max_results": "<class 'int'>"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "send_whatsapp_bulk",
+   "description": "Sends a prepared WhatsApp message to each of several people (after confirmation). Risk level: EXTERNAL_EFFECT.",
+   "args": {
+    "messages": "One message per recipient",
+    "confirmation_ticket": "Confirmation ticket ID if action required approval"
+   },
+   "risk": "EXTERNAL_EFFECT",
+   "read_only": false
+  },
+  {
+   "tool": "send_whatsapp_message",
+   "description": "Sends a WhatsApp message to a specified contact or phone number. Requires contact resolution and verified transport receipt. Risk level: EXTERNAL_EFFECT.",
+   "args": {
+    "recipient": "Contact name, phone number, or WhatsApp JID",
+    "message": "Message text to send",
+    "confirmation_ticket": "Confirmation ticket ID if action required approval",
+    "allow_group": "Only True when the owner explicitly asked to write in a group"
+   },
+   "risk": "EXTERNAL_EFFECT",
+   "read_only": false
+  },
+  {
+   "tool": "set_reminder",
+   "description": "Sets a reminder that JARVIS will speak and show (and push to the phone) at the given time, e.g. 'drink water in 20 minutes', 'call mom at 6 pm', 'submit the report tomorrow at 10'.",
+   "args": {
+    "text": "What to remind about, including the time, e.g. 'call mom at 6 pm'"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "set_reply_language",
+   "description": "Sets the language JARVIS replies in: English, Thanglish (Tamil in English letters), or auto (the same language the owner speaks).",
+   "args": {
+    "mode": "thanglish = always Tamil in English letters, english = always English, auto = reply in the language I use"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "set_voice",
+   "description": "Change JARVIS's speaking voice (male or female).",
+   "args": {
+    "gender": "<class 'str'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "show_dashboard",
+   "description": "Open or bring the JARVIS dashboard window to the front.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "show_desktop",
+   "description": "Minimizes all windows and shows the desktop via hardware Win+D in under 200 microseconds.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "snap_window",
+   "description": "Snaps the active window or target window to screen regions (left half, right half, top, bottom, or corners).",
+   "args": {
+    "direction": "Snap direction: left, right, top, bottom, top_left, top_right, bottom_left, bottom_right",
+    "window_title": "Optional window title query; defaults to active window"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "speech_recognition_status",
+   "description": "Checks speech-to-text (STT) Faster-Whisper engine status. Risk level: READ_ONLY.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "start_study_focus",
+   "description": "Starts a distraction-free study session with a configured focus timer.",
+   "args": {
+    "subject": "<class 'str'>",
+    "duration_minutes": "<class 'int'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "stopwatch",
+   "description": "Starts, laps, stops or resets a stopwatch and reports the elapsed time.",
+   "args": {
+    "action": "start, lap, stop, reset or status"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "summarize_whatsapp_messages",
+   "description": "Summarizes all pending WhatsApp messages requiring attention, grouping and highlighting urgent messages. Risk level: READ_ONLY.",
+   "args": {
+    "include_all": "Whether to include already read messages",
+    "include_groups": "Also summarise group chats (only when the owner asks about groups)",
+    "group": "Summarise only this named group (only when the owner names it)"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "switch_window",
+   "description": "Switches to the previous application (Alt+Tab) or brings a named window to foreground.",
+   "args": {
+    "target": "Target: 'previous' (Alt+Tab) or specific window title query"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "system_diagnostics",
+   "description": "Runs read-only system diagnostics and subsystem health audit (Python runtime, FastAPI gateway, SQLite database, audio devices, Ollama models, and dependencies). Risk level: READ_ONLY.",
+   "args": {
+    "scope": "Scope of diagnostics to collect"
+   },
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "system_info",
+   "description": "Report OS, CPU, RAM usage and GPU of this PC.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "system_op",
+   "description": "Measured PC and JARVIS state: CPU/RAM/GPU/disk/network/uptime, which local Ollama models are installed or loaded (and unload/warm one), audio devices, and an audit of what this task may use. Never looked up on the web.",
+   "args": {
+    "action": "status | models | audio | audit | running | restart_app | theme",
+    "what": "status: cpu | ram | gpu | disk | network | uptime | battery | all",
+    "op": "models: list | loaded | unload | warm; audio: list | switch",
+    "target": "model name/role or audio device"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "system_power_control",
+   "description": "Executes system power and session control (Lock PC, Sleep PC, or confirmed Restart/Shutdown).",
+   "args": {
+    "action": "Power action: lock, sleep, restart, shutdown",
+    "confirmation_ticket": "Confirmation ticket ID for restart and shutdown"
+   },
+   "risk": "DESTRUCTIVE",
+   "read_only": false
+  },
+  {
+   "tool": "take_screenshot",
+   "description": "Capture the whole screen, or only the active window (window='active'), to a PNG file (optional path).",
+   "args": {
+    "path": "str | None",
+    "window": "'screen' = every monitor, 'active' = only the window in front"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "text_op",
+   "description": "Edit text in the focused field: delete/select/copy/cut N characters, words, lines, sentences; replace X with Y; change case; undo/redo; insert text; press a named key action.",
+   "args": {
+    "action": "delete | select | copy | cut | replace | upper | lower | capitalize | undo | redo | insert | press | caret | count | find | append | prepend | clear | save | save_as | paste_plain | template",
+    "unit": "char | word | line | sentence | paragraph | all",
+    "n": "<class 'int'>",
+    "direction": "back (before the cursor) | forward",
+    "find": "<class 'str'>",
+    "replace_with": "<class 'str'>",
+    "all": "replace every occurrence",
+    "text": "text to insert",
+    "key": "named key action for press: bold, italic, underline, save, new_line, ...",
+    "name": "file name for save_as, template name for template"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "todo",
+   "description": "Manages your to-do list (stored locally): add a task, list tasks, mark one done, remove one.",
+   "args": {
+    "action": "add, list, done, remove or clear_done",
+    "item": "The task text, or which task (number, first/last, or words)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "top_memory_processes",
+   "description": "List the programs using the most RAM right now.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "trim_media_clip",
+   "description": "Trims a section of video or audio given start timestamp and duration using FFmpeg templates.",
+   "args": {
+    "media_path": "<class 'str'>",
+    "start_time": "<class 'str'>",
+    "duration": "<class 'str'>",
+    "output_path": "str | None"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "ui_op",
+   "description": "Find a control by role/name/ordinal in the window, web page, IDE or phone screen and click it, tick it, type into it, read it or scroll - never by coordinates.",
+   "args": {
+    "action": "click | check | uncheck | type | read | find | scroll | select | slider | expand | collapse | menu | modal | explain | focus | next_focus | clear | copy | remove_attachment",
+    "target": "control description: 'the send button', 'search box', 'the second result'",
+    "text": "text to type (for action=type)",
+    "surface": "auto | desktop | browser | phone | ide",
+    "window": "window/app the control is in (default: the one in front)",
+    "direction": "<class 'str'>",
+    "n": "<class 'int'>",
+    "option": "option to choose (select)",
+    "value": "0-100 position for a slider",
+    "path": "menu path, e.g. ['File', 'Export', 'PDF']",
+    "approved": "owner already approved a consequential control"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "uninstall_software",
+   "description": "Uninstalls an installed application (via winget). Always asks for confirmation first.",
+   "args": {
+    "name": "Name of the installed application to remove"
+   },
+   "risk": "DESTRUCTIVE",
+   "read_only": false
+  },
+  {
+   "tool": "update_software",
+   "description": "Updates one application, or all applications with available updates, using winget.",
+   "args": {
+    "name": "Application to update; empty = update everything that has updates"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "video_op",
+   "description": "Control the video/audio the owner is watching: play, pause, seek to a time or by seconds, speed, volume, mute, captions, full screen, next, skip a skippable ad, report position.",
+   "args": {
+    "action": "play | pause | toggle | seek_to | seek_by | rate | mute | unmute | volume | restart | next | previous | captions | fullscreen | skip_ad | loop | state",
+    "value": "seconds for seek, rate for speed, 0-100 for volume",
+    "relative": "rate is a step up/down from the current speed"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "voice_edit",
+   "description": "Performs voice-driven editing on active text: backspace, delete word, delete sentence, undo, redo, select, replace X with Y, capitalize, lowercase, copy, cut, paste, mixed.",
+   "args": {
+    "action": "Voice edit action: backspace, delete_word, delete_sentence, undo, redo, select_sentence, replace, capitalize, lowercase, copy, cut, paste, mixed",
+    "target_text": "Text to replace or target",
+    "replacement_text": "Replacement text",
+    "operations": "Operations for mixed edit + insert"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "volume_get",
+   "description": "Read the current master speaker volume percentage.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "volume_set",
+   "description": "Set the master speaker volume to an exact percentage (0-100).",
+   "args": {
+    "percent": "<class 'int'>"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "wake_greeting",
+   "description": "Greet the user and show the JARVIS dashboard.",
+   "args": {},
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "wake_word_status",
+   "description": "Checks wake word engine and detection status. Risk level: READ_ONLY.",
+   "args": {},
+   "risk": "READ_ONLY",
+   "read_only": true
+  },
+  {
+   "tool": "watch_op",
+   "description": "Start, list or cancel a scoped, time-limited watch: skip ads when the Skip button appears (this video only), tell when a download finishes, tell when the IDE agent is done.",
+   "args": {
+    "action": "skip_ads | download_done | ide_done | when | cancel | list",
+    "condition": "for when: download_done | file_appears | window_opened | window_closed | phone_connected | battery_below | battery_above | control_appears | control_enabled | ide_done | page_changed | task_done | captcha | whatsapp_message",
+    "subject": "what the condition is about: window/app, file name, control, task",
+    "threshold": "battery percent etc.",
+    "then": "the owner's own follow-up command, run through JARVIS when it happens",
+    "notify_phone": "also post the notice on the owner's phone",
+    "kind": "watch kind for cancel (skip_ad, download, ide)",
+    "ide": "<class 'str'>",
+    "folder": "downloads folder (default: the owner's Downloads)",
+    "minutes": "how long the watch may run"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "web_task",
+   "description": "Uses the browser with AI to complete a multi-step web goal (search sites, open results, read pages, fill forms with dropdowns and checkboxes) and reports the result. Pauses for the user to log in (then continues), and stops before payments or purchases.",
+   "args": {
+    "goal": "What to achieve on the web, e.g. 'find the price of Sony WH-1000XM5 on Amazon'",
+    "start_url": "Optional page to start from",
+    "max_steps": "Maximum browser actions",
+    "resume": "Continue the previous web task from the current page (e.g. after the user logged in)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "whatsapp_action",
+   "description": "Controls WhatsApp bridge connectivity: connect, disconnect, or request new pairing code. Risk level: REVERSIBLE.",
+   "args": {
+    "action": "Action: connect, disconnect, pair, status"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "whatsapp_auto_reply",
+   "description": "Turns WhatsApp auto-reply on for one contact, several, or all direct contacts for a limited time (never groups), turns it off, or reports its status. Replies use the owner's style with each person.",
+   "args": {
+    "action": "enable, disable, disable_all or status",
+    "who": "Contact name, number, JID, or her/him/them",
+    "everyone": "All DIRECT contacts (groups are always excluded)",
+    "window_text": "Original wording with the duration / end time",
+    "has_window": "<class 'bool'>",
+    "note": "What to tell people (away message), if the owner said it",
+    "exclude": "People left out of an everyone-grant, comma separated"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "whatsapp_learn_chats",
+   "description": "Learns the owner's texting style for each person from chat files dropped into data/whatsapp_feed (WhatsApp export .txt/.zip, WhatsApp Web copy, Telegram/Instagram/Chat Exporter JSON, CSV, 'Name: message' transcripts). One-to-one chats only; each file is imported once.",
+   "args": {
+    "folder": "Optional folder; default data/whatsapp_feed"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "window_op",
+   "description": "Focus, maximize, minimize, restore, full-screen, close or arrange windows by description (previous window, my editor, chrome with YouTube), with foreground history.",
+   "args": {
+    "action": "focus | maximize | minimize | restore | fullscreen | close | arrange | list | resize | move | active | find | info | save_layout | restore_layout | isolate (minimise every other window)",
+    "target": "window description: 'previous', 'my editor', 'chrome', 'second chrome', a title word",
+    "targets": "windows for side-by-side/stack layouts",
+    "layout": "left | right | top | bottom | side_by_side | stack | quadrants | center | next_monitor",
+    "launch": "open the app first if no window of it is open",
+    "direction": "resize: smaller | bigger; move: left | right | other",
+    "name": "layout name for save_layout / restore_layout"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  },
+  {
+   "tool": "workflow_op",
+   "description": "Owner-authored workflows: save a named list of commands, preview it, run it (each step goes through JARVIS normally and the run stops at the first failure), clone, enable, disable, schedule or cancel a schedule.",
+   "args": {
+    "action": "run | preview | create | clone | enable | disable | schedule | cancel_schedule | list | run_at | trigger | list_triggers | cancel_trigger",
+    "name": "workflow name",
+    "steps": "create: the owner's own commands, in order",
+    "new_name": "clone: name of the copy",
+    "when": "schedule: 'weekdays at 9', 'every 30 minutes'",
+    "override": "run: a folder to use instead of the one in the saved steps",
+    "command": "run_at / trigger: the owner's own command to run later",
+    "condition": "trigger: app_opened | app_closed | phone_connected | phone_disconnected | battery_below | battery_above | download_done",
+    "subject": "trigger: the app name for app_opened / app_closed",
+    "threshold": "trigger: battery percentage",
+    "ref": "cancel_trigger: which one (a word from its command, its number, or empty)"
+   },
+   "risk": "REVERSIBLE",
+   "read_only": false
+  }
+ ],
+ "runtime_and_control": [
+  {
+   "tool": "CONTROL:cancel_task",
+   "description": "Stop / cancel what JARVIS is doing now (control lane)",
+   "args": {}
+  },
+  {
+   "tool": "CONTROL:pause_task",
+   "description": "Pause the running JARVIS task",
+   "args": {}
+  },
+  {
+   "tool": "CONTROL:resume_task",
+   "description": "Resume a paused JARVIS task",
+   "args": {}
+  },
+  {
+   "tool": "CONTROL:stop_speaking",
+   "description": "Stop JARVIS talking",
+   "args": {}
+  },
+  {
+   "tool": "CONTROL:speech_control",
+   "description": "Speech: repeat / slower / faster / louder / softer",
+   "args": {
+    "action": "repeat|slower|faster|louder|softer"
+   }
+  },
+  {
+   "tool": "resource_usage",
+   "description": "Live CPU / RAM / GPU load of this PC (runtime handler)",
+   "args": {}
+  },
+  {
+   "tool": "task_status",
+   "description": "What JARVIS is running right now (runtime handler)",
+   "args": {}
+  },
+  {
+   "tool": "previous_outcome",
+   "description": "Result of the previous command (runtime handler)",
+   "args": {}
+  },
+  {
+   "tool": "pc_quick_action",
+   "description": "Quick PC keys: copy, paste, undo, redo, task manager, run dialog, task view, notification center, alarm/timer",
+   "args": {
+    "action": "",
+    "app": ""
+   }
+  },
+  {
+   "tool": "volume_up",
+   "description": "Raise PC volume a step",
+   "args": {}
+  },
+  {
+   "tool": "volume_down",
+   "description": "Lower PC volume a step",
+   "args": {}
+  },
+  {
+   "tool": "volume_mute",
+   "description": "Mute PC audio",
+   "args": {}
+  },
+  {
+   "tool": "volume_unmute",
+   "description": "Unmute PC audio",
+   "args": {}
+  },
+  {
+   "tool": "lock_pc",
+   "description": "Lock the PC",
+   "args": {}
+  },
+  {
+   "tool": "compound",
+   "description": "Several steps in one sentence; the router returns ordered subcommands (each a tool + args)",
+   "args": {
+    "steps": "ordered list of tools"
+   }
+  }
+ ]
+}

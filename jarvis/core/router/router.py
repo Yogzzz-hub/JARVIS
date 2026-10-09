@@ -295,6 +295,10 @@ class SmartRouter:
             _bare = re.sub(r"^(?:(?:hey\s+)?jarvis\s*,?\s*)?(?:(?:can|could|would|will)\s+(?:you|u)\s+(?:please\s+|kindly\s+)?|please\s+|kindly\s+)+", "",
                            raw_language.strip(), flags=re.I)
             polite_command = _bare != raw_language.strip() and _to_en(_bare) != _bare      # "could you please chrome open pannu"
+            if _bare != raw_language.strip() and not polite_command:       # English imperative after the polite lead: "can you copy the path of this file"
+                from jarvis.core.router.normalize import COMMAND_VOCAB as _CV
+                _first = (_bare.split() or [""])[0].lower()
+                polite_command = _first in _CV and _first.isalpha() and len(_first) > 2 and _first not in ("tell", "say", "see", "know", "explain", "help", "do", "get", "give", "show")
             if language_frame.speech_act in {"QUESTION", "STATEMENT"} and not polite_command:
                 return RouteDecision(request_id=request.request_id, lane=RouteLane.LANE_2, intent=None, slots={},
                     confidence=0.8, source=RouteSource.GRAMMAR, normalized_text=raw_language,

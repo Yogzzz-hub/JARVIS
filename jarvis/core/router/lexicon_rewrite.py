@@ -43,7 +43,7 @@ _ALIASES = {
     "delet": "delete", "rember": "remember", "remeber": "remember", "genrate": "generate", "generat": "generate",
     "dictashun": "dictation", "dictaion": "dictation", "strat": "start", "srart": "start", "histry": "history", "clipbord": "clipboard",
     "windo": "window", "refersh": "refresh", "refesh": "refresh", "zum": "zoom", "volum": "volume", "volumn": "volume",
-    "britness": "brightness", "brigthness": "brightness", "tek": "take", "taek": "take", "nu": "new", "scren": "screen",
+    "britness": "brightness", "brigthness": "brightness", "tek": "take", "taek": "take", "scren": "screen",
     "sceen": "screen", "serch": "search", "searh": "search", "abt": "about", "wether": "weather", "wheather": "weather",
     "recipie": "recipe", "instal": "install", "unistal": "uninstall", "uninstal": "uninstall", "spotfy": "spotify",
     "crome": "chrome", "chorme": "chrome", "whatsap": "whatsapp", "whatapp": "whatsapp", "gmial": "gmail", "youtub": "youtube",
@@ -53,7 +53,7 @@ _JOINS = [(r"\bscreen\s+(shot|shoot|sho+t|snap|capture)s?\b", "screenshot"), (r"
           (r"\bflash\s+light\b", "flashlight"), (r"\bclip\s+board\b", "clipboard"), (r"\bback\s+space\b", "backspace"),
           (r"\bnote\s+pad\b", "notepad"), (r"\bdesk\s+top\b", "desktop"), (r"\bair\s*plane\b", "airplane"),
           (r"\bwat\s+is\b", "what is"), (r"\bwats\b", "what's"), (r"\bn\s+(?=[a-z])", "and ")]
-_SKIP_REPAIR = frozenset("a an the of on in to is it at as by or if no so do we he me my us up".split())
+_SKIP_REPAIR = frozenset("a an the of on in to is it at as by or if no so do we he me my us up docs doc tidy backend frontend fullstack localhost sharex".split())
 
 
 def repair(text: str) -> str:
@@ -119,6 +119,8 @@ def _phone_toggle(t: str) -> str | None:
     pc = _has(t, rf"\b{_PC}\b")
     if pc and not on_phone:
         return None
+    if _has(t, r"\b(?:keep|but|except|instead|laptop|pc|computer|tap|press|click|swipe|install\w*|where|find|path|located|folder|studio)\b|\bconnect\s+to\b|\bover\s+wi-?fi\b|\bdoes\b"):
+        return None
     if not on_phone and found != ["flashlight"]:
         return None
     if _has(t, r"\b(?:status|is|are|what|which|check|show|list)\b") and not _has(t, rf"\b{_OFF}\b|\b{_ON}\b"):
@@ -140,12 +142,16 @@ def _phone_toggle(t: str) -> str | None:
 
 def _call(t: str) -> str | None:
     """"ring up my sister Divya", "cal amma", "buzz Kumar", "give Raj a call" -> call X on my phone."""
-    m = re.fullmatch(r"(?:please\s+)?(?:(?:ring|phone|buzz)(?:\s+up)?|call|dial|(?:give|make)\s+(?:a\s+)?call\s+(?:to\s+)?)\s+"
+    m = re.fullmatch(r"(?:please\s+)?(?:(?:ring|buzz)(?:\s+up)?|call|dial|(?:give|make)\s+(?:a\s+)?call\s+(?:to\s+)?)\s+"
                      r"(?:up\s+)?(?:my\s+)?(?P<p>[a-z][a-z' ]{1,24}?)(?:\s+(?:on|from|using|via)\s+(?:my\s+)?(?:phone|mobile))?", t) \
         or re.fullmatch(r"(?:give|make)\s+(?P<p>[a-z][a-z' ]{1,24}?)\s+a\s+(?:call|ring|buzz)", t)
     if not m:
         return None
     p = m.group("p").strip()
+    if re.match(r"(?:please\s+)?(?:call|dial)\s", t) and not re.search(r"\bon\s+(?:my\s+)?(?:phone|mobile)\b", t):
+        return None          # a plain "call X" is the router's own: names stay exactly as spoken
+    if p.split()[0] in ("me", "us", "you", "u", "it", "them", "him", "her", "this", "that", "later", "phone") or p.split()[-1] in ("back", "later", "urgent", "final", "off"):
+        return None
     if p in ("it", "this", "that", "him", "her", "them", "back", "me", "up", "my phone", "the second one", "the first one", "the last one") \
             or re.match(r"(?:the|a|an|that|this|those|these)\b", p) or _has(p, r"\b(?:wifi|bluetooth|data|on|off|mode)\b"):
         return None
@@ -158,14 +164,16 @@ def _clipboard(t: str) -> str | None:
     if _has(t, r"\b(?:clear|wipe|empty|erase|clean|delete|purge)\b") and _has(t, r"\bhistory\b|\bclipboard\b"):
         return "clear clipboard history"
     if _has(t, r"\b(?:history|panel|list|earlier|before|ago|previous)\b") and _has(t, r"\b(?:open|show|see|view|display|bring|pull|list)\b"):
-        return "show my clipboard history"
-    if _has(t, r"\b(?:what|read|show|tell|see|check|display|whatever|anything)\b") and not _has(t, r"\b(?:put|set|copy|place|save|store|write)\b"):
+        return None          # the router's own wording for the history panel
+    if _has(t, r"\b(?:what|read|show|tell|see|check|display|whatever|anything)\b") and not _has(t, r"\b(?:put|set|copy|place|save|store|write|saved|items?|history)\b"):
         return "what is on my clipboard"
     return None
 
 
 def _speech(t: str) -> str | None:
     """Controls of JARVIS's own voice: "raise your speaking voice a bit", "you're rushing, take it easy" -> speak louder|slower."""
+    if _has(t, r"\b(?:while|when|whenever|if|during|runs?|running)\b"):
+        return None
     me = _has(t, r"\b(?:voice|speak\w*|talk\w*|pace|rushing|spoken)\b|\byou(?:'re|\s+are)\s+(?:too\s+)?(?:loud|fast|slow|quiet|soft)\b")
     if not me or _has(t, r"\b(?:volume|brightness|music|song|video|phone|screen|open|launch|start|close|fire|pull|bring)\b"):
         return None
@@ -191,9 +199,10 @@ def _browser(t: str) -> str | None:
               r"\b(?:didn'?t|did\s+not)\s+mean\s+to\s+close\b|\bclosed\s+(?:that|the)\s+tab\b.*\bby\s+mistake\b|\boops\b.*\bclose"):
         return "reopen the closed tab"
     if _has(t, r"\b(?:head|go|get|take\s+me|navigate)\s+back\b|\bprevious\s+page\b|\bback\s+(?:one\s+)?page\b|\bpage\s+back\b") \
-            and not _has(t, r"\b(?:window|windows|desktop|app|application|program|previous\s+(?:window|app)|spreadsheet|document|file|folder|tab)\b"):
+            and not _has(t, r"\b(?:window|windows|desktop|app|application|program|previous\s+(?:window|app)|spreadsheet|document|file|folder|tab|editor|ide|code|chat|topic|conversation|subject|video|song|track|audio|playlist)\b") \
+            and not _has(t, r"\bback\s+(?:to|into|in|at|on)\b|\bback\s+\d|\b\d+\s*(?:sec|secs|seconds?|min|mins|minutes?|hours?|steps?|lines?|pages)\b|\bme\s+back\s+to\b"):
         return "go back a page"
-    if _has(t, r"\b(?:go|head|move|navigate|forward)\b.*\bforward\b|\bnext\s+page\b|\bpage\s+forward\b"):
+    if _has(t, r"\b(?:go|head|move|navigate|forward)\b.*\bforward\b|\bnext\s+page\b|\bpage\s+forward\b") and not _has(t, r"\bof\s+(?:the\s+)?(?:results|search|list)\b"):
         return "go forward"
     if _has(t, r"\b(?:make|set|increase|enlarge|bigger|larger|zoom)\b.*\b(?:text|font|page|letters|words|writing)\b.*\b(?:bigger|larger|big|large|more)\b|\b(?:text|font|writing)\s+(?:is\s+)?(?:too\s+)?(?:tiny|small)\b|"
               r"\bcan'?t\s+read\b.*\b(?:tiny|small|font)\b|\bzoom\s+in\b|\bmake\s+(?:the\s+)?(?:page|text)\s+(?:bigger|larger)\b"):
@@ -202,15 +211,16 @@ def _browser(t: str) -> str | None:
         return "zoom out"
     if _has(t, r"\b(?:zoom|text\s+size|page\s+size)\b.*\b(?:normal|default|reset|100|back|original)\b|\b(?:reset|normal)\s+zoom\b"):
         return "reset zoom"
-    if _has(t, r"\b(?:new|fresh|another|blank)\s+tab\b|\bopen\s+(?:a\s+)?tab\b"):
+    if _has(t, r"\b(?:new|fresh|another|blank)\s+tab\b|\bopen\s+(?:a\s+)?tab\b") and not _has(t, r"\b(?:in|into|on)\s+(?:a\s+|an\s+)?(?:new|another|fresh|blank|separate)\s+tab\b"):
         return "open a new tab"
-    if _has(t, r"\b(?:refresh|reload|renew)\b.*\b(?:page|site|tab|this)\b|\b(?:page|site)\b.*\b(?:stuck|frozen|not\s+loading|hung)\b|\bstuck\s+(?:loading|on\s+loading)\b|\brefresh\b"):
+    if _has(t, r"\b(?:refresh|reload|renew)\b.*\b(?:page|site|tab)\b|\b(?:refresh|reload)\s+(?:this|it)\b|\b(?:page|site)\b.*\b(?:stuck|frozen|not\s+loading|hung)\b|\bstuck\s+(?:loading|on\s+loading)\b"):
         return "refresh the page"
     if _has(t, r"\b(?:bottom|end|last\s+part)\b.*\b(?:page|site)\b|\bscroll\b.*\b(?:bottom|end)\b|\b(?:take|go|jump|get)\s+(?:me\s+)?(?:to\s+)?(?:the\s+)?bottom\b"):
         return "scroll to the bottom"
     if _has(t, r"\b(?:top)\b.*\b(?:page|site)\b|\bscroll\b.*\btop\b|\b(?:go|jump|get|take\s+me)\s+(?:to\s+)?(?:the\s+)?top\b"):
         return "scroll to the top"
-    if _has(t, r"\b(?:close|shut|kill|dismiss)\b.*\b(?:this|the|current|that)\b.*\btab\b|\bclose\s+(?:the\s+)?tab\b"):
+    if _has(t, r"\b(?:close|shut|kill|dismiss)\s+(?:this|the\s+current|current|that|the)\s+(?:browser\s+)?tab\b|\bclose\s+(?:the\s+)?tab\b") \
+            and not _has(t, r"\b(?:file|editor|ide|code|document|doc|terminal|notebook|source|vs|other|another|rest|all|others)\b"):
         return "close this tab"
     return None
 
@@ -264,7 +274,7 @@ def _strip_det(x: str) -> str:
 def _mail(t: str) -> str | None:
     if not _has(t, r"\b(?:emails?|inbox|gmail|mail|mails)\b|\bsent\s+me\b|\bexpecting\b"):
         return None
-    if _has(t, r"\b(?:compose|draft|write|reply|forward|delete|archive|spam)\b"):
+    if _has(t, r"\b(?:compose|draft|write|reply|forward|delete|archive|spam|password|account|event|create|calendar|is\s+open|opened)\b|\.\w{2,4}\b"):
         return None
     m = re.search(rf"\bfrom\s+{_WHO}(?:\s+(?:yet|today|please|now|since\s+\w+)|$)", t)
     who = _strip_det(m.group("w")) if m else ""
@@ -289,7 +299,9 @@ def _mail(t: str) -> str | None:
 def _calendar(t: str) -> str | None:
     if not _has(t, r"\b(?:calendar|calender|schedule|agenda|meetings?|appointments?|events?)\b|\bmy\s+(?:week|day)\s+look\b"):
         return None
-    if _has(t, r"\b(?:add|create|schedule\s+a|book|set\s+up|put|new|cancel|delete|move|reschedule|invite|that|write|wirte|whatsapp|here|scheduled|shceduled|schedul\w*|jobs|tasks)\b"):
+    if _has(t, r"\b(?:add|create|schedule\s+a|book|set\s+up|put|new|cancel|delete|move|reschedule|invite|that|write|wirte|whatsapp|here|scheduled|shceduled|schedul\w*|jobs|tasks|every|project|projects|file|files|folder|doc|document|link|app|related|relevant)\b"):
+        return None
+    if _has(t, r"\bto\s+(?:my\s+)?(?:calendar|calender)\b|\bat\s+\d|\|"):
         return None
     if not _has(t, r"^(?:what|which|show|list|any|do\s+i|have\s+i|how\s+(?:does|do\s+i\s+look|is|busy)|tell\s+me\s+(?:what|my)|read|check|see|open|calendar|calender|my|today|tomorrow|get)\b|\bon\s+(?:my|the|today'?s)\b") \
             or _has(t, r"\b(?:say|translate|mean|hindi|tamil|english|word|spell)\b"):
@@ -312,12 +324,14 @@ def _whatsapp_read(t: str) -> str | None:
     m = re.fullmatch(rf"(?:did|has|have)\s+{_WHO}\s+(?:message|messaged|text|texted|write|wrote|ping|pinged|reply|replied|call|called)\s*(?:me|us)?(?:\s+(?:today|yet|lately|recently|already|this\s+morning))?", t)
     if m and _has(m.group("w"), r"^(?:amma|appa|[a-z]{3,})$") and m.group("w") not in ("anyone", "anybody", "someone", "everyone", "any", "you"):
         return f"read whatsapp messages from {_strip_det(m.group('w'))}"
-    if _has(t, r"\b(?:anyone|anybody|someone|people|any(?:thing)?)\b") and _has(t, r"\b(?:waiting|urgent|new|unread|pending|messaged|texted|need\s+to\s+(?:answer|reply)|still\s+need)\b") \
+    if _has(t, r"\b(?:anyone|anybody|someone|people)\b") and _has(t, r"\b(?:waiting|urgent|new|unread|pending|messaged|texted|need\s+to\s+(?:answer|reply)|still\s+need)\b") \
             and _has(t, r"\b(?:whatsapp|messages?|texts?|chats?|me)\b") and not _has(t, r"\b(?:email|mail|calendar|call|file)\b"):
         return "read my unread whatsapp messages"
-    if _has(t, r"\bany\s+messages?\b.*\b(?:answer|reply|respond)\b|\bwho\s+(?:messaged|texted|is\s+waiting)\b"):
+    if _has(t, r"\bany\s+messages?\b.*\b(?:answer|reply|respond)\b|\bwho\s+is\s+waiting\b"):
         return "read my unread whatsapp messages"
-    if _has(t, r"\b(?:catch\s+me\s+up|fill\s+me\s+in|summar\w+|what'?s\s+(?:going\s+on|happening))\b") and _has(t, r"\b(?:whatsapp|group|chat|messages?)\b|\bkeeps\s+texting\b"):
+    if _has(t, r"\b(?:catch\s+me\s+up|fill\s+me\s+in|summar\w+|what'?s\s+(?:going\s+on|happening))\b") and _has(t, r"\b(?:whatsapp|group|chat|messages?)\b|\bkeeps\s+texting\b") \
+            and not _has(t, r"\b(?:save|store|put|add|write|into|notes?|memo|file|doc|document|email|mail|pdf)\b") \
+            and not _has(t, r"\b(?:that|this|the)\s+(?:message|text)\b|\bthat\b|\bgroups?\b"):
         return "summarize my whatsapp messages"
     if _has(t, r"\bhow\s+many\s+messages\b.*\b(?:each|every|per)\b"):
         return "summarize my whatsapp messages"
@@ -325,7 +339,8 @@ def _whatsapp_read(t: str) -> str | None:
 
 
 def _lists(t: str) -> str | None:
-    if _has(t, r"\.\w{2,4}\b|^(?:open|launch|start|close)\b|\bmanager\b|\bmnaager\b"):
+    if _has(t, r"\.\w{2,4}\b|^(?:open|launch|start|close)\b|\bmanager\b|\bmnaager\b|\b(?:duplicate|copy|move|rename|desktop|folder|file|files)\b|"
+              r"\b(?:running|progress|skipped|result|current|previous|last|cancel\w*)\b.*\btask\b|\btask\b.*\b(?:running|progress|skipped|result)\b|^what\s+(?:does|do)\b"):
         return None
     if _has(t, r"\b(?:to-?do|todo)\b|\b(?:my|the)\s+tasks?\b(?!\s+manager)|\btasks?\s+list\b|\blaundry\s+task\b|\b[a-z]+\s+task\b(?<!manager task)") \
             and not _has(t, r"\b(?:add|create|new|remind|manager)\b"):
@@ -344,15 +359,17 @@ def _lists(t: str) -> str | None:
 
 
 def _history(t: str) -> str | None:
-    if _has(t, r"\b(?:forget|delete|erase|remove|clear)\b"):
+    if _has(t, r"\b(?:forget|delete|erase|remove|clear|remember)\b"):
         return None
     if _has(t, r"\b(?:what|which|show|list)\b.*\b(?:asking|asked|told|commands?|requests?|said|gave|did\s+i\s+(?:ask|tell|say))\b.*\b(?:today|earlier|lately|so\s+far|you|last|recent\w*)\b") \
             or _has(t, r"\bwhat\s+(?:have\s+i|did\s+i)\s+(?:been\s+)?(?:asking|ask|tell|told)\b"):
         return "what did i ask you today"
     if _has(t, r"\bwhat\s+(?:did|have)\s+(?:you|u)\s+(?:do|done|been\s+doing)\b|\bwhat\s+was\s+(?:your|the)\s+last\s+(?:action|thing)\b|\bwhat\s+did\s+(?:you|u)\s+do\s+last\b|\bwat\s+did\s+u\s+do\b"):
         return "what did you do last"
-    if _has(t, r"\b(?:did|has|was)\b.*\b(?:that|it|the\s+last\s+(?:thing|one|command|action))\b.*\b(?:work|go\s+through|succeed|worked|succeeded|fail|failed|happen)\b"):
+    if _has(t, r"^(?:did|has|was)\s+(?:that|it|the\s+last\s+(?:thing|one|command|action))\s+(?:last\s+)?(?:thing\s+)?(?:work|go\s+through|succeed|worked|succeeded|fail|failed|happen)(?:ed)?$"):
         return "did that work"
+    if _has(t, r"\bwho\b.*\b(?:got|received|gets|has)\b.*\b(?:that|the\s+last|my\s+last)\s+(?:message|text|one)\b"):
+        return "who did you send that to"
     if _has(t, r"\bwho\b.*\b(?:did|was)\b.*\b(?:that|the\s+last)\b.*\b(?:go\s+to|sent\s+to|message)\b"):
         return "who did you send that to"
     return None
@@ -362,7 +379,7 @@ _FOLDERS = r"(?P<f>desktop|downloads?|documents?|pictures?|music|videos?)"
 
 
 def _files(t: str) -> str | None:
-    m = re.fullmatch(rf"(?:what|which)?\s*(?:files|stuff|things|items|folders)?\s*(?:are\s+)?(?:sitting\s+|lying\s+|present\s+|stored\s+)?(?:in|on|inside|under)\s+(?:my\s+|the\s+){_FOLDERS}(?:\s+folder)?", t) \
+    m = re.fullmatch(rf"(?:what|which)\s*(?:files|stuff|things|items|folders)?\s*(?:are\s+)?(?:sitting\s+|lying\s+|present\s+|stored\s+)?(?:in|on|inside|under)\s+(?:my\s+|the\s+){_FOLDERS}(?:\s+folder)?", t) \
         or re.fullmatch(rf"(?:list|show|display|see)\s+(?:me\s+)?(?:all\s+)?(?:the\s+)?(?:files|stuff|things|items)\s+(?:in|on|inside)\s+(?:my\s+|the\s+){_FOLDERS}(?:\s+folder)?", t)
     if m:
         f = m.group("f").rstrip("s").capitalize() + ("s" if m.group("f").startswith(("download", "document", "picture", "video")) else "")
@@ -373,9 +390,6 @@ def _files(t: str) -> str | None:
     if m and _has(m.group("d"), r"^(?:desktop|downloads?|documents?|pictures?|music|videos?|\w+\s*\w*)$") and not _has(m.group("x"), r"\b(?:phone|mobile)\b|\bme\b") \
             and not _has(m.group("d"), r"\b(?:phone|mobile|trash|bin|cloud|drive|me|whatsapp)\b"):
         return f"move {m.group('x').strip()} to {m.group('d').strip()}"
-    m = re.fullmatch(r"(?:make|create|add|new)\s+(?:a\s+)?(?:new\s+)?folder\s+(?:with\s+the\s+)?(?:called|named|name)?\s*(?P<n>[\w -]{1,30}?)\s+(?:in|inside|on|under)\s+(?:my\s+|the\s+)?(?P<d>desktop|downloads?|documents?|pictures?|music|videos?)", t)
-    if m:
-        return f"create folder {m.group('n').strip()} in {m.group('d')}"
     return None
 
 
@@ -383,7 +397,7 @@ _REM_HEAD = re.compile(r"^(?:rember|remeber|remmber|remembr|remember)\b\s+(?P<x>
 
 
 def _memory(t: str) -> str | None:
-    m = re.match(r"^(?:jot|write|note|put)\s+(?:this\s+|that\s+)?(?:idea\s+|thought\s+)?down\s*[:,-]?\s*(?P<x>.+)$", t) \
+    m = re.match(r"^(?:jot|write|note|put)\s+(?:this\s+|that\s+)?(?:idea\s+|thought\s+)?down\b\s*[:,-]?\s*(?P<x>.+)$", t) \
         or re.match(r"^(?:not|note|noat)\s+down\s*[:,-]?\s*(?P<x>.+)$", t)
     if m:
         return f"note down {m.group('x')}"
@@ -410,6 +424,10 @@ def _batch2(t: str) -> str | None:
     return None
 
 
+_SCHEDULED = re.compile(r"^(?:in|after|at|every|on|run\s+at|run)\s+\w*\s*\d|\||^in\s+(?:an?|one|two|three|five|ten|half)\b|\b(?:in|after)\s+\d+\s+(?:minutes?|mins?|hours?|seconds?|days?)\b")
+_META = re.compile(r"^(?:how\s+(?:do|does|can|would)\b.*\bwork|(?:does|do|is|are)\b.*\b(?:let|allow|support|work|works|possible|able)\b|can\s+(?:you\s+)?remember\s+things|what\s+(?:does|do|is)\b.*\b(?:do|mean|means)\b)")
+
+
 def rewrite(text: str) -> str | None:
     t = " ".join((text or "").lower().split()).strip(" .!?")
     for _ in range(3):
@@ -418,6 +436,10 @@ def rewrite(text: str) -> str | None:
         t = re.sub(r"\s*,?\s+(?:jarvis|please|pls|thanks|thank\s+you|for\s+me|now|right\s+now|quickly|real\s+quick)$", "", t)
     if not t or len(t.split()) > 14 or _NEG.search(t):
         return None
+    if _SCHEDULED.search(t) or _META.search(t):
+        return None
+    if (text or "").strip().endswith("?") and re.match(r"^(?:(?:can|could|would|will)\s+(?:you|u)\s+)?(?:remember|forget|save|store|keep)\b", " ".join((text or "").lower().split())):
+        return None      # a question about the assistant's abilities is not an instruction
     if _CONTENT.search(t):
         r0 = repair(t)
         return _whatsapp_read(r0) if re.match(r"^(?:did|has|have)\b", r0) else None
@@ -494,6 +516,15 @@ def _global_vocab() -> dict:
 _NO_REPAIR = frozenset("not nor yet via per rite rit tho tht thx pls plz ok okay hmm umm yeah yep nope bye wat wen wer hw sry sorry gonna wanna gimme lemme alfa beta alpha gamma".split())
 
 
+def _inflection_of_vocab(w: str, vocab: dict) -> bool:
+    for suf in ("ed", "d", "ing", "es", "s", "er", "ers", "ly"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            stem = w[: -len(suf)]
+            if stem in vocab or stem + "e" in vocab or (len(stem) > 3 and stem[-1] == stem[-2] and stem[:-1] in vocab):
+                return True
+    return False
+
+
 def global_repair(text: str) -> str:
     """Repair misspelt command words anywhere in a command by spelling distance or consonant skeleton, preferring the
     commonest command word. Ordinary English words, short words and the owner's own words are left alone."""
@@ -516,11 +547,20 @@ def global_repair(text: str) -> str:
         if not core.isalpha() or len(core) < 2 or core in vocab or core in _SKIP_REPAIR or core in _NO_REPAIR or _english_word(core):
             out.append(w)
             continue
+        from jarvis.core.router.canonical import _known_app
+        if _known_app(core):                                         # an app name is never a misspelling ("sharex")
+            out.append(w)
+            continue
+        if _inflection_of_vocab(core, vocab):       # "deleted", "opened", "files": a real inflection, not a misspelling
+            out.append(w)
+            continue
         cands: list[tuple[int, int, str]] = []
         sk = _skeleton(core)
         for v in by_skel.get(sk, []):
             if abs(len(v) - len(core)) <= 3:
-                cands.append((_edit_distance(core, v), -vocab[v], v))
+                d0 = _edit_distance(core, v)
+                if len(core) >= 5 or d0 <= 1:         # a four-letter word two edits away is more likely another word
+                    cands.append((d0, -vocab[v], v))
         if len(core) >= 4:
             for v in vocab:
                 if v[0] == core[0] and abs(len(v) - len(core)) <= 2 and v.isalpha() and len(v) >= 4:

@@ -32,7 +32,7 @@ anuppunga thedu theadu thedunga niruthu nirutthu nirutu moodu mudu moodunga thor
 kammi korai kurai kuraichu korachidu koraichidu kuraichidu solliru jaasthi jasthi athigam adhigam kootu koottu ethu eathu vai vechidu vachidu sollu sollidu
 sollunga kitta ku kku ukku nu apdinu enna ennachu evlo evvalavu eppadi epdi pesu pesunga paaru kaattu kattu
 pannitu pannittu panitu pannanum manikku nyabagam yaar yaaru pannirukka pannirukanga panniruka anupchaa anupiyaa anuppiyaa anupicha poyiducha enga engey
-iruku irukku kaatu kaatunga mani aachu ippo panniru panniruga padichu padithu eduda koraiyi koraiyu kuraiyu kuraiyi nimisham nimidam kaalaila kaalaiyil ezhuppu sathama satham saththama valikuthu valikkudhu kann theerndhuduma theernthuduma venum vennum mudiyuma poren veliya yaaravathu pannangala pannangalaa ellarukkum thavira vaangi kudikka romba adikudhu adikuthu thookam varudhu pasikudhu velicham inniku innaiku naalaikku ennoda""".split())
+iruku irukku kaatu kaatunga aachu ippo panniru panniruga padichu padithu eduda koraiyi koraiyu kuraiyu kuraiyi nimisham nimidam kaalaila kaalaiyil ezhuppu sathama satham saththama valikuthu valikkudhu kann theerndhuduma theernthuduma venum vennum mudiyuma poren veliya yaaravathu pannangala pannangalaa ellarukkum thavira vaangi kudikka romba adikudhu adikuthu thookam varudhu pasikudhu velicham inniku innaiku naalaikku ennoda""".split())
 
 
 def _tamil_lexicon() -> frozenset[str]:

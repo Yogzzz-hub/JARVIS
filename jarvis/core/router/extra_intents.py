@@ -97,7 +97,7 @@ def match_extra(t: str, raw: str, rid: str) -> Optional[RouteDecision]:
                 r"(?:speaker(?:phone)?|loudspeaker)\s+on|turn\s+on\s+(?:the\s+)?speaker(?:phone)?(?:\s+on\s+(?:this\s+)?call)?)$", t):
         return _d(rid, t, "phone_op", {"action": "tap", "target": "speaker"})
     if re.match(r"^(?:mute\s+(?:myself|me)(?:\s+on\s+(?:this|the)\s+call)?|mute\s+(?:this|the)\s+call|put\s+(?:me|myself)\s+on\s+mute)$", t):
-        return _d(rid, t, "phone_op", {"action": "tap", "target": "mute"})
+        return _d(rid, t, "phone_op", {"action": "key", "key": "mute"})
     if re.match(r"^(?:bump|turn|raise|increase|crank)\s+(?:up\s+)?(?:the\s+)?call\s+volume(?:\s+up)?$", t):
         return _d(rid, t, "phone_op", {"action": "key", "key": "volume_up"})
     if re.match(r"^(?:hang\s+up|end|cut|drop)\s+(?:on\s+)?(?:this\s+)?(?:guy|caller|person|call|one)$|^(?:reject|decline)\s+(?:this\s+)?(?:caller|call)$", t):

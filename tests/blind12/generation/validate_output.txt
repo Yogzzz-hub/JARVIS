@@ -1,0 +1,8 @@
+cases: 1100  phases: 22  ids unique: True
+outcomes: {'action': 829, 'clarify': 89, 'refuse': 69, 'chat': 84, 'plan': 6, 'control': 23}
+criticality: {'C0': 84, 'C1': 414, 'C2': 464, 'C3': 69, 'C4': 69}
+exec: {'file': 30, 'browser': 43}  with context: 110
+should_act true: 858
+warnings: 0
+errors: 0
+RESULT: PASS

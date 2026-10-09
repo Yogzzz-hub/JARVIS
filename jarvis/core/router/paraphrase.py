@@ -96,6 +96,8 @@ def settings_command(t: str) -> str | None:
         return None      # a scheduled or conditional command is the scheduler's
     if re.search(r"\b(?:and|then|also|plus|after\s+that|but|open|launch|start|play|close)\b|,", t):
         return None      # one level command, not part of a longer plan
+    if re.search(r"\bcall\b|\bor\b|^(?:volume|brightness|sound)\s+(?:is|was)\b|\bby\s+\S+\s*(?:%|percent|per\s*cent)?\s*$|(?<![\w])-\d|\d\.\d|\bwhat\b|\d:\d\d|\bfrom\b|\bfor\s+\w+\s+(?:sec|secs|seconds?|min|mins|minutes?)\b", t):
+        return None      # call volume is the phone's; "or" asks a question; statements, relative changes and malformed values are not level commands
     setting = _setting_of(t)
     if setting is None and re.search(r"\b(?:dim|brighten|darken)\b", t) and re.search(r"\b(?:screen|display|monitor)\b", t):
         setting = "brightness"
@@ -106,6 +108,8 @@ def settings_command(t: str) -> str | None:
                   rf"(?:{_NUMWORD}(?:[\s-]+(?:and\s+)?{_NUMWORD}){{0,2}}))\s*(?:%|percent|per\s*cent)?\s*$", t)
     if m:
         v = words_to_int(m.group(1))
+        if v is not None and v > 100:
+            return None
         if v is not None:
             return f"set {setting} to {max(0, min(100, v))}"
     # "all the way up", "to the max", "full blast", "to the minimum"
@@ -158,7 +162,7 @@ def rewrite(t: str) -> str | None:
         pass
     elif (re.search(r"\bscreen\s*(?:shot|shoot|snap|sho+t|capture|grab|cap)s?\b", t) or
             (_tok_fuzzy(t, "screenshot") and len(words) <= 5) or re.fullmatch(r"(?:capture|grab|snap|take|tek)\s+(?:a\s+|my\s+|the\s+)?screen(?:\s+(?:now|please))?", t)) \
-            and not re.search(r"\b(?:and|then|to|into|in|paste|send|save|record|recording)\b", t):
+            and not re.search(r"\b(?:and|then|to|into|in|paste|send|save|record|recording|attach\w*|remove|delete|show|view|open|upload|find|where|rename|just|already|previous|last|latest|recent|saved|from|current|that|those|these|folder|pull|fetch|copy|share|size|read|ocr|trash|old|older|erase|wipe|clear|junk|work|works|utilities|utility)\b", t):
         return "take a screenshot"
     # --- power synonyms (fuzzy verbs): only a whole request about the computer itself
     dev = r"(?:the\s+|my\s+|this\s+)?(?:pc|computer|laptop|machine|system)"

@@ -1,0 +1,46 @@
+BLIND-12 novelty report
+existing phrases collected: 53925 (distinct normalised: 50213)
+sources: /home/user/JARVIS/tests/**, /home/user/JARVIS/jarvis/tests/**, README.md, tests/blind10/cases.py
+normalisation: lower-case, strip punctuation, drop wake words (jarvis, hey), fillers (please, pls, now, um, ok, okay, quickly, for me), articles (the, a, an, my)
+utterances checked: 1100
+exact duplicates: 0
+near-copies (normalised equal): 0
+context turns that match an existing phrase (informational; they are setup turns, not test utterances): 37
+  ctx: 'Add the wireless mouse to my cart'
+  ctx: 'Chrome ah open pannu'
+  ctx: 'Copy the selected text.'
+  ctx: 'Delete the last word.'
+  ctx: 'Download the syllabus PDF'
+  ctx: "Find the word 'deadline' on this page."
+  ctx: 'Give me a riddle.'
+  ctx: 'How much battery is left?'
+  ctx: 'Is VLC installed?'
+  ctx: 'Mute the volume.'
+  ctx: 'Open Calculator.'
+  ctx: 'Open Chrome.'
+  ctx: 'Open YouTube on the phone.'
+  ctx: 'Open a new tab.'
+  ctx: 'Open the Antigravity IDE'
+  ctx: 'Open the Pictures folder.'
+  ctx: 'Open the music folder.'
+  ctx: 'Pick up the call'
+  ctx: 'Preview my cleanup workflow'
+  ctx: 'Read my unread WhatsApp messages.'
+  ctx: 'Set the brightness to 70.'
+  ctx: 'Set the volume to 20.'
+  ctx: "Show me what's in my Downloads folder."
+  ctx: 'Show my clipboard history'
+  ctx: 'Show my phone notifications'
+  ctx: 'Show my to-do list.'
+  ctx: 'Snap Chrome to the left'
+  ctx: 'Spotify open pannu'
+  ctx: 'Start the stopwatch'
+  ctx: 'Switch to a female voice.'
+  ctx: 'Take a screenshot of the active window'
+  ctx: 'Take a screenshot of the active window.'
+  ctx: 'Take a screenshot.'
+  ctx: 'Tell me the time.'
+  ctx: "What's my IP address?"
+  ctx: "What's on the screen?"
+  ctx: 'Zoom in on the page.'
+RESULT: PASS

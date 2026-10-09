@@ -105,3 +105,37 @@ async def test_pronoun_only_commands_with_nothing_to_refer_to_ask_instead_of_gue
     for text in ("rename it", "turn that off", "put that file in the other folder"):
         d = await SmartRouter().route(CommandRequest(text=text))
         assert d.lane in (RouteLane.CLARIFY, RouteLane.LANE_0) and (d.lane == RouteLane.CLARIFY or d.intent not in ("rename_file", "move_file")), (text, d.lane, d.intent)
+
+
+# ------------------------------------------------------------------------------------------------ over-repair guards
+@pytest.mark.parametrize("text", ["check that the file really got deleted", "tidy up my downloads", "the files were moved yesterday"])
+def test_real_inflections_and_ordinary_words_are_not_spelling_repaired(text):
+    assert global_repair(text) == text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,intent", [
+    ("can you copy the path of this file", "file_op"),          # "path" is also a Tamil word; the English imperative decides
+    ("could you please copy the path of this file", "file_op"),
+    ("tidy up my downloads", "organize_downloads"),
+])
+async def test_english_commands_with_tamil_lookalike_words_are_commands(text, intent):
+    d = await _route(text)
+    assert d.intent == intent, (text, d.lane, d.intent)
+
+
+@pytest.mark.parametrize("text", [
+    "go back 15 seconds", "take me back to my editor", "let's talk about CUDA, now go back to ollama",   # not a browser back
+    "close this file tab", "close the other tab", "open this result in a new tab",
+    "attach the current screenshot", "remove the screenshot attachment", "show me the screenshot I just took", "trash the old screenshot",
+    "how do screenshots work", "refresh yoga's style profile from my approved chat history",
+    "call me back", "call me later", "phone volume up", "ring my phone",
+    "cut audio from 01:00 for 45 seconds", "volume 101", "volume 1.5", "bump up the call volume",
+    "in 2 hours turn off wifi on my phone", "turn off bluetooth on the laptop, keep the phone's on", "connect to my phone over wifi",
+    "need a fresh password for my new gmail account", "create an event from the time in that email", "tomorrow at 5 pm to my calendar",
+    "duplicate the todo list on my desktop", "what task is running", "what does cancelling a task do",
+    "save a summary of this chat to notes", "summarize that message", "can you remember things between sessions?",
+    "keep voice responsive while a heavy rag task runs", "put this download into my project folder",
+])
+def test_rewrite_never_fires_on_look_alike_requests(text):
+    assert precise(text) is None, (text, precise(text))

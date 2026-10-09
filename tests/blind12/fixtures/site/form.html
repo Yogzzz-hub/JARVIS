@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Contact form</title></head><body>
+<h1>Contact us</h1>
+<form id="cf" onsubmit="event.preventDefault();window.__submits=(window.__submits||0)+1;document.getElementById('status').textContent=document.getElementById('email').value.includes('@')?'Submitted':'Invalid email';">
+<label for="name">Full name</label><input id="name" name="name">
+<label for="email">Email</label><input id="email" name="email">
+<label for="phone">Phone</label><input id="phone" name="phone">
+<label for="country">Country</label><select id="country"><option value="">--</option><option>India</option><option>Sri Lanka</option><option>Singapore</option></select>
+<label><input type="checkbox" id="newsletter"> Subscribe to newsletter</label>
+<label><input type="checkbox" id="remember"> Remember me</label>
+<fieldset><legend>Contact method</legend><label><input type="radio" name="method" value="email" id="m_email"> Email</label><label><input type="radio" name="method" value="phone" id="m_phone"> Phone call</label></fieldset>
+<label for="msg">Message</label><textarea id="msg"></textarea>
+<label for="upload">Attachment</label><input type="file" id="upload">
+<button type="submit">Submit</button><button type="reset">Clear</button>
+</form><p id="status"></p>
+<script>window.__submits=0;</script></body></html>
