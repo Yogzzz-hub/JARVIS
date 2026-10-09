@@ -1,0 +1,6 @@
+measure,p50_ms,p95_ms,p99_ms,n
+"routing (run A, router only, model off)",7.04,19.24,25.46,1100
+"final response (run B, command service, model off)",14.9,30.9,39.9,1100
+"verification_ms (run B, from the service clock)",0.0,0.0,0.0,409
+"first_action_ms (run B, from the service clock)",10.2,25.8,32.6,588
+"total_ms (run B, from the service clock)",14.3,30.4,39.4,1100
