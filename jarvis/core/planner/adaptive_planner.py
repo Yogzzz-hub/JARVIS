@@ -149,7 +149,7 @@ class AdaptivePlanner:
         # Step 1: Check Plan Template Cache
         cached_graph = self.cache.get(request_text, router_intents or [], registry_fp)
         if cached_graph is not None:
-            v_res = self.validator.validate(cached_graph)
+            v_res = self._validate(cached_graph, request_text)
             if v_res.is_valid:
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
                 return PlanningResult(
@@ -164,7 +164,7 @@ class AdaptivePlanner:
         # Step 2: Check Deterministic Decomposer
         decomposed = self.decomposer.decompose(request_text)
         if decomposed is not None:
-            v_res = self.validator.validate(decomposed)
+            v_res = self._validate(decomposed, request_text)
             if v_res.is_valid:
                 optimized = self.optimizer.optimize(decomposed)
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
@@ -223,7 +223,7 @@ class AdaptivePlanner:
             )
 
         # Step 6: Validate graph proposal
-        v_res = self.validator.validate(graph_proposal)
+        v_res = self._validate(graph_proposal, request_text)
         if v_res.is_valid:
             optimized = self.optimizer.optimize(graph_proposal)
             dur_ms = (time.perf_counter_ns() - t0) / 1e6
@@ -248,7 +248,7 @@ class AdaptivePlanner:
         )
 
         if repaired_graph is not None:
-            v_repair = self.validator.validate(repaired_graph)
+            v_repair = self._validate(repaired_graph, request_text)
             if v_repair.is_valid:
                 optimized = self.optimizer.optimize(repaired_graph)
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
@@ -285,6 +285,19 @@ class AdaptivePlanner:
             planning_ms=dur_ms,
             error=repair_err or "Validation failed and repair was unsuccessful",
         )
+
+    def _validate(self, graph: TaskGraph, request_text: str) -> ValidationResult:
+        """Structural validation, then the semantic check against the request itself: a well-formed plan that performs a
+        negated action, targets an excluded one, breaks policy or adds an unrequested destructive step is invalid."""
+        result = self.validator.validate(graph)
+        try:
+            from jarvis.core.planner.semantic_validator import semantic_errors
+            extra = semantic_errors(graph, request_text)
+        except Exception:
+            extra = []
+        if extra:
+            result = result.model_copy(update={"is_valid": False, "errors": list(result.errors) + extra})
+        return result
 
     async def _generate_graph(
         self,
