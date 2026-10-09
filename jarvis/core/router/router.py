@@ -165,10 +165,44 @@ class SmartRouter:
         except Exception:
             return ""
 
+    @staticmethod
+    def _unresolved(d: RouteDecision) -> bool:
+        """The deterministic rules found nothing to do: an unknown intent, or a hand-off to the planner / model that no tool,
+        policy or question rule claimed. (Refusals, answers to questions and clarifications that ask something are resolved.)"""
+        if d.lane == RouteLane.CLARIFY and d.reason_code == ReasonCode.UNKNOWN_INTENT:
+            return True
+        if d.lane in (RouteLane.LANE_2, RouteLane.LANE_3) and not d.intent and not d.subcommands \
+                and d.reason_code in (ReasonCode.MULTI_STEP, ReasonCode.UNKNOWN_INTENT):
+            return True
+        return False
+
     async def route(self, request: CommandRequest | str) -> RouteDecision:
-        """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
+        """Route; when the rules find nothing, try the request again in the wordings the lexicon layer recognises
+        (paraphrase shapes, repaired spelling). The first wording that reaches a real capability wins; a request that
+        was already understood is never reinterpreted."""
         if isinstance(request, str):
             request = CommandRequest(text=request)
+        from jarvis.core.router.lexicon_rewrite import fallbacks, precise
+        norm = " ".join((request.text or "").lower().split())
+        pre = precise(request.text or "")
+        if pre and " ".join(pre.lower().split()) != norm:
+            d1 = await self._route_once(request.model_copy(update={"text": pre}))
+            if d1.lane in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.CONTROL, RouteLane.REJECT) and (d1.intent or d1.subcommands):
+                return d1
+        decision = await self._route_once(request)
+        if not self._unresolved(decision) or len((request.text or "").split()) > 18:
+            return decision
+        alts = fallbacks(request.text or "")
+        for alt in alts:
+            if " ".join(alt.lower().split()) == " ".join((request.text or "").lower().split()):
+                continue
+            d2 = await self._route_once(request.model_copy(update={"text": alt}))
+            if d2.lane in (RouteLane.LANE_0, RouteLane.LANE_1, RouteLane.CONTROL, RouteLane.REJECT) and (d2.intent or d2.subcommands or d2.lane == RouteLane.REJECT):
+                return d2
+        return decision
+
+    async def _route_once(self, request: CommandRequest) -> RouteDecision:
+        """Route, then sanity-check the result: a message is never addressed to 'me' / 'you' / 'it'."""
         # Preserve the raw multilingual speech act before canonical spelling
         # repair and English command normalization change its surface form.
         from jarvis.core.general_language import GeneralLanguageUnderstandingEngine
