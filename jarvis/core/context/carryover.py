@@ -68,6 +68,13 @@ def _clean(text: str) -> str:
         t = repair_swapped_letters(t)
     except Exception:
         pass
+    # Tanglish demonstratives are "it" ("atha close pannu" -> "close atha" -> "close it"); a remark about the owner after
+    # the command is not part of it ("quit it, i'm done listening")
+    t = re.sub(r"\b(?:adhu|athu|atha|adha|athai|adhai|idhu|ithu|itha|idha|ithai|idhai)\b", "it", t)
+    from jarvis.core.semantics.references import REMARK_TAIL
+    cut = REMARK_TAIL.sub("", t).strip(" ,.")
+    if cut and cut != t and len(cut.split()) >= 2:
+        t = cut
     return t
 
 
@@ -119,8 +126,10 @@ class CarryOver:
         if not t or len(t.split()) > 10:
             return None
         last = self.last()
-        for step in (self._event_change, self._additive, self._ordinal, self._resend, self._person, self._pronoun, self._number,
-                     self._relative, self._new_target):
+        for step in (self._event_change, self._introspect, self._forget, self._flip, self._repeat, self._additive, self._ordinal,
+                     self._resend, self._person, self._typed_verb, self._question_pronoun, self._pronoun, self._refine,
+                     self._settings_page, self._device_ui, self._number, self._relative, self._extend, self._category_swap,
+                     self._new_target):
             out = step(t, last)
             if out:
                 return out
@@ -389,6 +398,218 @@ class CarryOver:
         if pos < 0:
             return None
         return last.text[:pos] + x + last.text[pos + len(value):]
+
+    # ---------------------------------------------------------------- typed follow-ups (references by type, not recency)
+    @staticmethod
+    def _introspect(t: str, last: Turn | None) -> str | None:
+        """'who did that go to', 'what did it say', 'when was that' -> a question about what JARVIS just did."""
+        if last is None:
+            return None
+        if re.match(r"^(?:and\s+)?(?:who|whom)\s+(?:did\s+(?:that|it|this|the\s+message)\s+go\s+to|was\s+(?:that|it)\s+(?:sent\s+)?(?:to|for)|"
+                    r"did\s+you\s+send\s+(?:that|it)\s+to|got\s+(?:that|it))$", t):
+            return "who did you send that to"
+        if re.match(r"^(?:and\s+)?(?:what\s+did\s+(?:it|that|the\s+message|you)\s+(?:say|send|do)|when\s+(?:was|did)\s+(?:that|it)"
+                    r"(?:\s+(?:happen|sent|done|go))?|did\s+(?:it|that)\s+(?:go\s+through|work|send))$", t):
+            return "what was the last thing you did"
+        return None
+
+    @staticmethod
+    def _forget(t: str, last: Turn | None) -> str | None:
+        """'actually forget that' right after 'remember X' -> 'forget that X' (the fact just stored, by type)."""
+        if last is None or last.tool != "remember_fact":
+            return None
+        if not re.match(r"^(?:(?:actually|no|wait|oh|hmm)\s*,?\s+)*(?:forget|delete|remove|erase|drop|unremember)\s+(?:that|it|this)"
+                        r"(?:\s+(?:fact|one|note|again))?(?:\s+(?:please|now))?$", t):
+            return None
+        fact = str(last.slots.get("fact") or last.slots.get("text") or "").strip()
+        return f"forget that {fact}" if fact else None
+
+    @staticmethod
+    def _flip(t: str, last: Turn | None) -> str | None:
+        """'turn it back on' / 'switch that off again' after a toggle -> the same toggle in the new state."""
+        if last is None or last.pending or _NEVER.search(last.text):
+            return None
+        m = re.match(r"^(?:(?:now|and|then|ok(?:ay)?|ok\s+now)\s+)*(?:turn|switch|put|flip|set)\s+(?:it|that|this|them)\s+(?:back\s+)?"
+                     r"(?P<v>on|off)(?:\s+again)?$", t) \
+            or re.match(r"^(?:(?:now|and|then)\s+)*(?:turn|switch)\s+(?:back\s+)?(?P<v>on|off)\s+(?:it|that|this)(?:\s+again)?$", t)
+        en = re.match(r"^(?:(?:now|and|then)\s+)*(?P<e>re-?enable|enable|disable|activate|deactivate)\s+(?:it|that|this)(?:\s+again)?$", t)
+        if not m and not en:
+            return None
+        want_on = (m.group("v") == "on") if m else en.group("e") in ("enable", "reenable", "re-enable", "activate")
+        x = last.text
+        p = re.search(r"\b(?P<verb>turn|switch|put|toggle)\s+(?P<v>on|off)\b", x) \
+            or re.search(r"\b(?:turn|switch)\s+(?:the\s+|my\s+)?[\w-]+(?:\s+[\w-]+)?\s+(?P<v>on|off)\b", x)
+        if p:
+            return x[:p.start("v")] + ("on" if want_on else "off") + x[p.end("v"):]
+        e = re.search(r"\b(?P<e>enable|disable|activate|deactivate)\b", x)
+        if e:
+            new = {True: {"enable": "enable", "disable": "enable", "activate": "activate", "deactivate": "activate"},
+                   False: {"enable": "disable", "disable": "disable", "activate": "deactivate", "deactivate": "deactivate"}}
+            return x[:e.start()] + new[want_on][e.group("e")] + x[e.end():]
+        return None
+
+    @staticmethod
+    def _repeat(t: str, last: Turn | None) -> str | None:
+        """'do it again', 'again, a bit more', 'do both again', 'slower than that even', 'innum konjam' -> the last command
+        again. Never a send, delete, payment ... (said again in full), never while it still waits for a yes."""
+        if last is None or last.pending or _NEVER.search(last.text) or re.search(
+                r"send|delete|remove|uninstall|install|pay|share|forward|email|reply|post|upload|call|dial|power|format", last.tool):
+            return None
+        again = re.match(r"^(?:(?:and|now|ok(?:ay)?|please)\s+)*(?:do\s+(?:it|that|this|the\s+same|both|them|those|all\s+of\s+(?:it|them))"
+                         r"(?:\s+(?:thing|steps?))?\s+(?:again|once\s+more)|again|once\s+more|one\s+more\s+time|repeat\s+(?:it|that)|"
+                         r"same\s+again|thirumba(?:\s+pannu)?|marubadiyum(?:\s+pannu)?)(?:\s*,?\s*(?:a\s+(?:bit|little)\s+|even\s+|some\s+)?"
+                         r"(?:more|further|again|please|now))*$", t)
+        more = re.match(r"^(?:(?:a\s+(?:bit|little|tad)|even|still|some|much|way)\s+)*more(?:\s+please)?$|^innum(?:\s+(?:konjam|koncham))?"
+                        r"(?:\s+(?:podu|pannu))?$", t)
+        comp = re.match(r"^(?:(?:even|still|a\s+bit|a\s+little)\s+)*(?P<c>[a-z]+er)(?:\s+than\s+that)?(?:\s+(?:even|still|please))*$", t)
+        if again:
+            return last.text
+        relative = re.search(r"\b(?:in|out|up|down|louder|quieter|brighter|dimmer|darker|faster|slower|bigger|smaller|larger|"
+                             r"increase|decrease|raise|lower|reduce|boost|more|less|next|previous|forward|backward|ahead)\b", last.text)
+        if more and relative:
+            return last.text
+        if comp and re.search(rf"\b{comp.group('c')}\b", last.text):
+            return last.text
+        return None
+
+    _TYPED_VERBS = r"(?P<v>move|copy|rename|compress|zip|unzip|extract|open|show|print|back\s+up|install|launch|start|run)"
+
+    def _typed_verb(self, t: str, last: Turn | None) -> str | None:
+        """'move it to documents' after opening report.docx, 'zip that folder up' after creating it, 'then install it'
+        after asking whether OBS is installed: the pronoun is the resource of the turn just before, when its type fits the
+        verb (a file or folder for move / copy / rename / compress, an app for install). Never for delete, send, share,
+        uninstall or pay - those name their object."""
+        if last is None or last.pending:
+            return None
+        t2 = re.sub(r"^(?:(?:and|then|now|so|ok(?:ay)?|go\s+ahead\s+and|after\s+that)\s*,?\s+)+", "", t)
+        m = re.match(rf"^{self._TYPED_VERBS}\s+(?:it|that|this|them|(?:that|this|the)\s+(?:one|file|folder|document|doc|pdf|photo|"
+                     rf"picture|image|app|program|thing))(?:\s+up)?(?P<rest>(?:\s+(?:to|into|in|as|on|from|with)\s+.+)?)$", t2)
+        if not m:
+            return None
+        verb, rest = re.sub(r"\s+", " ", m.group("v")), m.group("rest")
+        file_tools = ("open_file", "find_file", "search_files", "create_folder", "create_file", "move_file", "copy_file", "rename_file",
+                      "compress_files", "list_directory", "open_known_folder", "document_qa")
+        app_tools = ("check_app_installed", "get_app_location", "app_version", "search_software", "open_app", "close_app")
+        if last.tool in file_tools and verb not in ("install", "launch", "start", "run"):
+            value = next((str(last.slots[k]) for k in ("path", "source", "file", "document_path", "query", "name", "folder")
+                          if isinstance(last.slots.get(k), str) and last.slots[k].strip()), "")
+            if not value or verb == "rename" and not rest:
+                return None
+            return f"{verb} {value}{rest}"
+        if last.tool in app_tools and verb in ("install", "open", "launch", "start", "run") and not rest:
+            name = str(last.slots.get("name") or last.slots.get("app") or "").strip()
+            if name and not (verb == "install" and last.tool in ("open_app", "close_app")):
+                return f"{verb} {name}"
+        return None
+
+    @staticmethod
+    def _question_pronoun(t: str, last: Turn | None) -> str | None:
+        """'where on disk is it installed' after 'is git installed': a question's 'it' is the app the last question was about."""
+        if last is None or last.tool not in ("check_app_installed", "get_app_location", "app_version", "search_software"):
+            return None
+        name = str(last.slots.get("name") or "").strip()
+        if not name or not re.match(r"^(?:where|what|which|when|how|is|does|do|can)\b", t) or not re.search(r"\b(?:it|that)\b", t):
+            return None
+        return re.sub(r"\b(?:it|that)\b", name, t, count=1)
+
+    @staticmethod
+    def _refine(t: str, last: Turn | None) -> str | None:
+        """'only the urgent ones', 'just the unread ones from them' after a list -> the same list with that qualifier."""
+        if last is None or last.tool not in ("read_whatsapp_messages", "gmail_list_recent", "find_file", "search_files", "list_directory",
+                                             "list_reminders", "calendar_list_events", "notifications", "list_notifications"):
+            return None
+        m = re.match(r"^(?:(?:and|now|ok(?:ay)?|but)\s+)?(?:(?:just|only|show\s+(?:me\s+)?(?:just|only)|only\s+show(?:\s+me)?)\s+)?(?:the\s+)"
+                     r"(?P<q>[a-z]+(?:\s+[a-z]+)?)\s+ones?(?:\s+from\s+(?:them|him|her|that\s+\w+|those))?$", t)
+        if not m:
+            return None
+        q = m.group("q")
+        n = list(re.finditer(r"\b(?P<n>messages|msgs|emails|e-mails|mails|files|events|reminders|notifications|photos|pdfs|documents|"
+                             r"chats|tasks|notes|meetings)\b", last.text))
+        if not n:
+            return None
+        k = n[-1]
+        return last.text[:k.start()] + f"{q} " + last.text[k.start():]
+
+    @staticmethod
+    def _settings_page(t: str, last: Turn | None) -> str | None:
+        """'go to the bluetooth page in there' after opening settings -> 'open bluetooth settings'."""
+        if last is None or not (last.tool == "open_system_settings" or re.search(r"\bsettings\b", last.text)):
+            return None
+        m = re.match(r"^(?:(?:now|and|then)\s+)*(?:go\s+to|open|show(?:\s+me)?|switch\s+to|jump\s+to)\s+(?:the\s+)?(?P<x>[\w -]+?)\s+"
+                     r"(?:page|section|tab|screen|settings|part)(?:\s+(?:in\s+there|there|in\s+(?:it|that|here)))?$", t)
+        return f"open {m.group('x').strip()} settings" if m else None
+
+    @staticmethod
+    def _device_ui(t: str, last: Turn | None) -> str | None:
+        """Right after working on the phone ('mirror my phone screen'), 'tap on settings' is on the phone too."""
+        if last is None or not (last.tool.startswith("android") or re.search(r"\b(?:phone|mobile|android)\b", last.text)):
+            return None
+        if re.match(r"^(?:tap|long\s+press|press|swipe|scroll)\b", t) and not re.search(r"\b(?:phone|pc|laptop|computer|mobile)\b", t):
+            return f"{t} on my phone"
+        return None
+
+    @staticmethod
+    def _extend(t: str, last: Turn | None) -> str | None:
+        """'extend it to everyone' / 'apply that to Priya too' -> the last command with the new target."""
+        if last is None or last.pending or re.search(r"send|delete|uninstall|pay|share|forward|email|post|upload|call|dial", last.tool):
+            return None
+        m = re.match(r"^(?:(?:and|now|also)\s+)?(?:extend|apply|expand|widen|change|switch|do)\s+(?:it|that|this|the\s+same)\s+(?:to|for)\s+"
+                     r"(?P<x>[\w .'-]{1,30}?)(?:\s+(?:too|also|as\s+well|instead))?$", t)
+        tgt = last.target() or next(((k, str(last.slots[k])) for k in ("who", "sender", "person", "contact")
+                                     if isinstance(last.slots.get(k), str) and last.slots[k].strip()), None)
+        if not m or tgt is None:
+            return None
+        key, value = tgt
+        x = m.group("x").strip()
+        pos = last.text.lower().find(value.lower())
+        if pos < 0 or _NOT_A_TARGET.match(x):
+            return None
+        return last.text[:pos] + x + last.text[pos + len(value):]
+
+    _SWAP_CATEGORIES = None
+
+    @classmethod
+    def _categories(cls) -> list[list[str]]:
+        if cls._SWAP_CATEGORIES is None:
+            try:
+                from jarvis.core.semantics.constraints import _CATEGORIES
+                cats = [list(c) for c in _CATEGORIES]
+            except Exception:
+                cats = []
+            cats.append(list(_ADJUSTABLE))
+            cats.append(["wifi", "wi-fi", "bluetooth", "hotspot", "data", "mobile data", "location", "nfc", "airplane mode",
+                         "flashlight", "torch", "do not disturb", "dark mode", "night light", "auto rotate"])
+            cls._SWAP_CATEGORIES = cats
+        return cls._SWAP_CATEGORIES
+
+    def _category_swap(self, t: str, last: Turn | None) -> str | None:
+        """'and the data too' after turning wifi off, 'what about friday' after thursday's calendar, 'do the same for brightness'
+        after a volume change, 'what about the march one' after the april invoice: a word of the same kind replaces its
+        sibling in the last command. On the phone: 'what about on the phone' after a PC-side read."""
+        if last is None or last.pending or _NEVER.search(last.text):
+            return None
+        m = re.match(r"^(?:(?:and|now|then|also|ok(?:ay)?|so|but)\s+)*(?:(?:what|how)\s+about\s+|(?:do|try)\s+the\s+same\s+(?:thing\s+)?(?:for|with|to)\s+|"
+                     r"same\s+(?:thing\s+)?(?:for|with)\s+)?(?:(?:the|my|on|in|for|at|with)\s+)*(?P<x>[a-z][\w -]*?)"
+                     r"(?:\s+(?:one|ones))?(?:\s+to\s+the\s+same(?:\s+(?:number|level|value|amount|percent|percentage|setting))?)?"
+                     r"(?:\s+(?:too|also|as\s+well|instead|then))?\s*\??$", t)
+        if not m:
+            return None
+        x = m.group("x").strip()
+        low = last.text.lower()
+        if x in ("phone", "mobile", "my phone", "the phone") and not re.search(r"\b(?:phone|mobile|pc|laptop|computer)\b", low):
+            if re.match(r"(?:describe_screen|take_screenshot|volume|brightness|battery|screen)", last.tool):
+                return f"{last.text} on my phone"
+            return None
+        for cat in self._categories():
+            if x not in cat:
+                continue
+            for sib in sorted(cat, key=len, reverse=True):
+                if sib == x:
+                    continue
+                hit = re.search(rf"\b{re.escape(sib)}\b", low)
+                if hit:
+                    return last.text[:hit.start()] + x + last.text[hit.end():]
+        return None
 
 
 def carryover_of(memory: Any) -> CarryOver | None:

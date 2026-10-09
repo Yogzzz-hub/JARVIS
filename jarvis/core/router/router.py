@@ -245,6 +245,13 @@ class SmartRouter:
         chosen, rejected = contrast(request.text or "")
         if rejected and chosen.strip():
             request = request.model_copy(update={"text": renorm(chosen)})
+        from jarvis.core.semantics.references import REMARK_TAIL
+        remark = REMARK_TAIL.sub("", request.text or "").strip(" ,.")
+        from jarvis.core.semantics.constraints import _MSG_LEAD, _VERBS
+        if remark != (request.text or "").strip(" ,.") and len(remark.split()) >= 2 and not _CONTENT_LEAD.match(request.text or "") \
+                and not _CONTENT_ANY.search(request.text or "") and not _MSG_LEAD.match(remark) \
+                and re.match(rf"^(?:{_VERBS}|quit|exit|end|kill|minimi[sz]e|maximi[sz]e|pause|resume|skip|hide)\b", remark, re.I):
+            request = request.model_copy(update={"text": remark})   # "quit spotify, I'm done listening": a remark, not the object
         if not re.search(r"\b(?:phone|mobile|android)\b", request.text or "", re.I) and _ACT_HERE.match(request.text or ""):
             here = _ON_THIS_PC.sub("", request.text or "")
             if here != request.text and len(here.split()) >= 2:
@@ -269,6 +276,7 @@ class SmartRouter:
         decision = self._plausible(request, decision)
         decision = self._mode_domain(request, decision)
         decision = self._bare_kind_target(request, decision)
+        decision = self._reference_slots(request, decision)
         decision = self._broad_scope(request, decision)
         decision = self._constraints(request, decision, prohibited, rejected)
         decision = self._coordinate(request, decision)
@@ -362,20 +370,54 @@ class SmartRouter:
                     r"battery\s+saver|power\s+saver|night\s+light|night\s+mode|dark\s+(?:mode|theme)|light\s+(?:mode|theme)|"
                     r"auto[\s-]?rotat(?:e|ion))\b", re.I),
          {"android_toggle", "android_quick_action", "open_system_settings", "system_op", "start_study_focus", "computer_task",
-          "browser_op", "app_theme", "phone_op", "system_settings"}),
+          "browser_op", "app_theme", "phone_op", "system_settings", "ui_op", "ide_op", "dictate_text", "text_op"}),
     )
 
     def _mode_domain(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent or decision.subcommands:
             return decision
+        text = request.text or ""
+        if not re.search(r"\b(?:turn|switch|put|set|toggle|flip)\s+(?:it\s+|that\s+)?(?:on|off)\b|\b(?:enable|disable|activate|"
+                         r"deactivate|start|stop|go\s+into|exit|leave)\b", text, re.I) \
+                or re.search(r"\b(?:switch|toggle|button|checkbox|option)\b(?!\s+(?:on|off)\b)", text, re.I) and decision.intent == "ui_op":
+            return decision   # the mode is not being switched ("write a prompt to add dark mode", "toggle the dark mode switch")
         for pattern, tools in self._MODE_TOOLS:
-            m = pattern.search(request.text or "")
+            m = pattern.search(text)
             if m and decision.intent not in tools and not self._is_read_only(decision.intent) or \
                     m and decision.intent in ("get_time", "get_date", "switch_window", "battery_status"):
                 return self._decision(request, RouteLane.CLARIFY, None, {},
                                       f"I don't have a direct switch for {m.group(0).lower()} here. Say 'on my phone' if you mean the "
                                       f"phone, or I can open the settings page for it.", ReasonCode.MISSING_REQUIRED_SLOT)
         return decision
+
+    _ENTITY_KEYS = ("name", "app", "target", "path", "source", "file", "folder", "recipient", "contact", "document_path", "url",
+                    "title", "query", "who")
+    # tools whose 'it' / 'this' is resolved by the tool itself from what is on screen or selected right now
+    _SELF_RESOLVING = {"describe_screen", "screen_op", "text_op", "clipboard_op", "ui_op", "dictate_text", "speech_control",
+                       "browser_op", "browser_quick_action", "window_op", "media_control", "video_op", "search_web", "quick_answer",
+                       "ollama_chat", "explain_route", "recent_actions", "command_history", "translate_text", "workflow_op",
+                       "whatsapp_auto_reply"}
+
+    def _reference_slots(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
+        """A reference ("the third of those", "that old one", "athu") is never the name of an app, file or contact. When the
+        conversation could not resolve it (carry-over runs before routing), a position in search results opens that result,
+        and anything else is asked about - never used as a literal name."""
+        if decision.lane not in (RouteLane.LANE_0, RouteLane.LANE_1) or not decision.intent or decision.subcommands \
+                or decision.intent in self._SELF_RESOLVING:
+            return decision
+        from jarvis.core.semantics.references import is_list_reference, is_reference, ordinal
+        slots = decision.slots or {}
+        # person pronouns are resolved (or refused) by the recipient checks: "reply to her" is not a list reference
+        hit = next((str(slots[k]) for k in self._ENTITY_KEYS if isinstance(slots.get(k), str) and is_reference(slots[k])
+                    and str(slots[k]).strip().lower() not in ("him", "her", "them")), None)
+        if hit is None:
+            return decision
+        if is_list_reference(hit) and re.match(r"^\W*(?:open|click|go\s+to|visit|show|play|tap)\b", request.text or "", re.I):
+            return self._decision(request, RouteLane.LANE_0, "browser_op", {"action": "open_result", "ordinal": ordinal(hit),
+                                                                           "new_tab": False})
+        return self._decision(request, RouteLane.CLARIFY, "clarify", {},
+                              f"Which one do you mean by '{hit}'? I don't have anything on hand that it clearly points to.",
+                              ReasonCode.MISSING_REQUIRED_SLOT)
 
     def _bare_kind_target(self, request: CommandRequest, decision: RouteDecision) -> RouteDecision:
         """A destructive file action needs a particular file: "remove the recording" names only a kind of file, so the
