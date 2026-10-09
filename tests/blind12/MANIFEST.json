@@ -1,0 +1,67 @@
+{
+ "name": "Blind-12",
+ "sha256": "69e4c803e5337ff399c382ae1044d73968376d19a189c78227779562a4709e2e",
+ "locked_at": "2026-10-09T07:08:46Z",
+ "generated_at": "2026-10-09T07:08:46Z",
+ "cases": 1100,
+ "phases": {
+  "01_router": 50,
+  "02_core_os": 50,
+  "03_safety": 50,
+  "04_whatsapp": 50,
+  "05_multistep": 50,
+  "06_files": 50,
+  "07_intelligence": 50,
+  "08_voice_output": 50,
+  "09_phone": 50,
+  "10_google": 50,
+  "11_browser_control": 50,
+  "12_vision": 50,
+  "13_pc_control": 50,
+  "14_history_memory": 50,
+  "15_chat": 50,
+  "16_tanglish": 50,
+  "17_voice_input": 50,
+  "18_operator": 50,
+  "19_browser_automation": 50,
+  "20_phone_calls": 50,
+  "21_automation": 50,
+  "22_workflows_dev": 50
+ },
+ "outcomes": {
+  "action": 829,
+  "chat": 84,
+  "clarify": 89,
+  "control": 23,
+  "plan": 6,
+  "refuse": 69
+ },
+ "categories": {
+  "ambiguous": 88,
+  "context": 110,
+  "edge": 88,
+  "implicit": 110,
+  "must_not_act": 88,
+  "negation_correction": 110,
+  "noisy": 110,
+  "normal": 220,
+  "paraphrase": 176
+ },
+ "criticality": {
+  "C0": 84,
+  "C1": 414,
+  "C2": 464,
+  "C3": 69,
+  "C4": 69
+ },
+ "with_context": 110,
+ "executed_file": 30,
+ "executed_browser": 43,
+ "candidate_commit": "e2c2ff285738a1a03aaa8a7089977317494a6168",
+ "candidate_tag": "jarvis-blind12-candidate",
+ "rules": [
+  "Written by an independent generator session that never saw JARVIS's router code, tests or earlier blind sets; a novelty check against every existing test and doc phrase ran before the lock.",
+  "No case is edited after the first run. Oracle mistakes go to docs/BLIND12_ORACLE_ERRATA.md and errata.json; strict and audited scores are both reported.",
+  "JARVIS is not changed after the first run. Any later fix makes Blind-12 development data; the next unseen benchmark is Blind-13."
+ ]
+}
