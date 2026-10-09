@@ -19,6 +19,7 @@ import difflib
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -1493,12 +1494,15 @@ class PersonalReplyAgent:
 
 
 _agent: Optional[PersonalReplyAgent] = None
+_agent_lock = threading.Lock()
 
 
 def get_personal_reply_agent() -> PersonalReplyAgent:
     global _agent
     if _agent is None:
-        _agent = PersonalReplyAgent()
+        with _agent_lock:  # concurrent dashboard requests share one agent (and one schema setup)
+            if _agent is None:
+                _agent = PersonalReplyAgent()
     return _agent
 
 

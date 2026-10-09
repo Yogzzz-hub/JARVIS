@@ -110,7 +110,7 @@ class SendWhatsAppMessageTool(Tool):
         allow_group = arguments.allow_group
 
         # 0. A group only when the owner named it ("send hi to the CSE group") - never by accident.
-        named_group = group_scope_from_text(recipient_raw).get("group") if _GROUP_WORD.search(recipient_raw) else None
+        named_group = group_scope_from_text(recipient_raw).get("group") if mentions_group(recipient_raw) else None
         if named_group:
             from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
             group_id, label = _resolve_group(WhatsAppInbox.get_default(), named_group)
@@ -318,9 +318,22 @@ chats chat whatsapp all every each my the our a an in from of on to for at with 
 jarvis hey ok can could would will pending and""".split())
 
 
+# "group related messages", "group them by person": the verb, not a group chat
+_GROUP_VERB = re.compile(r"\b(?:group(?:ed|ing)?|grp)\s+(?=(?:them|these|those|it|everything|related|similar|together|"
+                         r"by|per|according|into|the\s+(?:related|similar))\b)", re.I)
+
+
+def mask_group_verbs(text: str) -> str:
+    return _GROUP_VERB.sub("organise ", text or "")
+
+
+def mentions_group(text: str) -> bool:
+    return bool(_GROUP_WORD.search(mask_group_verbs(text)))
+
+
 def group_scope_from_text(text: str) -> dict[str, Any]:
     """Resolve requested chat scope before a read; sending still uses only the named group."""
-    t = " ".join((text or "").lower().split())
+    t = " ".join(mask_group_verbs(text).lower().split())
     both = bool(re.search(r"\b(?:personal|individual|direct)(?:\s+(?:messages?|msgs?|chats?))?\s+(?:and|&)\s+"
                           r"(?:groups?|grps?)\b", t)
                 or (re.search(r"\b(?:both|all)\b", t)
@@ -379,6 +392,7 @@ class ReadWhatsAppMessagesInput(Contract):
     group: str = Field(default="", max_length=80, description="Read only this named group (only when the owner names it)")
     sender: str = Field(default="", max_length=80, description="Only messages from this person (name or number)")
     count_only: bool = Field(default=False, description="Answer 'how many' questions: the exact total, per person")
+    topic: str = Field(default="", max_length=120, description="Only messages mentioning this topic, newest first, across chats")
 
 
 class ReadWhatsAppMessagesOutput(Contract):
@@ -428,7 +442,14 @@ class ReadWhatsAppMessagesTool(Tool):
         scope = {"include_groups": mode == "DIRECT_AND_GROUP", "group": group_id,
                  "group_only": mode == "GROUP_ONLY"}
 
-        if filt == "urgent":
+        topic = arguments.topic.strip()
+        if topic and hasattr(self.inbox, "search"):
+            if not group_id and mode == "DIRECT_ONLY" and not arguments.include_groups:
+                scope["include_groups"] = True  # a topic search looks in every chat unless one is named
+            raw_msgs = self.inbox.search(topic, limit=max(lim, 10), **scope)
+            if filt == "unread":
+                raw_msgs = [m for m in raw_msgs if not m.is_read]
+        elif filt == "urgent":
             raw_msgs = [m for m in self.inbox.get_messages_needing_reply(limit=lim, **scope) if m.urgency == "URGENT"]
         elif filt == "unread":
             raw_msgs = self.inbox.get_unread(limit=lim, **scope)
@@ -478,6 +499,24 @@ class ReadWhatsAppMessagesTool(Tool):
                     "messages": [], "spoken_summary": spoken}
         msg_dicts = msg_dicts[:arguments.limit]
         if who_filter and arguments.limit==1: count=len(msg_dicts)
+        if topic:
+            from jarvis.integrations.whatsapp.inbox import describe_message
+            if not msg_dicts:
+                spoken = f"I couldn't find any WhatsApp message about {topic} in the history I have."
+            else:
+                first = msg_dicts[0]
+                when = ""
+                try:
+                    when = " (" + time.strftime("%d %b, %I:%M %p", time.localtime(float(first.get("timestamp") or 0))) + ")"
+                except (TypeError, ValueError, OverflowError, OSError):
+                    pass
+                who = first["sender"] + (f" in {first.get('chat_name') or 'a group'}" if first.get("is_group") else "")
+                spoken = f"The latest message about {topic} is from {who}{when}: {describe_message(first['text'] or first['summary'])}"
+                if len(msg_dicts) > 1:
+                    others = ", ".join(dict.fromkeys(m["sender"] for m in msg_dicts[1:4]))
+                    spoken += f". Earlier mentions: {others}."
+            return {"status": "SUCCESS", "count": len(msg_dicts), "filter": filt, "messages": msg_dicts,
+                    "spoken_summary": spoken, "selected_sender": arguments.sender}
         if count == 0:
             spoken = ("WhatsApp history is not fully synced, so I can't verify whether you have unread messages."
                       if filt == "unread" and self.inbox.sync_state() != "READY" else
@@ -676,7 +715,7 @@ class DraftWhatsAppReplyTool(Tool):
             arguments = DraftWhatsAppReplyInput(**arguments)
         from jarvis.integrations.whatsapp.ai import get_whatsapp_ai
         ai = self.ai or get_whatsapp_ai()
-        named_group = group_scope_from_text(arguments.recipient).get("group") if _GROUP_WORD.search(arguments.recipient) else None
+        named_group = group_scope_from_text(arguments.recipient).get("group") if mentions_group(arguments.recipient) else None
         if named_group:  # "reply in the CSE group saying ..." - only because the owner named the group
             group_id, label = _resolve_group(ai.inbox, named_group)
             if group_id is None:

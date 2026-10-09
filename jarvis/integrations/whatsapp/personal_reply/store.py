@@ -144,6 +144,10 @@ def default_db_path() -> Path:
     return _p()
 
 
+_MIGRATE_LOCK = threading.Lock()
+_MIGRATED: set[str] = set()
+
+
 class PersonalReplyStore:
     def __init__(self, path: Optional[Path] = None, box: Optional[DataBox] = None) -> None:
         self.path = Path(path) if path else default_db_path()
@@ -151,6 +155,34 @@ class PersonalReplyStore:
         self._lock = threading.RLock()
         self._profile_cache: dict[str, tuple[float, ContactStyleProfile | None]] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        key = str(self.path.resolve())
+        with _MIGRATE_LOCK:
+            if key in _MIGRATED and self._has_schema():
+                return
+            self._migrate_with_retry()
+            _MIGRATED.add(key)
+
+    def _has_schema(self) -> bool:
+        try:
+            with self._conn() as con:
+                return con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='wa_brain_jobs'").fetchone() is not None
+        except sqlite3.Error:
+            return False
+
+    def _migrate_with_retry(self) -> None:
+        """Schema setup needs the write lock once per process; a long write elsewhere is waited out, not fatal."""
+        delay = 0.25
+        for attempt in range(5):
+            try:
+                self._migrate()
+                return
+            except sqlite3.OperationalError as exc:
+                if attempt == 4 or not any(w in str(exc).lower() for w in ("locked", "busy")):
+                    raise
+                time.sleep(delay)
+                delay = min(2.0, delay * 2)
+
+    def _migrate(self) -> None:
         with self._conn() as con:
             con.executescript(SCHEMA)
             if "note" not in {r[1] for r in con.execute("PRAGMA table_info(wa_pr_grants)").fetchall()}:
@@ -470,6 +502,15 @@ class PersonalReplyStore:
                 raise ValueError('Invalid staged embeddings')
             if any(e.contact_id != snapshot['contact_id'] for e in examples):
                 raise ValueError('Cross-contact staged example')
+        # Encrypt and pack before taking the write lock: the transaction only swaps rows, so other writers
+        # (incoming messages, the ledger, the dashboard) wait milliseconds, not the length of a whole build.
+        staged_at = time.time()
+        packed = {snapshot['contact_id']: [
+            (snapshot['contact_id'], self.box.encrypt(e.context), self.box.encrypt(e.reply), e.timestamp,
+             ExampleSource(e.source).value, e.split, snapshot['vectors'][i].astype(np.float16).tobytes(), staged_at,
+             int(e.provenance not in (Authorship.LEGACY_OWNER_LIKELY, Authorship.UNKNOWN)),
+             Authorship(e.provenance).value, e.evidence_weight) for i, e in enumerate(snapshot['examples'])]
+            for snapshot in snapshots}
         with self._lock, self._conn() as con:
             con.execute('BEGIN IMMEDIATE')
             old_version = con.execute('SELECT active_version FROM wa_brain_index WHERE id=1').fetchone()[0]
@@ -482,11 +523,7 @@ class PersonalReplyStore:
                 now = time.time()
                 con.executemany(
                     "INSERT INTO wa_pr_examples(contact_id,context_enc,reply_enc,ts,source,split,vector,created_at,provenance_verified,provenance,evidence_weight) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    [(cid, self.box.encrypt(e.context), self.box.encrypt(e.reply), e.timestamp,
-                      ExampleSource(e.source).value, e.split, snapshot['vectors'][i].astype(np.float16).tobytes(), now,
-                      int(e.provenance not in (Authorship.LEGACY_OWNER_LIKELY, Authorship.UNKNOWN)),
-                      Authorship(e.provenance).value, e.evidence_weight) for i, e in enumerate(snapshot['examples'])])
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)", packed[cid])
                 profile = snapshot['profile']
                 if profile and profile.messages_analyzed:
                     pv = (con.execute('SELECT max(profile_version) FROM wa_pr_profile_versions WHERE contact_id=?',

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import inspect
 import json
@@ -59,6 +60,9 @@ class ExecutionEngine:
         stats_tracker: MethodStatsTracker | None = None,
     ) -> None:
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-exec")
+        # Ledger / audit / stats writes get their own threads: a busy shared asyncio pool (dashboard reads, model
+        # calls) must never hold a command's bookkeeping back.
+        self.io_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-exec-io")
         self.policy_evaluator = policy_evaluator or PolicyEvaluator()
         self.confirmation_manager = confirmation_manager or ConfirmationManager()
         self._ledger_admission_lock = threading.RLock()
@@ -67,6 +71,9 @@ class ExecutionEngine:
         self.undo_manager = undo_manager or UndoManager()
         self.stats_tracker = stats_tracker or MethodStatsTracker()
         self.method_selector = MethodSelector(self.stats_tracker)
+
+    async def _io(self, fn, /, *args, **kwargs):
+        return await asyncio.get_running_loop().run_in_executor(self.io_pool, functools.partial(fn, *args, **kwargs))
 
     async def execute(
         self,
@@ -179,7 +186,7 @@ class ExecutionEngine:
         # Handle Policy Denials and Pauses
         if policy_decision.is_denied:
             dur_ms = (time.perf_counter_ns() - t0) / 1e6
-            await asyncio.to_thread(self.audit_logger.log,
+            await self._io(self.audit_logger.log,
                 request_id=request_id,
                 graph_id=graph_id,
                 node_id=node_id,
@@ -244,7 +251,7 @@ class ExecutionEngine:
             valid, reason = self.confirmation_manager.consume_ticket(ticket_id, fp)
             if not valid:
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                await asyncio.to_thread(self.audit_logger.log,
+                await self._io(self.audit_logger.log,
                     request_id=request_id,
                     graph_id=graph_id,
                     node_id=node_id,
@@ -343,7 +350,7 @@ class ExecutionEngine:
                 self.ledger.start_action(action_id, fp, definition.risk)
                 return method_used, action_id, toctou_snap
 
-        admission = await asyncio.to_thread(admit_action)
+        admission = await self._io(admit_action)
         if isinstance(admission, ToolResult):
             return admission
         method_used, action_id, toctou_snap = admission
@@ -429,7 +436,7 @@ class ExecutionEngine:
                   else LedgerState.FAILED_SAFE_TO_RETRY)
         )
 
-        await asyncio.to_thread(self.ledger.record_outcome,
+        await self._io(self.ledger.record_outcome,
             action_id=action_id,
             fingerprint=fp,
             risk=definition.risk,
@@ -440,7 +447,7 @@ class ExecutionEngine:
         )
 
         # Update stats
-        await asyncio.to_thread(self.stats_tracker.record_attempt,
+        await self._io(self.stats_tracker.record_attempt,
             capability=definition.name,
             method=method_used.value,
             success=(exec_err is None),
@@ -450,7 +457,7 @@ class ExecutionEngine:
         )
 
         # Audit log
-        await asyncio.to_thread(self.audit_logger.log,
+        await self._io(self.audit_logger.log,
             request_id=request_id,
             graph_id=graph_id,
             node_id=node_id,
@@ -467,7 +474,7 @@ class ExecutionEngine:
 
         # Create ActionReceipt for Undo
         if verification.verified and definition.risk != RiskLevel.READ_ONLY:
-            await asyncio.to_thread(self.undo_manager.create_receipt,
+            await self._io(self.undo_manager.create_receipt,
                 action_id=action_id,
                 tool_name=definition.name,
                 args=arg_dict,
@@ -509,3 +516,4 @@ class ExecutionEngine:
 
     async def close(self) -> None:
         await asyncio.to_thread(self.pool.shutdown, wait=True, cancel_futures=True)
+        self.io_pool.shutdown(wait=False, cancel_futures=True)
