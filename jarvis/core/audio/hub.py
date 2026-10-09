@@ -64,6 +64,8 @@ class AudioHub:
         self.total_frames = 0
         self.total_dropped = 0
         self.on_frame = on_frame
+        self.last_frame_timestamp_ns = 0
+        self.discard_before_ns = 0
 
     def register(self, name: str, queue_size: int = 100, clean: bool = False) -> AudioConsumer:
         """Register a consumer before start. Returns consumer handle."""
@@ -81,13 +83,20 @@ class AudioHub:
         self._task = asyncio.create_task(self._distribute())
         logger.info("AudioHub started with %d consumers", len(self._consumers))
 
+    def unregister(self, consumer):
+        if consumer in self._consumers:
+            self._consumers.remove(consumer)
+
     async def _distribute(self) -> None:
         """Main distribution loop — reads from source, fans out to consumers."""
         try:
             async for frame in self.source.frames():
                 if not self._running:
                     break
+                if frame.timestamp_ns and frame.timestamp_ns < self.discard_before_ns:
+                    continue
                 self.total_frames += 1
+                self.last_frame_timestamp_ns = frame.timestamp_ns
                 clean = self._clean(frame)
 
                 # Always write to ring buffer (cleaned: it is the speech-recognition pre-roll)
@@ -102,6 +111,7 @@ class AudioHub:
         except asyncio.CancelledError:
             pass
         except Exception:
+            self._running = False
             logger.exception("AudioHub distribution error")
 
     def _clean(self, frame: AudioFrame) -> AudioFrame:

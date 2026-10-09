@@ -1091,7 +1091,7 @@ class SystemOpTool(Tool):
 
 class WorkflowOpInput(Contract):
     action: str = Field(description="run | preview | create | clone | enable | disable | schedule | cancel_schedule | list | "
-                                    "run_at | trigger | list_triggers | cancel_trigger")
+                                    "run_at | trigger | event_trigger | list_triggers | cancel_trigger")
     name: str = Field(default="", description="workflow name")
     steps: list[str] = Field(default_factory=list, description="create: the owner's own commands, in order")
     new_name: str = Field(default="", description="clone: name of the copy")
@@ -1102,6 +1102,9 @@ class WorkflowOpInput(Contract):
                                                    "phone_disconnected | battery_below | battery_above | download_done")
     subject: str = Field(default="", description="trigger: the app name for app_opened / app_closed")
     threshold: Optional[float] = Field(default=None, description="trigger: battery percentage")
+    event_name: str = Field(default="", description="event_trigger: registered event name")
+    chat_id: str = Field(default="", description="event_trigger: verified direct chat JID")
+    message_type: str = Field(default="", description="event_trigger: optional text/image/document/voice_note filter")
     ref: str = Field(default="", description="cancel_trigger: which one (a word from its command, its number, or empty)")
 
 
@@ -1152,13 +1155,21 @@ class WorkflowOpTool(Tool):
             return _finish(w.cancel_schedule(a.name))
         if act == "list":
             return _finish(w.list())
-        if act in ("run_at", "trigger", "list_triggers", "cancel_trigger"):
+        if act in ("run_at", "trigger", "event_trigger", "list_triggers", "cancel_trigger"):
             from jarvis.core.operator.automations import get_automations
             auto = get_automations()
             if act == "run_at":
                 return _finish(auto.run_at(a.command, a.when))
             if act == "trigger":
                 return _finish(auto.add_trigger(a.condition, a.command, a.subject, a.threshold))
+            if act == "event_trigger":
+                from jarvis.core.commands.provenance import owner_command
+                from jarvis.core.operator.refs import OperatorOutcome
+                if not owner_command.get():
+                    return _finish(OperatorOutcome(False, "Only an authenticated owner request can save an event automation.",
+                                                   needs="owner_authorization"))
+                return _finish(auto.add_event_trigger(a.event_name, a.command,
+                                                       chat_id=a.chat_id, message_type=a.message_type))
             if act == "list_triggers":
                 return _finish(auto.list())
             return _finish(auto.cancel(a.ref))

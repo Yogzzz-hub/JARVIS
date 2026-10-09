@@ -13,6 +13,7 @@ from jarvis.integrations.whatsapp.personal_reply.auto_reply_policy import AutoRe
 from jarvis.integrations.whatsapp.personal_reply.crypto import DataBox, test_key
 from jarvis.integrations.whatsapp.personal_reply.reply_generator import ReplyGenerator
 from jarvis.integrations.whatsapp.personal_reply.store import PersonalReplyStore
+from jarvis.integrations.whatsapp.personal_reply.understand import Answerability
 from jarvis.security.ledger.ledger import ActionLedger
 from jarvis.security.policy.evaluator import PolicyEvaluator
 from tests.whatsapp_personal.synthetic import CONTACTS, StandInLLM, export_text
@@ -53,15 +54,22 @@ def make_agent(tmp: Path, llm: Any = None, clock: Optional[Clock] = None, transp
     clock = clock or Clock()
     return PersonalReplyAgent(
         store=store, transport=transport if transport is not None else FlakyTransport(),
-        inbox=inbox or WhatsAppInbox(tmp / "inbox.db"), generator=ReplyGenerator(client=llm or StandInLLM()),
-        policy=AutoReplyPolicy(store, auto_reply_untrained=auto_untrained), ledger=ActionLedger(tmp / db_name),
-        policy_evaluator=PolicyEvaluator(), coalesce_s=0, owner_names=["Me"], clock=clock, use_jde=False)
+        inbox=inbox or WhatsAppInbox(tmp / "inbox.db"),
+        generator=ReplyGenerator(client=llm or StandInLLM(fact_free=True)),
+        # These tests exercise the policy/send mechanics after a separate offline
+        # evaluation gate. Production keeps that gate enabled by default.
+        policy=AutoReplyPolicy(store, auto_reply_untrained=auto_untrained, require_evaluation=False),
+        ledger=ActionLedger(tmp / db_name),
+        policy_evaluator=PolicyEvaluator(), coalesce_s=0, owner_names=["Me"], clock=clock, use_jde=False,
+        answerability_classifier=lambda _text, _thread: Answerability(
+            "STYLE_ONLY", "ANSWERABLE", "policy/send fixture supplies owner decisions"),
+        semantic_context_enabled=False)
 
 
 def train(agent: PersonalReplyAgent, *keys: str, n: int = 120) -> None:
     for k in keys or tuple(CONTACTS):
         c = CONTACTS[k]
-        agent.import_chat(c["jid"], c["name"], export_text=export_text(k, n=n))
+        agent.import_chat(c["jid"], c["name"], export_text=export_text(k, n=n), verified_fixture=True)
 
 
 def msg(chat_id: str, text: str, name: str = "", message_id: str = "", from_me: bool = False, state: str = "READY",

@@ -11,6 +11,8 @@ import os
 import tempfile
 import uuid
 import wave
+import threading
+from time import monotonic
 from pathlib import Path
 from time import perf_counter_ns
 from typing import AsyncIterable, Optional
@@ -31,6 +33,10 @@ class SAPIEngine:
         self._cancelled = False
         self.total_syntheses = 0
         self.sample_rate = 22050
+        self._native = False
+        self._gender = ''
+        self._synthesis_lock = threading.RLock()
+        self.timeout_seconds = 10.0
 
     @property
     def backend_name(self) -> str:
@@ -46,6 +52,14 @@ class SAPIEngine:
             return
 
         try:
+            if os.name == 'nt':
+                import pythoncom
+                import win32com.client
+                # COM objects must be created and released in the worker that
+                # synthesizes. pyttsx3 caches engines across callers/threads.
+                self._native = True
+                self._is_loaded = True
+                return
             import pyttsx3
             self._engine = pyttsx3.init("sapi5")
             self._engine.setProperty("rate", self.rate)
@@ -59,6 +73,9 @@ class SAPIEngine:
     def set_gender(self, gender: str) -> None:
         """Switch SAPI voice gender if matching voice is available."""
         self.load()
+        if self._native:
+            self._gender = gender
+            return
         if not self._is_loaded or not self._engine:
             return
         try:
@@ -80,6 +97,9 @@ class SAPIEngine:
     def synthesize(self, text: str) -> bytes:
         """Synthesize text to PCM16 bytes via temporary WAV."""
         self.load()
+        if self._native and self._is_loaded:
+            with self._synthesis_lock:
+                return self._synthesize_native(text)
         if not self._is_loaded or not self._engine:
             return b""
 
@@ -109,6 +129,61 @@ class SAPIEngine:
                 except OSError:
                     pass
 
+    def _synthesize_native(self, text):
+        import pythoncom
+        import win32com.client
+        temp_path = os.path.join(tempfile.gettempdir(), f'jarvis_sapi_{uuid.uuid4().hex}.wav')
+        initialized = False
+        voice = stream = tokens = token = None
+        self._cancelled = False
+        try:
+            pythoncom.CoInitialize()
+            initialized = True
+            voice = win32com.client.Dispatch('SAPI.SpVoice')
+            voice.Rate = max(-10, min(10, round((self.rate-150)/20)))
+            voice.Volume = max(0, min(100, round(self.volume*100)))
+            if self._gender:
+                desired = 'Female' if 'fem' in self._gender.lower() or 'woman' in self._gender.lower() else 'Male'
+                tokens = voice.GetVoices()
+                for index in range(tokens.Count):
+                    token = tokens.Item(index)
+                    if token.GetAttribute('Gender') == desired:
+                        voice.Voice = token
+                        break
+            stream = win32com.client.Dispatch('SAPI.SpFileStream')
+            stream.Format.Type = 22  # SAFT22kHz16BitMono
+            stream.Open(temp_path, 3, False)  # SSFMCreateForWrite
+            voice.AudioOutputStream = stream
+            voice.Speak(text, 1)  # SVSFlagsAsync: bounded wait and cancellation
+            deadline = monotonic()+self.timeout_seconds
+            while not voice.WaitUntilDone(100):
+                pythoncom.PumpWaitingMessages()
+                if self._cancelled or monotonic() >= deadline:
+                    voice.Speak('', 3)  # async + purge queue
+                    return b''
+            if self._cancelled:
+                return b''
+            stream.Close(); stream = None
+            with wave.open(temp_path, 'rb') as wav:
+                if wav.getnchannels() != 1 or wav.getsampwidth() != 2:
+                    raise ValueError('SAPI must produce mono PCM16')
+                self.sample_rate = wav.getframerate()
+                pcm = wav.readframes(wav.getnframes())
+            self.total_syntheses += 1
+            return pcm
+        except Exception as exc:
+            logger.error('SAPI native synthesis unavailable: %s', exc)
+            return b''
+        finally:
+            if stream is not None:
+                try: stream.Close()
+                except Exception: pass
+            voice = stream = tokens = token = None
+            if initialized:
+                pythoncom.CoUninitialize()
+            try: os.remove(temp_path)
+            except OSError: pass
+
     async def stream(self, text: str) -> AsyncIterable[TTSChunk]:
         """Stream SAPI synthesized audio chunk."""
         loop = asyncio.get_running_loop()
@@ -117,10 +192,10 @@ class SAPIEngine:
             return
 
         # SAPI default rate is typically 22050 or 16000 or 44100
-        dur_ms = (len(pcm) / (2 * 22050)) * 1000.0
+        dur_ms = (len(pcm) / (2 * self.sample_rate)) * 1000.0
         yield TTSChunk(
             pcm=pcm,
-            sample_rate=22050,
+            sample_rate=self.sample_rate,
             sample_width=2,
             channels=1,
             is_final=True,

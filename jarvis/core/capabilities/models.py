@@ -53,6 +53,12 @@ class CapabilityDefinition(BaseModel):
     family: str = Field(default="", description="Logical capability family, e.g. 'FILE', 'APP', 'BROWSER', 'PHONE', 'SYSTEM', 'WHATSAPP', 'RAG'")
     input_resource_types: List[str] = Field(default_factory=list, description="Accepted resource types, e.g. ['FileResource']")
     output_resource_types: List[str] = Field(default_factory=list, description="Produced resource types, e.g. ['FileResource']")
+    side_effects: List[str] = Field(default_factory=list)
+    auth_requirements: List[str] = Field(default_factory=list)
+    confirmation_required: bool = False
+    latency_budget_ms: int = 0
+    input_schema: Dict[str, Any] = Field(default_factory=dict)
+    output_schema: Dict[str, Any] = Field(default_factory=dict)
 
     def get_family(self) -> str:
         if self.family:

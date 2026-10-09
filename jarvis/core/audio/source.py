@@ -100,6 +100,10 @@ class MicSource:
         self._native_rate: int | None = None
         self._resampler: StreamingResampler | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self.device_health = 'NOT_STARTED'
+        self.selected_device = None
+        self.last_rms = 0.0
+        self.device_changes = []
 
     async def start(self) -> None:
         import sounddevice as sd
@@ -107,6 +111,15 @@ class MicSource:
         if self._running:
             return
         self._loop = asyncio.get_running_loop()
+        # Resolve once and record it. A missing explicit device fails safely;
+        # never select an unrelated microphone behind the owner's back.
+        info = sd.query_devices(self.device, 'input')
+        selected = {'requested': self.device, 'name': info['name'],
+            'index': sd.default.device[0] if self.device is None else self.device, 'channels': 1}
+        if self.selected_device != selected:
+            self.device_changes.append({'previous': self.selected_device, 'selected': selected,
+                'timestamp_ns': perf_counter_ns()})
+        self.selected_device = selected
 
         # 1. Prefer direct canonical rate capture (16kHz) to avoid resampling overhead
         try:
@@ -121,6 +134,7 @@ class MicSource:
             self._native_rate = self.target_rate
             self._stream.start()
             self._running = True
+            self.device_health = 'READY'
             logger.info(
                 "MicSource started natively at %d Hz on device %s",
                 self.target_rate, self.device or "default",
@@ -150,10 +164,12 @@ class MicSource:
         self._running = True
         try:
             self._stream.start()
+            self.device_health = 'READY_RESAMPLED'
         except Exception:
             self._running = False
             self._stream.close()
             self._stream = None
+            self.device_health = 'UNAVAILABLE_PTT_OR_TYPED_REQUIRED'
             raise
         logger.info(
             "MicSource started with resampler: device=%s, native_rate=%d, target_rate=%d",
@@ -169,6 +185,7 @@ class MicSource:
             self.input_overflows += 1
         self._seq += 1
         pcm_data = indata[:, 0].tobytes()  # mono channel, already int16
+        self.last_rms = float(np.sqrt(np.mean((indata[:, 0].astype(np.float32)/32768)**2)))
 
         # Resample if native rate differs from target (stateful: no clicks at block edges)
         if self._native_rate and self._native_rate != self.target_rate:
@@ -230,6 +247,10 @@ class MicSource:
                 frame = await asyncio.wait_for(self._queue.get(), timeout=0.5)
                 yield frame
             except asyncio.TimeoutError:
+                if self._stream is not None and not self._stream.active:
+                    self.device_health = 'DISCONNECTED_TYPED_INPUT_REQUIRED'
+                    self._running = False
+                    raise RuntimeError('Selected microphone disconnected; use typed input or reconnect it')
                 continue
 
 

@@ -14,7 +14,7 @@ from typing import Optional
 import numpy as np
 
 from jarvis.decision.encoder import HashingEncoder
-from jarvis.integrations.whatsapp.personal_reply.models import ExampleSource, ReplyExample
+from jarvis.integrations.whatsapp.personal_reply.models import Authorship, ExampleSource, ReplyExample
 from jarvis.integrations.whatsapp.personal_reply.store import VECTOR_DIM, PersonalReplyStore
 
 _encoder = HashingEncoder(dim=VECTOR_DIM)
@@ -22,6 +22,15 @@ _QUESTION = re.compile(r"\?|\b(?:what|when|where|why|how|who|which|can|could|wil
                        r"\w+(?:ya|la|aa|ah|va))\b\s*[?!.]*$", re.I)
 _SOURCE_BONUS = {ExampleSource.USER_EDITED: 0.10, ExampleSource.APPROVED: 0.08, ExampleSource.LIVE_USER: 0.05,
                  ExampleSource.IMPORT: 0.0}
+_LEXICAL_STOP = {'a', 'an', 'the', 'i', 'you', 'u', 'me', 'my', 'your', 'it', 'is', 'are', 'to',
+                 'in', 'on', 'for', 'at', 'and', 'or', 'da', 'di', 'bro', 'ah', 'aa', 'la'}
+
+
+def lexical_overlap(query: str, context: str) -> float:
+    """Same-contact keyword signal; embeddings still enforce the measured floor."""
+    q = set(re.findall(r'\w+', query.casefold())) - _LEXICAL_STOP
+    c = set(re.findall(r'\w+', context.casefold())) - _LEXICAL_STOP
+    return len(q & c) / max(1, len(q)) if q else 0.0
 
 
 def embed(texts: list[str]) -> np.ndarray:
@@ -54,7 +63,7 @@ class ContactExampleIndex:
         hit = self._cache.get(contact_id)
         if hit and time.time() - hit[0] < 300:
             return hit[1], hit[2]
-        exs, vecs = self.store.examples(contact_id, splits=("TRAIN", "DEV"))
+        exs, vecs = self.store.examples(contact_id, splits=("TRAIN",))
         self._cache[contact_id] = (time.time(), exs, vecs)
         return exs, vecs
 
@@ -69,9 +78,14 @@ class ContactExampleIndex:
         q = embed([query])[0]
         return float(max(vecs[i] @ q for i in idx))
 
-    def retrieve(self, contact_id: str, query: str, k: int = 6, min_k: int = 3, now: Optional[float] = None,
-                 exclude_ids: frozenset[int] = frozenset()) -> list[RetrievedExample]:
-        """3-8 useful examples: similar intent/situation, recent, owner-verified sources first; diverse (MMR)."""
+    def retrieve(self, contact_id: str, query: str, k: int = 6, min_k: int = 0, now: Optional[float] = None,
+                 exclude_ids: frozenset[int] = frozenset(), min_similarity: float = 0.21) -> list[RetrievedExample]:
+        """Return only relevant prior same-contact examples; zero is a valid result.
+
+        The 0.21 conservative floor separates two clearly relevant and five
+        clearly unrelated top hits in the small verified development audit.
+        ``min_k`` is retained for caller compatibility but never forces weak hits.
+        """
         exs, vecs = self._load(contact_id)
         if not exs:
             return []
@@ -83,14 +97,26 @@ class ContactExampleIndex:
         q_is_question = is_question(query)
         scores = np.empty(len(exs), dtype=np.float32)
         for i, e in enumerate(exs):
+            if e.timestamp > now:
+                scores[i] = -1e9
+                continue
             recency = 0.12 * (e.timestamp - oldest) / span
             intent = 0.05 if is_question(e.context) == q_is_question else 0.0
-            scores[i] = sims[i] + recency + _SOURCE_BONUS.get(e.source, 0.0) + intent
+            provenance_bonus = {
+                Authorship.USER_TYPED: .30,
+                Authorship.VERIFIED_MANUAL_OWNER_SEND: .30,
+                Authorship.USER_EDITED_AI_DRAFT: .25,
+                Authorship.VERIFIED_LEGACY_OWNER: .18,
+                Authorship.USER_APPROVED_AI_DRAFT: .13,
+                Authorship.LEGACY_OWNER_LIKELY: 0.0,
+            }.get(e.provenance, 0.0)
+            lexical = 0.08 * lexical_overlap(query, e.context)
+            scores[i] = sims[i] + lexical + recency + _SOURCE_BONUS.get(e.source, 0.0) + intent + provenance_bonus + 0.12 * e.evidence_weight
             if e.example_id in exclude_ids:
                 scores[i] = -1e9
-        order = list(np.argsort(-scores))
+        order = [int(i) for i in np.argsort(-scores) if scores[i] > -1e8 and sims[i] >= min_similarity]
         chosen: list[int] = []
-        k = max(min_k, min(8, k))
+        k = max(0, min(8, k))
         while order and len(chosen) < k:
             best, best_val = None, -1e9
             for idx in order[:40]:
@@ -99,9 +125,5 @@ class ContactExampleIndex:
                 if val > best_val:
                     best, best_val = idx, val
             order.remove(best)
-            if scores[best] < -1e8:
-                break
-            if len(chosen) >= min_k and sims[best] < 0.08:
-                break  # weakly related examples add tokens, not accuracy
             chosen.append(best)
         return [RetrievedExample(exs[i], float(scores[i]), float(sims[i])) for i in chosen]

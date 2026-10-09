@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -32,6 +33,7 @@ logger = logging.getLogger("jarvis.operator.automations")
 
 TRIGGERS = ("app_opened", "app_closed", "phone_connected", "phone_disconnected", "battery_below", "battery_above",
             "download_done")
+EVENT_TRIGGERS = frozenset({"whatsapp.message_received"})
 MISSED_GRACE_S = 600          # a one-shot more than 10 min overdue at startup is reported missed, not run
 COOLDOWN_S = 60.0
 _UNITS = {"second": 1, "sec": 1, "minute": 60, "min": 60, "hour": 3600, "hr": 3600}
@@ -84,10 +86,11 @@ class Automations:
     def __init__(self, path: Optional[Path] = None, clock=time.time, probes: Optional[dict] = None):
         self.path = Path(path) if path else _default_path()
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._dispatch: Optional[Callable] = None
         self._notify: Optional[Callable[[str], None]] = None
         self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
         self.probes: dict[str, Callable] = probes or {}
         self._state: dict[str, bool] = {}          # last observed truth per trigger (edge detection)
 
@@ -100,7 +103,12 @@ class Automations:
 
     def _save(self, items: list[dict]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(items, indent=1), encoding="utf-8")
+        temp = self.path.with_name(self.path.name + "." + uuid.uuid4().hex + ".tmp")
+        try:
+            temp.write_text(json.dumps(items, indent=1), encoding="utf-8")
+            os.replace(temp, self.path)
+        finally:
+            temp.unlink(missing_ok=True)
 
     # -- create ----------------------------------------------------------------------------------------------
     def run_at(self, command: str, when_text: str) -> OperatorOutcome:
@@ -146,10 +154,73 @@ class Automations:
         return OperatorOutcome(True, f"Automation on: {self.describe(item)}. Say 'list my automations' to see them.",
                                evidence={"id": item["id"]})
 
+    def add_event_trigger(self, event_name: str, command: str, *, chat_id: str = "",
+                          message_type: str = "") -> OperatorOutcome:
+        """Store an owner-authored action against a typed event, never event text.
+
+        Exact chat IDs are required until the contact identity graph can verify
+        names. External message content cannot become a command or a predicate.
+        """
+        command = (command or "").strip(" ,.")
+        if event_name not in EVENT_TRIGGERS or not command:
+            return OperatorOutcome(False, "Choose a supported event and an owner-authored command.", needs="clarify")
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]+@(?:s\.whatsapp\.net|lid|c\.us)", chat_id or ""):
+            return OperatorOutcome(False, "Select one verified direct WhatsApp chat first.", needs="clarify")
+        if message_type and message_type not in {"text", "image", "document", "voice_note"}:
+            return OperatorOutcome(False, "Choose text, image, document or voice note.", needs="clarify")
+        item = {"id": uuid.uuid4().hex[:8], "kind": "event", "event_name": event_name,
+                "chat_id": chat_id, "message_type": message_type, "command": command,
+                "created": self._clock(), "enabled": True, "fires": 0, "last_fired": 0,
+                "last_event_id": "", "seen_event_ids": [], "last_result": "NEVER_RUN"}
+        with self._lock:
+            items = self.load()
+            duplicate = next((i for i in items if i.get("kind") == "event" and i.get("enabled", True)
+                              and all(i.get(k) == item[k] for k in ("event_name", "chat_id", "message_type", "command"))), None)
+            if duplicate:
+                return OperatorOutcome(True, "That event automation already exists.", evidence={"id": duplicate["id"]})
+            items.append(item)
+            self._save(items)
+        return OperatorOutcome(True, "Event automation saved. Its action will use normal JARVIS policy and confirmation.",
+                               evidence={"id": item["id"]})
+
+    async def handle_event(self, event) -> None:
+        """Consume canonical metadata after persistence; dispatch only stored owner commands."""
+        if event.name not in EVENT_TRIGGERS:
+            return
+        data = event.data or {}
+        event_id = str(data.get("message_id") or "")
+        if not event_id or data.get("history") or data.get("from_me") or data.get("is_group"):
+            return
+        due = []
+        now = self._clock()
+        with self._lock:
+            items = self.load()
+            for item in items:
+                if item.get("kind") != "event" or not item.get("enabled", True):
+                    continue
+                if item.get("event_name") != event.name or item.get("chat_id") != data.get("chat_id"):
+                    continue
+                if item.get("message_type") and item["message_type"] != data.get("message_type"):
+                    continue
+                if event_id in item.get("seen_event_ids", []) or item.get("last_event_id") == event_id \
+                        or now - item.get("last_fired", 0) < COOLDOWN_S:
+                    continue
+                item.update(last_event_id=event_id, last_fired=now, last_run=now,
+                            last_result="DISPATCH_PENDING", fires=item.get("fires", 0) + 1)
+                item.setdefault("seen_event_ids", []).append(event_id)
+                due.append(dict(item))
+            if due:
+                self._save(items)  # claim before dispatch: never blindly replay an uncertain action
+        for item in due:
+            self._fire(item)
+
     @staticmethod
     def describe(i: dict) -> str:
         if i.get("kind") == "at":
             return f"at {datetime.fromtimestamp(i['due']).strftime('%a %I:%M %p')} -> \"{i['command']}\""
+        if i.get("kind") == "event":
+            kind = i.get("message_type") or "message"
+            return f"when a {kind} arrives in the selected direct chat -> \"{i['command']}\""
         c, subj, thr = i["condition"], i.get("subject") or "the app", i.get("threshold")
         level = f"{thr:.0f}%" if thr is not None else "?"
         what = {"app_opened": f"when {subj} opens", "app_closed": f"when {subj} closes",
@@ -190,6 +261,7 @@ class Automations:
     # -- running ---------------------------------------------------------------------------------------------
     def start(self, dispatch: Callable, notify: Optional[Callable[[str], None]] = None) -> None:
         self._dispatch, self._notify = dispatch, notify
+        self._stop.clear()
         self._report_missed()
         if self._thread and self._thread.is_alive():
             return
@@ -198,15 +270,21 @@ class Automations:
             return
 
         def loop():
-            while True:
+            while not self._stop.is_set():
                 try:
                     self.tick()
                 except Exception as e:
                     logger.debug("automation tick failed: %s", e)
-                time.sleep(5)
+                self._stop.wait(5)
 
         self._thread = threading.Thread(target=loop, name="automations", daemon=True)
         self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=6)
+        self._thread = None
 
     def _report_missed(self) -> None:
         now = self._clock()
@@ -255,17 +333,32 @@ class Automations:
         return [f for f in fired if f]
 
     def _fire(self, item: dict) -> str:
-        if self._notify:
-            try:
-                self._notify(f"Running your automation: {item['command']}.")
-            except Exception:
-                pass
         if self._dispatch is None:
             return ""
         try:
-            self._dispatch(item["command"])
+            result = self._dispatch(item["command"])
+            if hasattr(result, "add_done_callback"):
+                def finished(future) -> None:
+                    try:
+                        outcome = future.result()
+                        state = str(getattr(outcome, "state", "UNKNOWN"))
+                    except Exception:
+                        state = "FAILED"
+                    with self._lock:
+                        items = self.load()
+                        for saved in items:
+                            if saved.get("id") == item["id"]:
+                                saved["last_result"] = state
+                        self._save(items)
+                result.add_done_callback(finished)
         except Exception as e:
             logger.info("automation %s failed to start: %s", item["id"], e)
+            with self._lock:
+                items = self.load()
+                for saved in items:
+                    if saved.get("id") == item["id"]:
+                        saved["last_result"] = "FAILED_TO_START"
+                self._save(items)
             return ""
         return item["command"]
 

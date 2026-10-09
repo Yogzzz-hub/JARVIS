@@ -57,9 +57,11 @@ class DummyMetrics:
 
 
 @pytest.fixture
-def test_env():
+def test_env(monkeypatch):
     temp_dir = tempfile.mkdtemp()
     db_path = Path(temp_dir) / "test_jarvis.db"
+    from jarvis.integrations.whatsapp.inbox import WhatsAppInbox
+    monkeypatch.setattr(WhatsAppInbox, "_instance", WhatsAppInbox(Path(temp_dir) / "inbox.db"))
 
     registry = ToolRegistry()
     resolver = AppResolver({})
@@ -76,7 +78,11 @@ def test_env():
     writer = DummyWriter()
     metrics = DummyMetrics()
     tasks = TaskManager(bus, writer)
-    executor = ExecutionEngine()
+    from jarvis.security.ledger.ledger import ActionLedger
+    from jarvis.security.audit.logger import AuditLogger
+    from jarvis.core.executor.selector import MethodStatsTracker
+    executor = ExecutionEngine(ledger=ActionLedger(Path(temp_dir) / "actions.db"),
+        audit_logger=AuditLogger(Path(temp_dir) / "audit.db"), stats_tracker=MethodStatsTracker(Path(temp_dir) / "methods.db"))
     verifier = Verifier(50, 1000)
     router = SmartRouter(app_resolver=resolver)
     service = CommandService(
@@ -663,7 +669,7 @@ def test_whatsapp_read_and_summarize_tools(tmp_path):
 
     summ_tool = SummarizeWhatsAppMessagesTool(inbox=inbox)
     res_summ = summ_tool.run({})
-    assert res_summ["status"] == "SUCCESS"
+    assert res_summ["status"] == "PARTIAL_SYNC"  # no complete chat snapshot was supplied
     assert res_summ["urgent_count"] == 1
     assert "urgent" in res_summ["spoken_summary"].lower()
 

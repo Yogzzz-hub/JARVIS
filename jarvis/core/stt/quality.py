@@ -49,7 +49,18 @@ def segment_ok(seg: Any) -> bool:
 
 
 def _words(text: str) -> list[str]:
-    return re.findall(r"[\w']+", (text or "").lower())
+    # Python \w splits Tamil vowel signs/virama from their letters, falsely
+    # inflating speech rate and dropping valid Unicode transcripts as noise.
+    import unicodedata
+    words, current = [], []
+    for char in (text or '').lower():
+        if char.isalnum() or unicodedata.category(char).startswith('M') or char in "'_":
+            current.append(char)
+        elif current:
+            words.append(''.join(current)); current = []
+    if current:
+        words.append(''.join(current))
+    return words
 
 
 def repetition_loop(text: str, min_repeats: int = 3) -> bool:
@@ -93,7 +104,9 @@ def join_segments(segments: Iterable[Any]) -> tuple[str, list[dict]]:
         ok = segment_ok(seg)
         info.append({"start": getattr(seg, "start", 0.0), "end": getattr(seg, "end", 0.0), "text": text, "kept": ok,
                      "avg_logprob": round(float(getattr(seg, "avg_logprob", 0.0) or 0.0), 3),
-                     "no_speech_prob": round(float(getattr(seg, "no_speech_prob", 0.0) or 0.0), 3)})
+                     "no_speech_prob": round(float(getattr(seg, "no_speech_prob", 0.0) or 0.0), 3),
+                     "words": [{"word": w.word, "start": w.start, "end": w.end,
+                                "probability": w.probability} for w in (getattr(seg, "words", None) or [])]})
         if ok and text:
             kept.append(text)
     return " ".join(kept).strip(), info

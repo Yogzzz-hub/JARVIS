@@ -23,6 +23,20 @@ Item {
                       onClicked: if (root.client) root.client.runDiagnostics() }
         }
 
+        Text {
+            width: parent.width
+            color: "#94A3B8"
+            wrapMode: Text.WrapAnywhere
+            text: "Backend connection: " + JSON.stringify(root.stateModel ? root.stateModel.connectionDiagnostics : {})
+        }
+
+        Text {
+            width: parent.width
+            color: "#94A3B8"
+            wrapMode: Text.WrapAnywhere
+            text: "Conversational search (developer): " + JSON.stringify(root.client ? root.client.conversationalSearch : {})
+        }
+
         PageHero {
             width: parent.width
             icon: "diagnostics"

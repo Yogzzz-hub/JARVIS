@@ -91,7 +91,7 @@ class VoiceConfig(Frozen):
     stt_model: str = "auto"
     # "english" = English-only speech model (most accurate for pure English); "thanglish" = multilingual model that
     # also hears Tamil words, written in English letters ("chrome open pannu").
-    language: Literal["english", "thanglish"] = "english"
+    language: Literal["auto", "english", "thanglish", "tamil"] = "auto"
     stt_device: Literal["auto", "cpu", "cuda"] = "auto"
     compute_type: str = "int8"
     stt_beam_size: int = Field(default=5, ge=1, le=10)

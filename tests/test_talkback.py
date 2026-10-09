@@ -77,8 +77,9 @@ async def test_pulse_waiting_confirmation_talkback_and_state():
 
 
 @pytest.mark.asyncio
-async def test_confirm_ticket_dispatches_immediate_talkback():
+async def test_confirm_ticket_dispatches_immediate_talkback(tmp_path, monkeypatch):
     """Verify that confirming a pending send action immediately talks back before execution."""
+    monkeypatch.setattr('jarvis.security.ledger.ledger.DEFAULT_DB_PATH', tmp_path/'ledger.sqlite')
     class DummyMsgInput(Contract):
         recipient: str = Field(default="")
         message: str = Field(default="")
@@ -86,6 +87,9 @@ async def test_confirm_ticket_dispatches_immediate_talkback():
     class DummyMsgOutput(Contract):
         status: str = "SENT"
         message: str = ""
+        message_id: str = ""
+        evidence: dict = Field(default_factory=dict)
+        recipient: str = ""
 
     class SlowMockWhatsAppTool(Tool):
         definition = ToolDefinition(
@@ -100,7 +104,9 @@ async def test_confirm_ticket_dispatches_immediate_talkback():
             self.executed = False
         def run(self, arguments):
             self.executed = True
-            return {"status": "SENT", "message": "Message delivered to Yoga on WhatsApp."}
+            return {"status": "SENT", "message": "Message delivered to Yoga on WhatsApp.",
+                    "message_id": "fixture-receipt", "evidence": {"transport_ack": True},
+                    "recipient": arguments.recipient}
 
     tool = SlowMockWhatsAppTool()
     registry = ToolRegistry()
@@ -159,7 +165,7 @@ async def test_confirm_ticket_dispatches_immediate_talkback():
     spoken_texts = [r.text for r in audio.played]
     assert any("Confirmed. Sending your message to Yoga now." in t for t in spoken_texts), f"Spoken texts: {spoken_texts}"
     assert res.state == "SUCCESS"
-    assert "WhatsApp message processed" in res.message or "Message delivered" in res.message
+    assert "Message sent to Yoga" in res.message
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ Item {
             subtitle: "Live hardware load and which AI models are loaded right now."
             StatusBadge { status: root.stateModel ? root.stateModel.connectionStatus : "OFFLINE" }
             JButton { text: "SYSTEM REPORT"; variant: "ghost"; onClicked: if (root.controller) root.controller.sendCommand("system info") }
+            JButton { text: "VOICE / LANGUAGE"; variant: "ghost"; onClicked: Qt.openUrlExternally("http://127.0.0.1:8765/dashboard/voice-language/page") }
         }
 
         PageHero {

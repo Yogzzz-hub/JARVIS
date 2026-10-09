@@ -12,9 +12,10 @@ from jarvis.integrations.whatsapp.personal_reply import importer as imp
 from jarvis.integrations.whatsapp.personal_reply import language as lang
 from jarvis.integrations.whatsapp.personal_reply.commands import WhatsAppAutoReplyTool, parse_command, parse_window
 from jarvis.integrations.whatsapp.personal_reply.context_builder import CrossContactLeak, build
+from jarvis.integrations.whatsapp.personal_reply.conversation_grounding import missing_owner_status, owner_clarification
 from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat, is_placeholder
 from jarvis.integrations.whatsapp.personal_reply.example_index import RetrievedExample
-from jarvis.integrations.whatsapp.personal_reply.models import ContactStyleProfile, Direction, ExampleSource, ReplyExample
+from jarvis.integrations.whatsapp.personal_reply.models import Authorship, ChatLine, ContactStyleProfile, Direction, ExampleSource, ReplyExample
 from jarvis.integrations.whatsapp.personal_reply.quality_gate import sensitive_topics
 from tests.whatsapp_personal.harness import deliver, make_agent, msg, sends_to, train
 from tests.whatsapp_personal.synthetic import CONTACTS, StandInLLM, export_text
@@ -22,6 +23,36 @@ from tests.whatsapp_personal.synthetic import CONTACTS, StandInLLM, export_text
 YOGA, ARUNK, KARTHIK, ARUN = (CONTACTS[k]["jid"] for k in ("yoga", "arunk", "karthik", "arun"))
 GROUP = "120363000000000001@g.us"
 HOUR = 3600.0
+
+
+def test_short_followup_requires_owner_status_before_drafting():
+    thread = [(False, "What work is assigned?"), (False, "When will it be complete?")]
+    assert missing_owner_status("Aravind... Update", thread)
+    assert missing_owner_status("Any progress?", thread)
+    assert not missing_owner_status("Any progress?", thread + [(True, "I finished the work")])
+    assert not missing_owner_status("Please send the document", thread)
+
+
+def test_draft_holds_unanswered_same_contact_update(agent, monkeypatch):
+    monkeypatch.setattr(agent, "_thread", lambda *_args, **_kwargs: [
+        (False, "What work is assigned?"), (False, "When will it be complete?")])
+    result = asyncio.run(agent.draft(YOGA, ["Aravind... Update"]))
+    assert result["candidate"] is None
+    assert "owner status" in result["hold_reason"]
+
+
+def test_unclear_update_uses_only_prior_verified_owner_clarification(agent, monkeypatch):
+    rows = [ChatLine(10, "Me", Direction.USER, "?", provenance=Authorship.LEGACY_OWNER_LIKELY),
+            ChatLine(11, "Me", Direction.USER, "purila", provenance=Authorship.VERIFIED_LEGACY_OWNER),
+            ChatLine(20, "Me", Direction.USER, "ennadhu", provenance=Authorship.VERIFIED_LEGACY_OWNER)]
+    assert owner_clarification(rows, 19) == "purila"
+    assert owner_clarification(rows[:1], 19) is None
+    monkeypatch.setattr(agent, "_thread", lambda *_args, **_kwargs: [(False, "Any work update?")])
+    monkeypatch.setattr(agent.store, "sources", lambda _contact: rows)
+    result = asyncio.run(agent.draft(YOGA, ["Update?"]))
+    assert result["candidate"].text in ("purila", "ennadhu")
+    assert result["clarification_draft"] is True
+    assert result["quality"].passed is False
 
 
 @pytest.fixture
@@ -391,7 +422,7 @@ def test_copying_an_unrelated_past_reply_is_held(agent):
         unrelated = await deliver(agent, msg(ARUNK, "Did the parking pass get renewed?", "Arun Kumar"))
         return seen, unrelated
     seen, unrelated = asyncio.run(run())
-    assert seen["status"] == "VERIFIED"
+    assert seen["status"] == "VERIFIED", seen  # same situation in the policy-mechanics fixture
     assert unrelated["status"] == "NEEDS_USER_REVIEW" and len(sends_to(agent, ARUNK)) == 1
 
 
@@ -471,7 +502,7 @@ def test_autonomous_replies_are_not_training_data_but_owner_edits_are(agent):
     assert not any(e.source.value == "AUTO" for e in exs)
 
 
-def test_owner_typing_a_reply_cancels_jarvis_and_is_learned(tmp_path):
+def test_unattributed_outgoing_cancels_pending_draft_but_is_not_style_data(tmp_path):
     ag = make_agent(tmp_path)
     ag.coalesce_s = 5.0
     train(ag, "yoga")
@@ -484,7 +515,7 @@ def test_owner_typing_a_reply_cancels_jarvis_and_is_learned(tmp_path):
         await asyncio.sleep(0.05)
         return queued, n
     queued, n = asyncio.run(run())
-    assert queued["status"] == "QUEUED" and sends_to(ag) == [] and ag.store.example_count(YOGA) == n + 1
+    assert queued["status"] == "QUEUED" and sends_to(ag) == [] and ag.store.example_count(YOGA) == n
 
 
 def test_coalescing_answers_a_burst_once(tmp_path):
@@ -496,7 +527,10 @@ def test_coalescing_answers_a_burst_once(tmp_path):
         ag.enable([YOGA], ag.clock() + HOUR)
         for text in ("dei", "tomorrow", "varuviya?"):
             await deliver(ag, msg(YOGA, text, "Yoga"))
-        await asyncio.sleep(0.3)
+        # Drafting and ledger writes may outlast the coalescing window on a busy test host.
+        async with asyncio.timeout(3.0):
+            while not sends_to(ag):
+                await asyncio.sleep(0.02)
     asyncio.run(run())
     assert len(sends_to(ag)) == 1
 

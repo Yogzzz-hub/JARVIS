@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import time
+import random
 from typing import Any, Callable
 from urllib.parse import urljoin
 import urllib.request
@@ -18,7 +19,7 @@ from jarvis.ui.events import AssistantState, ConnectionState, UIEvent, UIEventTy
 
 logger = logging.getLogger("jarvis.ui.bridge")
 
-RECONNECT_DELAYS = [0.5, 1.0, 2.0, 5.0, 10.0]
+RECONNECT_DELAYS = [0.25, 0.5, 1.0, 2.0, 5.0]
 
 
 class BridgeWorker(QObject):
@@ -28,6 +29,7 @@ class BridgeWorker(QObject):
     eventReceived = Signal(object)  # UIEvent
     responseReceived = Signal(dict)
     pingUpdated = Signal(int)
+    connectionDiagnostics = Signal(dict)
 
     def __init__(self, ws_url: str = "ws://127.0.0.1:8765/ws", http_url: str = "http://127.0.0.1:8765") -> None:
         super().__init__()
@@ -37,6 +39,11 @@ class BridgeWorker(QObject):
         self._ws: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._send_queue: asyncio.Queue[dict[str, Any]] | None = None
+        from jarvis.ui.connection_health import ConnectionHealth
+        self.health = ConnectionHealth()
+        self._pongs = {}
+        self._pending_requests = set()
+        self._delivered_results = set()
 
     @Slot()
     def start(self) -> None:
@@ -68,7 +75,9 @@ class BridgeWorker(QObject):
             "type": "command",
             "request_id": req_id,
             "text": text,
+            "source": "desktop",
         }
+        self._pending_requests.add(req_id)
         if self._loop and self._send_queue and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._send_queue.put_nowait, msg)
         else:
@@ -79,7 +88,7 @@ class BridgeWorker(QObject):
         def _post() -> None:
             try:
                 url = f"{self.http_url}/command"
-                payload = json.dumps({"text": text, "request_id": req_id, "source": "websocket"}).encode("utf-8")
+                payload = json.dumps({"text": text, "request_id": req_id, "source": "websocket", "metadata": {"input_source": "dashboard"}}).encode("utf-8")
                 req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
                 with urllib.request.urlopen(req, timeout=10.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
@@ -99,7 +108,7 @@ class BridgeWorker(QObject):
         retry_idx = 0
 
         while self._running:
-            self.connectionChanged.emit(ConnectionState.RECONNECTING.value if retry_idx > 0 else ConnectionState.OFFLINE.value)
+            self.connectionChanged.emit(ConnectionState.RECONNECTING.value)
             try:
                 # Test HTTP health first
                 health_ok = await self._check_health()
@@ -115,12 +124,16 @@ class BridgeWorker(QObject):
                 ) as ws:
                     self._ws = ws
                     retry_idx = 0
+                    self.health.connected()
+                    self.connectionDiagnostics.emit(self.health.snapshot())
                     self.connectionChanged.emit(ConnectionState.ONLINE.value)
                     self.eventReceived.emit(UIEvent(event_type=UIEventType.JARVIS_READY))
 
                     receiver_task = asyncio.create_task(self._receive_loop(ws))
                     sender_task = asyncio.create_task(self._send_loop(ws))
                     ping_task = asyncio.create_task(self._ping_loop(ws))
+                    for request_id in tuple(self._pending_requests):
+                        asyncio.create_task(self._restore_result(request_id))
 
                     done, pending = await asyncio.wait(
                         [receiver_task, sender_task, ping_task],
@@ -128,18 +141,28 @@ class BridgeWorker(QObject):
                     )
                     for t in pending:
                         t.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+                    for t in done:
+                        if not t.cancelled() and t.exception(): raise t.exception()
+                    if self._running:
+                        raise ConnectionError('WebSocket closed before the next heartbeat')
 
             except Exception as exc:
                 logger.debug("Backend connection error: %s", exc)
-                self.connectionChanged.emit(ConnectionState.OFFLINE.value)
-                self.eventReceived.emit(UIEvent(event_type=UIEventType.JARVIS_OFFLINE))
+                state = self.health.disconnected(exc, await self._check_health())
+                self.connectionDiagnostics.emit(self.health.snapshot())
+                self.connectionChanged.emit(state)
+                if state == 'OFFLINE':
+                    self.eventReceived.emit(UIEvent(event_type=UIEventType.JARVIS_OFFLINE))
+
+            self._ws = None
 
             if not self._running:
                 break
 
             delay = RECONNECT_DELAYS[min(retry_idx, len(RECONNECT_DELAYS) - 1)]
             retry_idx += 1
-            await asyncio.sleep(delay)
+            await asyncio.sleep(delay * random.uniform(.8, 1.2))
 
     async def _check_health(self) -> bool:
         loop = asyncio.get_running_loop()
@@ -148,7 +171,7 @@ class BridgeWorker(QObject):
                 url = f"{self.http_url}/health"
                 req = urllib.request.Request(url)
                 with urllib.request.urlopen(req, timeout=1.0) as resp:
-                    return resp.status == 200
+                    return resp.status == 200 and json.loads(resp.read()).get('status') == 'ready'
             except Exception:
                 return False
         return await loop.run_in_executor(None, _get)
@@ -167,6 +190,7 @@ class BridgeWorker(QObject):
             try:
                 raw = await ws.recv()
                 data = json.loads(raw)
+                self.health.last_event = time.monotonic()
                 msg_type = data.get("type")
                 if msg_type == "event":
                     mapping = {
@@ -202,6 +226,13 @@ class BridgeWorker(QObject):
                         payload=data,
                     ))
                 elif msg_type == "task_result":
+                    request_id = data.get('request_id')
+                    result_key = (request_id, data.get('outcome_version'), data.get('state'))
+                    if result_key in self._delivered_results:
+                        continue
+                    if request_id:
+                        self._delivered_results.add(result_key)
+                        self._pending_requests.discard(request_id)
                     self.responseReceived.emit(data)
                     state = data.get("state", "SUCCESS")
                     if state == "SUCCESS":
@@ -216,7 +247,8 @@ class BridgeWorker(QObject):
                         payload=data,
                     ))
                 elif msg_type == "pong":
-                    pass
+                    future = self._pongs.get(data.get('request_id'))
+                    if future and not future.done(): future.set_result(time.monotonic())
                 elif msg_type == "error":
                     self.eventReceived.emit(UIEvent(
                         event_type=UIEventType.TASK_FAILED,
@@ -233,12 +265,34 @@ class BridgeWorker(QObject):
             await asyncio.sleep(5)
             t0 = time.perf_counter()
             try:
-                await ws.send(json.dumps({"version": 1, "type": "ping", "request_id": "ping"}))
+                request_id = 'ping_' + str(time.time_ns())
+                future = asyncio.get_running_loop().create_future()
+                self._pongs[request_id] = future
+                self.health.last_ping = time.monotonic()
+                await ws.send(json.dumps({"version": 1, "type": "ping", "request_id": request_id}))
+                pong = await asyncio.wait_for(future, 5)
+                self.health.last_pong = pong
+                self.connectionDiagnostics.emit(self.health.snapshot())
                 t1 = time.perf_counter()
                 ping_ms = max(1, int((t1 - t0) * 1000))
                 self.pingUpdated.emit(ping_ms)
-            except Exception:
-                break
+            finally:
+                self._pongs.pop(request_id, None)
+
+    async def _restore_result(self, request_id):
+        def read():
+            with urllib.request.urlopen(self.http_url+'/tasks/'+request_id, timeout=2) as response:
+                return json.loads(response.read())
+        try:
+            snapshot = await asyncio.to_thread(read)
+            result = snapshot.get('result')
+            result_key = (request_id, (result or {}).get('outcome_version'), (result or {}).get('state'))
+            if result and result_key not in self._delivered_results:
+                self._delivered_results.add(result_key)
+                self._pending_requests.discard(request_id)
+                self.responseReceived.emit(snapshot['result'])
+        except Exception:
+            logger.debug('Task reconciliation unavailable for %s', request_id)
 
 
 class JarvisUIBridge(QObject):
@@ -248,6 +302,7 @@ class JarvisUIBridge(QObject):
     eventReceived = Signal(object)
     responseReceived = Signal(dict)
     pingUpdated = Signal(int)
+    connectionDiagnostics = Signal(dict)
 
     def __init__(self, ws_url: str = "ws://127.0.0.1:8765/ws", http_url: str = "http://127.0.0.1:8765", parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -260,6 +315,7 @@ class JarvisUIBridge(QObject):
         self.worker.connectionChanged.connect(self.connectionChanged)
         self.worker.eventReceived.connect(self.eventReceived)
         self.worker.responseReceived.connect(self.responseReceived)
+        self.worker.connectionDiagnostics.connect(self.connectionDiagnostics)
         self.worker.pingUpdated.connect(self.pingUpdated)
 
     def start(self) -> None:

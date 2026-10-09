@@ -25,6 +25,8 @@ class CommandService:
         self.tasks, self.bus, self.writer, self.metrics = tasks, bus, writer, metrics
         self.router = router or SmartRouter(app_resolver=getattr(executor, "resolver", None))
         self.working_memory = working_memory or getattr(self.router, "working_memory", None)
+        from jarvis.core.context.conversation import ConversationalTopics
+        self.conversational_topics = ConversationalTopics()
         self.planner = planner
         self.scheduler = scheduler
         self.planner_enabled = planner_enabled
@@ -81,7 +83,7 @@ class CommandService:
             return "brightness_set", {"percent": int(max(0, min(100, round(target))))}
         if name == "restore_window" and self.registry.contains("move_resize_window"):
             return "move_resize_window", {"action": "restore"}
-        if name == "whatsapp_status" and self.registry.contains("whatsapp_action"):
+        if name == "whatsapp_status" and not self.registry.contains(name) and self.registry.contains("whatsapp_action"):
             return "whatsapp_action", {"action": "status"}
         return name, slots
 
@@ -188,6 +190,13 @@ class CommandService:
             switch = match_language_switch(text)
             language = reply_language(text, None if switch in (None, AUTO) else switch)
             REPLY_LANGUAGE.set(language)
+            from jarvis.core.general_language import GeneralLanguageUnderstandingEngine
+            frame = GeneralLanguageUnderstandingEngine().understand(text, {"thread_ref": request.chat_id} if request.chat_id else {})
+            if frame.language == "tanglish":
+                request = request.model_copy(update={"metadata": {**request.metadata, "language_raw_text": text,
+                    "language_frame": frame.asdict()}})
+                if frame.speech_act in {"QUESTION", "STATEMENT", "PROHIBITION"} or frame.missing:
+                    return request
             english = to_english_command(text)
             if english != text:
                 return request.model_copy(update={"text": english})
@@ -274,16 +283,21 @@ class CommandService:
     def _pending_execution(self) -> dict[str, Any] | None:
         pending = self.__dict__.get("_pending_store")
         if pending is not None and time.monotonic() - pending.get("_stamped", 0.0) > self.PENDING_TTL_S:
-            self.__dict__["_pending_store"] = None
+            self._pending_execution = None
             return None
         return pending
 
     @_pending_execution.setter
     def _pending_execution(self, value: dict[str, Any] | None) -> None:
+        previous = self.__dict__.get('_pending_store')
         if value is not None:
             value = dict(value)
             value.setdefault("_stamped", time.monotonic())
         self.__dict__["_pending_store"] = value
+        if value is None and previous is not None:
+            memory = getattr(self, 'working_memory', None)
+            if memory is not None and hasattr(memory, 'clear_pending_confirmation'):
+                memory.clear_pending_confirmation()
 
     # ------------------------------------------------------------------ channel helpers
     @staticmethod
@@ -295,6 +309,15 @@ class CommandService:
     def _speaks(self, request) -> bool:
         """Talk back on the PC for local interactive channels only (never for WhatsApp / tests)."""
         source = getattr(request, "source", "")
+        metadata = getattr(request, 'metadata', None) or {}
+        if metadata.get('input_envelope'):
+            from jarvis.core.commands.envelope import JarvisInputEnvelope
+            from jarvis.core.response.coordinator import ResponseCoordinator
+            envelope = JarvisInputEnvelope.model_validate(metadata['input_envelope'])
+            if not ResponseCoordinator.plan(envelope, metadata.get('response_language')).speak:
+                return False
+        if (getattr(request, 'metadata', None) or {}).get('input_source') == 'phone':
+            return False
         if source in self.SILENT_SOURCES:
             return False
         if source in ("voice", "websocket", "desktop_ui", "local", "chat", "ui", "http", "api", "cli"):
@@ -319,8 +342,68 @@ class CommandService:
         """One command = one task-scoped grant: only the capabilities its route or validated plan needs, revoked
         when the command finishes (jarvis/core/tasks/scope.py)."""
         from jarvis.core.tasks.scope import get_scope_manager
-        with get_scope_manager().grant(getattr(request, "request_id", "") or "", (), reason="command"):
-            return await self._handle(request, clock)
+        from jarvis.core.commands.provenance import owner_command
+        shadow_raw = request.text
+        reference_resolver = None
+        if (getattr(request, 'is_owner', False) and request.source != 'whatsapp'
+                and request.metadata.get('input_source') != 'phone'
+                and re.search(r'\b(?:it|that|this|previous|second|him|her|atha|avan)\b|அதை|இந்த|அந்த', shadow_raw, re.I)):
+            try:
+                import copy
+                from jarvis.core.context.semantic_adapter import resolve_semantic_references
+                memory_snapshot = copy.deepcopy(self.working_memory)
+                if memory_snapshot is not None:
+                    reference_resolver = lambda frame: resolve_semantic_references(frame, memory_snapshot)
+            except Exception:
+                pass
+        from jarvis.core.commands.envelope import JarvisInputEnvelope
+        from jarvis.core.response.coordinator import RESPONSE_LANGUAGE, ResponseLanguagePolicy, UNIFIED_RESPONSE_ACTIVE
+        envelope = JarvisInputEnvelope.from_request(request)
+        from jarvis.core.response.coordinator import SPEECH_SUPPRESSION
+        suppression = ('PHONE_OWNS_AUDIO' if envelope.source == 'phone' else
+            'TEXT_ONLY_CHANNEL' if envelope.reply_channel == 'text_only' else
+            'REMOTE_OR_BACKGROUND_CHANNEL' if envelope.source in {'whatsapp', 'test', 'benchmark', 'automation_builder'} else None)
+        speech_suppression_token = SPEECH_SUPPRESSION.set(suppression)
+        selected_language = ResponseLanguagePolicy.choose(envelope.raw_text,
+            explicit=request.metadata.get('response_language'),
+            conversation=request.metadata.get('conversation_language'))
+        language_token = RESPONSE_LANGUAGE.set(selected_language)
+        active_language_token = UNIFIED_RESPONSE_ACTIVE.set(True)
+        request = request.model_copy(update={'metadata': {**request.metadata,
+            'input_envelope': envelope.model_dump(), 'response_language': selected_language}})
+        token = owner_command.set(request.text if getattr(request, "is_owner", False) else None)
+        try:
+            if not request.is_owner:
+                return CommandResult(request_id=request.request_id, state='WAITING_FOR_USER',
+                    message='Only an authenticated owner can authorize commands.', metrics={})
+            # Conservative safety admission, not candidate routing. Scope ambiguity
+            # clarifies rather than executing a positive cue from a prohibition.
+            if re.search(r"do\s+not|don['’]t|never|[a-z]+(?:adha|atha)\b|\b(?:venam|vendam|venda)\b|பண்ணாத|வேண்டாம்|அனுப்பாத", shadow_raw, re.I):
+                from jarvis.core.language_layer import repair
+                safety = repair({'raw_text': shadow_raw, 'action': 'UNKNOWN', 'domain': 'GENERAL',
+                    'speech_act': 'COMMAND', 'slots': [], 'values': {}})
+                if safety['speech_act'] == 'NEGATED_COMMAND':
+                    message = "I won't execute that request. Please clarify any action you still want."
+                    if self._speaks(request) and getattr(self.response, 'enabled', False):
+                        self.response.schedule_final(request.request_id, message)
+                    return CommandResult(request_id=request.request_id, state='CANCELLED', message=message, metrics={})
+            with get_scope_manager().grant(getattr(request, "request_id", "") or "", (), reason="command"):
+                return await self._handle(request, clock)
+        finally:
+            owner_command.reset(token)
+            RESPONSE_LANGUAGE.reset(language_token)
+            UNIFIED_RESPONSE_ACTIVE.reset(active_language_token)
+            SPEECH_SUPPRESSION.reset(speech_suppression_token)
+            # Advisory queue only: never await the encoder or change the result.
+            try:
+                from jarvis.core.language_shadow import get_language_service, production_snapshot
+                decision = self._last_decisions.get(request.request_id)
+                source = request.metadata.get("input_source", request.source)
+                get_language_service().submit(shadow_raw, source, production_snapshot(decision) if decision is not None else None,
+                                              owner=bool(getattr(request, "is_owner", False)), event_id=request.request_id,
+                                              reference_resolver=reference_resolver)
+            except Exception:
+                logging.getLogger(__name__).debug("Language shadow unavailable", exc_info=True)
 
     @staticmethod
     def _grant(tool) -> None:
@@ -371,7 +454,41 @@ class CommandService:
                 logging.getLogger("jarvis.commands").info("carried over: %r -> %r", request.text, carried,
                                                           extra={"request_id": task.request_id})
                 request = request.model_copy(update={"text": carried})
-            decision = await self.router.route(request)
+            from jarvis.core.context.conversation import ConversationalTopics
+            from jarvis.core.router.models import RouteDecision, RouteSource, ReasonCode
+            if not hasattr(self, 'conversational_topics'):
+                self.conversational_topics = ConversationalTopics()
+            raw_question = (request.metadata.get('input_envelope') or {}).get('raw_text') or request.text
+            conversational = (self.conversational_topics.resolve(raw_question, self._channel(request))
+                if self.registry.contains('ollama_chat') else None)
+            if conversational:
+                getattr(self, '_whatsapp_conversations', {}).pop(self._channel(request), None)
+                request = request.model_copy(update={'metadata': {**request.metadata,
+                    '_conversational_resolution': conversational}})
+                if self.working_memory and hasattr(self.working_memory, 'context'):
+                    self.working_memory.context.conversational_topics[self._channel(request)] = conversational.get('frame', {})
+                    while len(self.working_memory.context.conversational_topics)>32:
+                        self.working_memory.context.conversational_topics.pop(next(iter(self.working_memory.context.conversational_topics)))
+                    if conversational['topic'] and self._channel(request) == 'local':
+                        self.working_memory.push_topic(conversational['topic'])
+                decision = RouteDecision(request_id=task.request_id,
+                    lane=RouteLane.CLARIFY if conversational['clarification'] else RouteLane.LANE_2,
+                    intent=None, slots={}, needs_planner=False,
+                    confidence=1, source=RouteSource.GRAMMAR, complexity=ComplexityLevel.SIMPLE,
+                    normalized_text=raw_question, reason_code=ReasonCode.QUESTION_NOT_COMMAND,
+                    clarification=conversational['clarification'] or None,
+                    breakdown_ms={'context_ms': conversational['context_ms']})
+            else:
+                request = request.model_copy(update={'metadata': {k:v for k,v in request.metadata.items()
+                    if k != '_conversational_resolution'}})
+                followup = self._whatsapp_contact_followup(raw_question, self._channel(request))
+                decision = followup or await self.router.route(request)
+                if decision.intent and 'whatsapp' not in decision.intent and not followup:
+                    getattr(self, '_whatsapp_conversations', {}).pop(self._channel(request), None)
+                if decision.intent and decision.intent not in ('ollama_chat', 'command_history'):
+                    self.conversational_topics.invalidate(self._channel(request))
+                    if self.working_memory and hasattr(self.working_memory, 'context'):
+                        self.working_memory.context.conversational_topics.pop(self._channel(request),None)
             decision = self._bare_media_control(decision, request.text or "", task)
             self._grant_routed_scope(task, decision)
             self._last_decisions[task.request_id] = decision
@@ -647,10 +764,12 @@ class CommandService:
             # PULSE: Start parallel Feedback Lane without blocking execution
             predicted_ms = 400.0
             if self.pulse:
-                predicted_ms = self.pulse.predict_duration(decision.intent or "unknown", decision.slots)
+                conversational = request.metadata.get('_conversational_resolution')
+                feedback_intent = ('conversational_web' if conversational.get('use_web') else 'conversational_knowledge') if conversational else (decision.intent or 'unknown')
+                predicted_ms = self.pulse.predict_duration(feedback_intent, decision.slots)
                 self.pulse.start_interaction(
                     task.request_id,
-                    decision.intent or "unknown",
+                    feedback_intent,
                     predicted_ms,
                     source=task.source,
                     slots=decision.slots,
@@ -1014,6 +1133,9 @@ class CommandService:
             if task.cancellation.is_set():
                 raise asyncio.CancelledError
             state = State.SUCCESS if verification.verified else State.FAILED
+            if (verification.verified and name in ("summarize_whatsapp_messages", "read_whatsapp_messages")
+                    and isinstance(tool_result.data, dict) and tool_result.data.get("status") == "PARTIAL_SYNC"):
+                state = State.PARTIAL_SUCCESS
             if not verification.verified:
                 tool_result = tool_result.model_copy(update={"success": False, "error": verification.error})
             else:
@@ -1067,6 +1189,50 @@ class CommandService:
                     scope.granted_capabilities.add(required)
         except Exception:
             pass
+
+    def _whatsapp_contact_followup(self, text, channel):
+        """Exact names from a recent unread inventory, or reply to the selected chat."""
+        from jarvis.core.router.models import RouteDecision, RouteSource, ReasonCode
+        frame = getattr(self, '_whatsapp_conversations', {}).get(channel)
+        if not frame or time.monotonic()-frame['updated']>900: return None
+        text = text.strip(' .?!').casefold()
+        matches = [c for c in frame['contacts'] if c['name'].casefold()==text]
+        intent, slots = '', {}
+        if matches:
+            if len({c['chat_id'] for c in matches})>1:
+                return RouteDecision(lane=RouteLane.CLARIFY,intent=None,confidence=1,source=RouteSource.GRAMMAR,
+                    normalized_text=text,reason_code=ReasonCode.MISSING_REQUIRED_SLOT,
+                    clarification='More than one unread contact has that name. Please specify the full saved contact name.')
+            intent='read_whatsapp_messages';slots=dict(sender=matches[0]['chat_id'],filter='all',limit=1)
+        elif re.fullmatch(r'(?:reply|reply to (?:him|her|them)|reply\s+(?:pannu|panu))',text):
+            if not frame.get('selected'):
+                return RouteDecision(lane=RouteLane.CLARIFY,intent=None,confidence=1,source=RouteSource.GRAMMAR,
+                    normalized_text=text,reason_code=ReasonCode.MISSING_REQUIRED_SLOT,
+                    clarification='Whose message should I reply to? Say the contact name first.')
+            intent='reply_whatsapp_message';slots=dict(recipient=frame['selected'],instruction='')
+        if not intent: return None
+        return RouteDecision(lane=RouteLane.LANE_0,intent=intent,slots=slots,confidence=1,source=RouteSource.GRAMMAR,
+            normalized_text=text,reason_code=ReasonCode.EXACT_PATTERN)
+
+    def _remember_whatsapp_conversation(self, task, tool_result, resolver=None):
+        from jarvis.core.response.whatsapp import display_name
+        if tool_result.tool_name not in {'read_whatsapp_messages','summarize_whatsapp_messages'}: return
+        channel = getattr(self, '_request_channels', {}).get(getattr(task, 'request_id', ''), 'local')
+        data=tool_result.data; contacts=[];selected=''
+        rows=data.get('unread_chats') or data.get('messages') or []
+        for row in rows[:100]:
+            identity=row.get('chat_id') or row.get('sender_id')
+            if row.get('is_group') or not identity or '@g.us' in identity: continue
+            name=display_name(row, resolver)
+            if name=='one contact': continue
+            entry=dict(chat_id=identity,name=name)
+            if entry not in contacts: contacts.append(entry)
+        messages=data.get('messages') or []
+        if tool_result.tool_name=='read_whatsapp_messages' and len(messages)==1 and data.get('filter')!='unread':
+            selected=messages[0].get('chat_id','')
+        if not hasattr(self,'_whatsapp_conversations'): self._whatsapp_conversations={}
+        self._whatsapp_conversations[channel]=dict(contacts=contacts,selected=selected,updated=time.monotonic())
+        while len(self._whatsapp_conversations)>32: self._whatsapp_conversations.pop(next(iter(self._whatsapp_conversations)))
 
     def _grant_routed_scope(self, task, decision) -> None:
         """The owner's own sentence, routed straight to a tool ("create a folder called projects", "delete temp.txt"),
@@ -1157,13 +1323,41 @@ class CommandService:
 
         # Verification Rule: Never produce DONE/COMPLETED/SUCCESS until all required verification passes
         # Execution success != verification success.
+        if state in (State.SUCCESS, State.COMPLETED, State.FAILED) and (
+            getattr(getattr(verification, "status", None), "value", None) == "UNCERTAIN"
+            or tool_result is not None and (tool_result.data or {}).get("status") == "UNCERTAIN"
+        ):
+            state = State.UNCERTAIN
         if state in (State.SUCCESS, State.COMPLETED) and verification is not None and not verification.verified:
             state = State.UNCERTAIN if getattr(verification, "confidence", 1.0) > 0.3 else State.FAILED
 
+        spoken_message = ((tool_result.data or {}).get('spoken_response') if tool_result else None) or message
+        private_whatsapp = bool(re.search(r'\bwhatsapp\b', task.raw_text, re.I)) and not bool(
+            re.search(r'\b(?:debug|technical|jids?|internal ids?)\b', task.raw_text, re.I))
+        if private_whatsapp:
+            from jarvis.core.response.whatsapp import public_text, SECRET
+            message = public_text(message)
+            if SECRET.search(message):
+                message = 'This message contains private details. View it securely.'
+            if not re.search(r'\b(?:timezone|time zone|IST|UTC)\b', task.raw_text, re.I):
+                message = re.sub(r'\s+India Standard Time\b', '', message)
+            spoken_message = message
         try:
-            from jarvis.core.multilingual import REPLY_LANGUAGE, THANGLISH, in_thanglish
-            if REPLY_LANGUAGE.get() == THANGLISH:
-                message = in_thanglish(message)
+            from jarvis.core.response.whatsapp import render as whatsapp_response
+            from jarvis.core.response.coordinator import RESPONSE_LANGUAGE
+            if tool_result and verification and verification.verified:
+                resolver = (getattr(self.registry.get('send_whatsapp_message'), 'resolver', None)
+                    if self.registry.contains('send_whatsapp_message') else None)
+                self._remember_whatsapp_conversation(task, tool_result, resolver)
+                view = whatsapp_response(tool_result.tool_name, tool_result.data or {}, RESPONSE_LANGUAGE.get(), resolver)
+                if view:
+                    message, spoken_message = view['visual'], view['spoken']
+        except Exception:
+            logging.getLogger(__name__).exception('WhatsApp response presentation failed')
+        try:
+            from jarvis.core.response.coordinator import RESPONSE_LANGUAGE, ResponseLanguagePolicy
+            message = ResponseLanguagePolicy.render(message, RESPONSE_LANGUAGE.get())
+            spoken_message = ResponseLanguagePolicy.render(spoken_message, RESPONSE_LANGUAGE.get())
         except Exception:
             pass
         decided = getattr(self, "_last_decisions", {}).get(task.request_id)
@@ -1179,6 +1373,18 @@ class CommandService:
             clock.response_ready_ns = now_ns()
 
             # Handle PULSE Feedback Lane vs Legacy Response
+            from jarvis.core.response.coordinator import SPEECH_SUPPRESSION, RESPONSE_LANGUAGE
+            suppression = SPEECH_SUPPRESSION.get()
+            if (self.pulse and getattr(self.pulse, 'final_delivery', None) is not None
+                    and not getattr(self.response, 'enabled', False)):
+                suppression = suppression or 'USER_MUTED_OR_TTS_DISABLED'
+            if suppression or not is_voice:
+                if hasattr(self.response, 'delivery'):
+                    job = self.response.delivery.begin(task.request_id, RESPONSE_LANGUAGE.get())
+                    if job:
+                        self.response.delivery.update(job, 'CANCELLED', tts_requested=False,
+                            suppression_reason=suppression or 'TEXT_ONLY_CHANNEL')
+                is_voice = False
             is_fast_silent = (predicted_ms < 250.0 and not is_voice)
             is_waiting_confirmation = (state == State.WAITING_CONFIRMATION)
             is_verified_state = (state in (State.SUCCESS, State.COMPLETED, State.PARTIAL_SUCCESS)) and (verification is None or verification.verified)
@@ -1186,17 +1392,21 @@ class CommandService:
                 self.pulse.on_verified(
                     request_id=task.request_id,
                     is_verified=is_verified_state,
-                    result_message=message,
+                    result_message=spoken_message,
                     is_voice=is_voice,
                     is_fast_silent=is_fast_silent,
                     is_waiting_confirmation=is_waiting_confirmation,
                 )
-            elif getattr(self.response, "enabled", False):
-                self.response.schedule_final(task.request_id, message)
+            elif is_voice and getattr(self.response, "enabled", False):
+                self.response.schedule_final(task.request_id, spoken_message)
 
             self._log_action(task, state, message, tool_result)
-            result = CommandResult(request_id=task.request_id, state=state.value, message=message,
-                                   tool_result=tool_result, verification=verification, metrics=clock.metrics(),
+            metrics = clock.metrics()
+            if tool_result and isinstance(getattr(tool_result, 'data', None), dict):
+                metrics.update({k: float(v) for k, v in tool_result.data.get('latency_breakdown', {}).items()
+                    if isinstance(v, (int, float))})
+            result = CommandResult(request_id=task.request_id, state=state.value, message=message, spoken_message=spoken_message,
+                                   tool_result=tool_result, verification=verification, metrics=metrics,
                                    outcome_version=1, finalized=True)
             task.result = result
             task.finalized = True
@@ -1374,17 +1584,21 @@ class CommandService:
         """Grounded conversational answer (RAG + history + live web when needed)."""
         from jarvis.core.response.formatter import ResponseFormatter
         tool = self.registry.get("ollama_chat")
-        question = (query or request.text).strip()[:8000]
+        question = (query or (request.metadata.get('_conversational_resolution') or {}).get('raw_text') or request.text).strip()[:8000]
         args = tool.definition.input_model.model_validate({
             "query": question,
             "channel": self._channel(request),
             "speakable": bool(is_voice),
+            "semantic_context": request.metadata.get('_conversational_resolution') or {},
         })
         self._to_executing(task)
         if self.pulse:
             self.pulse.on_execution_started(task.request_id)
         clock.tool_started_ns = now_ns()
-        sink, token = self._open_answer_stream(task, is_voice)
+        conversational = request.metadata.get('_conversational_resolution') or {}
+        # Web output must pass the relevance/grounding gate before it reaches
+        # screen or speakers. Stable local answers retain sentence streaming.
+        sink, token = (None, None) if conversational.get('use_web') else self._open_answer_stream(task, is_voice)
         try:
             self._grant(tool)
             res = await self.executor.execute(tool, args, task)
@@ -1406,6 +1620,16 @@ class CommandService:
             message = ResponseFormatter.sanitize_error(res.error or "Chat failed", tool_name="ollama_chat")
             return self._finalize(task, State.FAILED, message, res, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
         message = res.data.get("response") or "I processed your request."
+        if conversational.get('topic') and res.data.get('status') != 'error':
+            self.conversational_topics.answered(self._channel(request), conversational['topic'])
+            if self.working_memory and hasattr(self.working_memory, 'context'):
+                self.working_memory.context.conversational_topics[self._channel(request)] = self.conversational_topics.snapshot(self._channel(request))
+        if conversational.get('use_web') and not res.data.get('used_web'):
+            verification = VerificationResult(verified=False, confidence=0,
+                evidence={'requested_web': True, 'grounding': 'unavailable'},
+                error='Requested web answer lacks relevant fetched evidence')
+            return self._finalize(task, State.FAILED, message, res, verification, clock, current,
+                is_voice=is_voice, predicted_ms=predicted_ms)
         if res.data.get("status") == "error":
             # Model offline: fall back to live web results for information questions.
             from jarvis.core.llm.assistant import needs_live_data
@@ -1423,6 +1647,10 @@ class CommandService:
     def _open_answer_stream(self, task, is_voice):
         """Stream the chat answer: speech starts at the first sentence and the UI shows text as it is written."""
         from jarvis.core.llm.streaming import StreamSink, current_stream
+        if re.search(r'\bwhatsapp\b', task.raw_text, re.I):
+            # Identifiers can span model tokens. Render the bounded final first;
+            # never expose unsanitized partial WhatsApp text/audio.
+            return None, None
         speech = self.pulse.open_speech_stream(task.request_id) if (is_voice and self.pulse is not None) else None
         request_id = task.request_id
 

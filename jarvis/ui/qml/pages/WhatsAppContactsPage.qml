@@ -24,6 +24,10 @@ Item {
     property var contact: detail && detail.contact ? detail.contact : null
     property var summary: detail && detail.summary ? detail.summary : null
     property var profile: detail && detail.profile ? detail.profile : null
+    property var brain: client ? client.intelligence : ({})
+    property var brainJob: brain && brain.latest_job ? brain.latest_job : ({})
+    readonly property bool nlpShadow: brain && brain.language_layer ? brain.language_layer.shadow === true : false
+    property var contactBrain: client ? client.contactBrain : ({})
     readonly property bool busy: client ? client.busy : false
     readonly property bool wide: width >= 1080
 
@@ -48,7 +52,7 @@ Item {
 
     Component.onCompleted: if (client) client.refresh()
     onVisibleChanged: if (visible && client) client.refresh()
-    Timer { interval: 15000; repeat: true; running: root.visible && root.client !== null; onTriggered: root.client.refresh() }
+    Timer { interval: 30000; repeat: true; running: root.visible && root.client !== null; onTriggered: root.client.refresh() }
 
     FileDialog {
         id: exportDialog
@@ -83,6 +87,8 @@ Item {
             title: "WhatsApp"
             subtitle: root.client ? (root.client.status || "Loading...") : "JARVIS backend not connected"
             StatusBadge { status: "BUSY"; text: "GROUPS BLOCKED" }
+            StatusBadge { status: "WAITING"; text: root.nlpShadow ? "UNIFIED JARVIS NLP · SHADOW" : "UNIFIED NLP · NOT ACTIVE" }
+            StatusBadge { status: "WAITING"; text: "GENERATED AUTO-REPLY OFF" }
             StatusBadge { status: root.client && root.client.encryption === "keyring" ? "READY" : "WAITING"
                           text: root.client && root.client.encryption === "keyring" ? "ENCRYPTED" : "NOT ENCRYPTED" }
         }
@@ -104,6 +110,47 @@ Item {
             text: root.client ? root.client.notice : ""
             error: root.client ? root.client.noticeError : false
             onClosed: if (root.client) root.client.clearNotice()
+        }
+
+        Card {
+            width: parent.width
+            spacing: 10
+            SectionLabel { text: "WHATSAPP INTELLIGENCE"; hint: root.brain && root.brain.memory ? "memory v" + root.brain.memory.active_version : "" }
+            Text { width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 14
+                   text: (root.brain.history && root.brain.history.local_history_available ? "Local history available" : "No local history yet")
+                         + " · Full WhatsApp history completeness unknown · Generated auto-reply OFF" }
+            Flow {
+                width: parent.width; spacing: 14
+                HoloStat { value: root.brain.connection || "-"; label: "Connection"; hint: "linked bridge" }
+                HoloStat { value: root.brain.messages_stored === undefined ? "-" : root.brain.messages_stored + ""; label: "Messages"; hint: "stored locally" }
+                HoloStat { value: root.brain.direct_contacts === undefined ? "-" : root.brain.direct_contacts + ""; label: "Direct chats"; hint: "local history" }
+                HoloStat { value: root.brain.reply_pairs === undefined ? "-" : root.brain.reply_pairs + ""; label: "Reply pairs"; hint: "derived examples" }
+                HoloStat { value: root.brain.profiles_ready === undefined ? "-" : root.brain.profiles_ready + ""; label: "Profiles"; hint: "ready" }
+            }
+            Flow {
+                width: parent.width; spacing: 8
+                JButton { text: "LOAD ALL HISTORY"; busy: root.busy; onClicked: root.client.loadAllHistory() }
+                JButton { text: "HEALTH CHECK"; variant: "ghost"; onClicked: root.client.refreshIntelligence() }
+            }
+            Rectangle {
+                width: parent.width; height: 7; radius: 4; color: "#1E293B"
+                visible: !!root.brainJob.job_id
+                Rectangle { width: parent.width * Math.min(1, (root.brainJob.percentage || 0) / 100); height: parent.height
+                            radius: 4; color: root.brainJob.status === "FAILED" ? root.danger : root.accent }
+            }
+            Text { width: parent.width; wrapMode: Text.WordWrap; color: root.brainJob.status === "FAILED" ? root.danger : root.dim
+                   font.pixelSize: 13; visible: !!root.brainJob.job_id
+                   text: root.brainJob.status + " · " + root.brainJob.stage + " · " + (root.brainJob.processed || 0)
+                         + "/" + (root.brainJob.total || 0) + " contacts · " + (root.brainJob.percentage || 0) + "%"
+                         + (root.brainJob.error ? " · " + root.brainJob.error : "") }
+            Text { width: parent.width; color: root.faint; font.pixelSize: 13; visible: !!root.brainJob.metrics
+                   text: root.brainJob.metrics ? ((root.brainJob.metrics.messages || 0) + " messages · "
+                         + (root.brainJob.metrics.reply_pairs || 0) + " pairs · "
+                         + (root.brainJob.metrics.embeddings || 0) + " embeddings · "
+                         + (root.brainJob.metrics.profiles || 0) + " profiles") : "" }
+            JButton { text: "CANCEL BUILD"; variant: "danger"; small: true
+                      visible: ["QUEUED", "RUNNING", "VALIDATING"].indexOf(root.brainJob.status) >= 0
+                      onClicked: root.client.cancelIntelligenceJob(root.brainJob.job_id) }
         }
 
         // ---------------------------------------------------------------- auto-reply for everyone
@@ -172,7 +219,7 @@ Item {
                             Text { text: (modelData.profile_status === "NO PROFILE" ? "Style not learned yet" : modelData.profile_status + " · "
                                           + modelData.samples + " messages · " + modelData.language_style)
                                    color: root.dim; font.pixelSize: 13; elide: Text.ElideRight; width: parent.width }
-                            Text { text: modelData.last_incoming ? "“" + modelData.last_incoming + "”" : "No messages yet"
+                            Text { text: modelData.samples + " owner messages · " + modelData.contact_samples + " contact messages"
                                    color: root.faint; font.pixelSize: 13; elide: Text.ElideRight; width: parent.width }
                         }
                     }
@@ -194,6 +241,27 @@ Item {
                     topPadding: 60
                     title: "Select a contact"
                     hint: "Choose how JARVIS answers them, teach it your style, and approve drafts."
+                }
+
+                Card {
+                    width: parent.width
+                    visible: root.contact !== null
+                    spacing: 7
+                    CardTitle { width: parent.width; title: "Communication intelligence"
+                                status: root.contactBrain.index_version ? "READY" : "WAITING"
+                                statusText: root.contactBrain.index_version ? "INDEX v" + root.contactBrain.index_version : "NOT INDEXED" }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 13
+                           text: root.contactBrain.derived ? (root.contactBrain.derived.reply_pairs + " reply pairs · "
+                                 + root.contactBrain.derived.verified_owner_messages + " verified owner messages · dyadic confidence "
+                                 + root.contactBrain.derived.dyadic_confidence)
+                                 : "Load this person's local history to build their communication profile." }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; color: root.faint; font.pixelSize: 13
+                           text: root.contactBrain.derived && root.contactBrain.derived.contact_behavior
+                                 ? "Contact language: " + JSON.stringify(root.contactBrain.derived.contact_behavior.languages)
+                                   + " · Questions: " + Math.round(root.contactBrain.derived.contact_behavior.question_rate * 100) + "%"
+                                 : "" }
+                    JButton { text: "LOAD / REFRESH PERSON"; variant: "ghost"; busy: root.busy
+                              onClicked: root.client.refreshPersonIntelligence(root.selectedId) }
                 }
 
                 // profile
@@ -344,6 +412,72 @@ Item {
                     }
                 }
 
+                Card {
+                    width: parent.width
+                    visible: root.contact !== null
+                    spacing: 9
+                    Text { text: "Verified holdout review"; color: root.fg; font.pixelSize: 16; font.bold: true }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 13
+                           text: "Compare the unsent draft with what you actually wrote. Rate meaning separately from style." }
+                    JButton { text: "LOAD REVIEW CASES"; variant: "ghost"; small: true
+                              onClicked: root.client.loadHoldout(root.selectedId) }
+                    JButton { text: "RUN LOCAL EVALUATION"; variant: "ghost"; small: true; busy: root.busy
+                              onClicked: root.client.evaluatePerson(root.selectedId) }
+                    Repeater {
+                        model: root.client ? root.client.holdoutCases : []
+                        delegate: Rectangle {
+                            id: holdoutCase
+                            property var caseData: modelData
+                            property string semantic: caseData.dimensions && caseData.dimensions.semantic_correct === true ? "YES" :
+                                                      caseData.dimensions && caseData.dimensions.semantic_correct === false ? "NO" : "?"
+                            property string dyadic: caseData.dimensions && caseData.dimensions.dyadic_correct === true ? "YES" :
+                                                    caseData.dimensions && caseData.dimensions.dyadic_correct === false ? "NO" : "?"
+                            property string langMatch: caseData.dimensions && caseData.dimensions.language_match === true ? "YES" :
+                                                       caseData.dimensions && caseData.dimensions.language_match === false ? "NO" : "?"
+                            property string emojiMatch: caseData.dimensions && caseData.dimensions.emoji_appropriate === true ? "YES" :
+                                                        caseData.dimensions && caseData.dimensions.emoji_appropriate === false ? "NO" : "?"
+                            property string lengthMatch: caseData.dimensions && caseData.dimensions.length_appropriate === true ? "YES" :
+                                                         caseData.dimensions && caseData.dimensions.length_appropriate === false ? "NO" : "?"
+                            function next(v) { return v === "?" ? "YES" : v === "YES" ? "NO" : "?" }
+                            function ratings() {
+                                var d = {};
+                                if (semantic !== "?") d.semantic_correct = semantic === "YES";
+                                if (dyadic !== "?") d.dyadic_correct = dyadic === "YES";
+                                if (langMatch !== "?") d.language_match = langMatch === "YES";
+                                if (emojiMatch !== "?") d.emoji_appropriate = emojiMatch === "YES";
+                                if (lengthMatch !== "?") d.length_appropriate = lengthMatch === "YES";
+                                return d;
+                            }
+                            width: parent.width; height: reviewCol.implicitHeight + 20; radius: 10
+                            color: "#0C121C"; border.width: 1; border.color: "#24354A"
+                            Column {
+                                id: reviewCol; x: 10; y: 10; width: parent.width - 20; spacing: 6
+                                Text { width: parent.width; wrapMode: Text.WordWrap; color: root.dim; font.pixelSize: 13
+                                       text: "They: " + holdoutCase.caseData.incoming }
+                                Text { width: parent.width; wrapMode: Text.WordWrap; color: root.fg; font.pixelSize: 13
+                                       text: "JARVIS: " + holdoutCase.caseData.jarvis }
+                                Text { width: parent.width; wrapMode: Text.WordWrap; color: root.ok; font.pixelSize: 13
+                                       text: "You actually wrote: " + holdoutCase.caseData.owner_actual }
+                                Flow { width: parent.width; spacing: 5
+                                    ModeButton { text: "Meaning " + holdoutCase.semantic; onClicked: holdoutCase.semantic = holdoutCase.next(holdoutCase.semantic) }
+                                    ModeButton { text: "Dyadic " + holdoutCase.dyadic; onClicked: holdoutCase.dyadic = holdoutCase.next(holdoutCase.dyadic) }
+                                    ModeButton { text: "Language " + holdoutCase.langMatch; onClicked: holdoutCase.langMatch = holdoutCase.next(holdoutCase.langMatch) }
+                                    ModeButton { text: "Emoji " + holdoutCase.emojiMatch; onClicked: holdoutCase.emojiMatch = holdoutCase.next(holdoutCase.emojiMatch) }
+                                    ModeButton { text: "Length " + holdoutCase.lengthMatch; onClicked: holdoutCase.lengthMatch = holdoutCase.next(holdoutCase.lengthMatch) }
+                                }
+                                Flow { width: parent.width; spacing: 5
+                                    Repeater { model: ["EXACT_STYLE", "GOOD", "OKAY", "BAD_STYLE", "WRONG_MEANING"]
+                                        delegate: JButton { text: modelData; small: true; variant: "ghost"
+                                            onClicked: root.client.rateHoldout(root.selectedId, holdoutCase.caseData.case_id,
+                                                                                modelData, JSON.stringify(holdoutCase.ratings())) }
+                                    }
+                                }
+                                Text { text: "Saved rating: " + (holdoutCase.caseData.rating || "PENDING"); color: root.faint; font.pixelSize: 12 }
+                            }
+                        }
+                    }
+                }
+
                 // history + drafts waiting
                 Card {
                     width: parent.width
@@ -383,6 +517,21 @@ Item {
                                     JButton { text: "SEND"; variant: "success"; small: true; onClicked: root.client.approve(modelData.id, "", false) }
                                     JButton { text: "SEND + LEARN FROM IT"; small: true; onClicked: root.client.approve(modelData.id, "", true) }
                                     JButton { text: "DISCARD"; variant: "danger"; small: true; onClicked: root.client.reject(modelData.id) }
+                                }
+                                Flow { width: parent.width; spacing: 6; visible: pending
+                                    JInput { id: editedDraft; width: Math.min(320, hCol.width - 130); placeholder: "Edit draft before sending" }
+                                    JButton { text: "SEND EDIT"; small: true; enabledButton: editedDraft.text.trim().length > 0
+                                              onClicked: root.client.approve(modelData.id, editedDraft.text, false) }
+                                }
+                                Flow { width: parent.width; spacing: 5; visible: pending
+                                    JButton { text: "REGENERATE"; small: true; variant: "ghost"
+                                              onClicked: root.client.draftFeedback(modelData.id, "REGENERATE") }
+                                    JButton { text: "NO REPLY"; small: true; variant: "ghost"
+                                              onClicked: root.client.draftFeedback(modelData.id, "NO_REPLY") }
+                                    JButton { text: "BAD STYLE"; small: true; variant: "ghost"
+                                              onClicked: root.client.draftFeedback(modelData.id, "BAD_STYLE") }
+                                    JButton { text: "WRONG CONTEXT"; small: true; variant: "ghost"
+                                              onClicked: root.client.draftFeedback(modelData.id, "WRONG_CONTEXT") }
                                 }
                             }
                         }

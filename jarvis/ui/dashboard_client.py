@@ -26,6 +26,7 @@ class DashboardClient(QObject):
         self._opener = opener or urllib.request.urlopen
         self._memory: dict = {"facts": [], "todos": [], "shortcuts": []}
         self._diagnostics: list = []
+        self._conversation_diagnostics: dict = {}
         self._diag_ms = 0
         self._notice = ""
         self._notice_error = False
@@ -44,6 +45,10 @@ class DashboardClient(QObject):
     @Property(int, notify=diagnosticsChanged)
     def diagnosticsMs(self) -> int:
         return self._diag_ms
+
+    @Property("QVariantMap", notify=diagnosticsChanged)
+    def conversationalSearch(self) -> dict:
+        return self._conversation_diagnostics
 
     @Property(str, notify=noticeChanged)
     def notice(self) -> str:
@@ -105,6 +110,7 @@ class DashboardClient(QObject):
             self.memoryChanged.emit()
         elif kind == "diagnostics":
             self._diagnostics = result.get("checks", [])
+            self._conversation_diagnostics = result.get('conversational_search', {})
             self._diag_ms = int(result.get("ms", 0))
             self.diagnosticsChanged.emit()
             bad = sum(1 for c in self._diagnostics if c.get("status") == "FAIL")

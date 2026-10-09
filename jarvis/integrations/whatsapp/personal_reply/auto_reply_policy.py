@@ -28,6 +28,7 @@ class PolicyDecision:
     mode: ReplyMode
     reason: str
     grant: Optional[AutoReplyGrant] = None
+    contact_id: str = ""
 
     @property
     def auto(self) -> bool:
@@ -36,13 +37,27 @@ class PolicyDecision:
 
 class AutoReplyPolicy:
     def __init__(self, store: PersonalReplyStore, auto_reply_untrained: bool = False, allow_permanent: bool = False,
-                 max_hours: float = MAX_GRANT_HOURS) -> None:
+                 max_hours: float = MAX_GRANT_HOURS, require_evaluation: bool = True,
+                 generated_auto_reply_enabled: bool = True) -> None:
         self.store = store
         self.auto_reply_untrained = auto_reply_untrained
         self.allow_permanent = allow_permanent
         self.max_hours = max_hours
+        self.require_evaluation = require_evaluation
+        self.generated_auto_reply_enabled = generated_auto_reply_enabled
         self._stop_generation = 0
         self._lock = threading.Lock()
+        self.pause_store = None
+
+    def paused(self, contact_id: str) -> bool:
+        if self.pause_store is None:
+            return False
+        return any((self.pause_store.get("pause:" + key, key) or {}).get("paused", False)
+                   for key in ("*", contact_id))
+
+    def invalidate_pending(self):
+        with self._lock:
+            self._stop_generation += 1
 
     # ------------------------------------------------------------------ grants
     def grant(self, scope: GrantScope, contact_ids: list[str], expires_at: float, now: Optional[float] = None,
@@ -114,15 +129,20 @@ class AutoReplyPolicy:
         now = time.time() if now is None else now
         if is_group_chat(chat_id) or is_group_chat(contact_id):
             return PolicyDecision(ReplyMode.OFF, "GROUP_BLOCKED")
+        if self.paused(contact_id):
+            return PolicyDecision(ReplyMode.OFF, "PAUSED")
         self.expire_due(now)
         grants = [g for g in self.active_grants(now) if g.covers(contact_id)]
         if grants:
             g = max(grants, key=lambda x: x.expires_at)
+            if not self.generated_auto_reply_enabled:
+                return PolicyDecision(ReplyMode.SUGGEST_ONLY, 'AUTO_REPLY_DISABLED_DRAFT_ONLY', g)
             # a dictated away message needs no learned style; a drafted reply does
-            if (g.scope == GrantScope.ALL_DIRECT_CONTACTS and not has_profile and not g.note
-                    and not (self.auto_reply_untrained or g.include_untrained)):
-                return PolicyDecision(ReplyMode.SUGGEST_ONLY, "UNTRAINED_CONTACT_EVERYONE_MODE", g)
-            return PolicyDecision(ReplyMode.AUTO_REPLY_UNTIL, "GRANT_ACTIVE", g)
+            if not has_profile and not g.note:
+                return PolicyDecision(ReplyMode.SUGGEST_ONLY, "UNTRAINED_CONTACT_DRAFT_ONLY", g)
+            if not g.note and self.require_evaluation and not self.store.auto_reply_evaluated(contact_id):
+                return PolicyDecision(ReplyMode.SUGGEST_ONLY, "OFFLINE_EVALUATION_REQUIRED", g)
+            return PolicyDecision(ReplyMode.AUTO_REPLY_UNTIL, "GRANT_ACTIVE", g, contact_id)
         base = self.store.get_mode(contact_id)
         if base == ReplyMode.AUTO_REPLY_UNTIL:  # an auto mode without a live grant is never honoured
             base = ReplyMode.OFF
@@ -136,7 +156,8 @@ class AutoReplyPolicy:
             return True
         now = time.time() if now is None else now
         current = next((g for g in self.store.grants() if g.grant_id == decision.grant.grant_id), None)
-        return bool(current and current.active(now))
+        return bool(current and current.active(now) and not self.paused(decision.contact_id or "*")
+                    and (not decision.contact_id or current.covers(decision.contact_id)))
 
     def status(self, now: Optional[float] = None) -> list[dict]:
         now = time.time() if now is None else now

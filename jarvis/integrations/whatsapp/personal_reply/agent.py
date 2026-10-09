@@ -9,12 +9,13 @@ Live pipeline (see docs/WHATSAPP_PERSONAL_REPLY_AGENT.md):
     -> local LLM -> quality gate -> AUTO / ASK / SUGGEST -> re-check expiry & STOP
     -> ActionLedger (PREPARED -> STARTED -> VERIFIED | FAILED | UNCERTAIN) -> send -> verify
 
-The agent holds no ToolRegistry: an incoming message can only ever produce a text reply to the
+    An incoming message can only ever produce a text reply to the
 same direct chat it came from.
 """
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 import re
@@ -32,16 +33,22 @@ from jarvis.integrations.whatsapp.personal_reply.context_builder import build as
 from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat, is_placeholder
 from jarvis.integrations.whatsapp.personal_reply.example_index import ContactExampleIndex, embed
 from jarvis.integrations.whatsapp.personal_reply.models import (
-    ChatLine, ContactStyleProfile, Direction, ExampleSource, GrantScope, IncomingBatch, Outcome, ReplyExample, ReplyMode,
+    Authorship, ChatLine, ContactStyleProfile, Direction, ExampleSource, GrantScope, IncomingBatch, Outcome, ReplyCandidate,
+    ReplyExample, ReplyMode,
 )
-from jarvis.integrations.whatsapp.personal_reply.quality_gate import evaluate, has_ai_phrases
+from jarvis.integrations.whatsapp.personal_reply.quality_gate import evaluate, has_ai_phrases, sensitive_topics
 from jarvis.integrations.whatsapp.personal_reply.reply_generator import ReplyGenerator
 from jarvis.integrations.whatsapp.personal_reply.store import PersonalReplyStore, text_hash
-from jarvis.integrations.whatsapp.personal_reply.understand import understand
+from jarvis.integrations.whatsapp.personal_reply.understand import Answerability, classify_answerability, memory_need, understand
 
 logger = logging.getLogger("jarvis.whatsapp.personal_reply")
 
 MIN_PROFILE_CONFIDENCE_AUTO = 0.35
+
+
+def _hold_status(gate: str) -> str:
+    return {"REQUIRES_TOOL": "TOOL_REQUIRED", "REQUIRES_CLARIFICATION": "CLARIFICATION_REQUIRED",
+            "NOT_ANSWERABLE": "NO_REPLY_NEEDED"}.get(gate, "OWNER_INPUT_REQUIRED")
 FEEDBACK = {
     "looks_right": {},
     "too_formal": {"formality_shift": -1},
@@ -63,8 +70,7 @@ _AWAY_FIX = {"metting": "meeting", "meting": "meeting", "mtg": "meeting", "meeti
 
 
 def away_text(note: str) -> str:
-    """The owner's dictated away message as it is sent: "i am busy at mettting" -> "I'm busy at meeting. I'll get back
-    to you soon." (first person, typos fixed, a promise to reply added when the owner did not give one)."""
+    """Tidy the owner's dictated away message without adding promises."""
     t = " ".join((note or "").split()).strip(" .,!")
     t = re.sub(r"^(?:that|saying|to say|say|tell (?:them|him|her|everyone)(?: that)?)\s+", "", t, flags=re.I)
     t = re.sub(r"(\w)\1{2,}", r"\1\1", t)
@@ -72,10 +78,8 @@ def away_text(note: str) -> str:
     t = re.sub(r"\bi am\b", "I'm", t, flags=re.I)
     t = re.sub(r"\bi(?=['\s]|$)", "I", t)
     if not t:
-        return "I'm busy right now. I'll get back to you soon."
+        return "Got your message."
     t = t[0].upper() + t[1:]
-    if not re.search(r"\b(?:later|soon|call you|get back|reply|text you|ping you)\b", t, re.I):
-        t += ". I'll get back to you soon"
     return t + "."
 
 
@@ -94,7 +98,9 @@ class PersonalReplyAgent:
                  generator: Optional[ReplyGenerator] = None, policy: Optional[AutoReplyPolicy] = None, ledger: Any = None,
                  policy_evaluator: Any = None, event_bus: Any = None, coalesce_s: float = 1.2,
                  owner_names: Iterable[str] = (), clock: Callable[[], float] = time.time, use_jde: bool = True,
-                 auto_reply_untrained: bool = False, notifier: Optional[Callable[[str], Any]] = None) -> None:
+                 auto_reply_untrained: bool = False, notifier: Optional[Callable[[str], Any]] = None,
+                 answerability_classifier: Callable[[str, list[tuple[bool, str]]], Answerability] = classify_answerability,
+                 semantic_context_enabled: bool = True) -> None:
         self.store = store or PersonalReplyStore()
         self.transport = transport
         self._inbox = inbox
@@ -107,6 +113,8 @@ class PersonalReplyAgent:
         self.owner_names = [n for n in owner_names if n]
         self.clock = clock
         self.use_jde = use_jde
+        self.answerability_classifier = answerability_classifier
+        self.semantic_context_enabled = semantic_context_enabled
         self.notifier = notifier
         self.index = ContactExampleIndex(self.store)
         self._buffers: dict[str, IncomingBatch] = {}
@@ -116,6 +124,16 @@ class PersonalReplyAgent:
         self._last_contact: str = ""
         self._sent_parts: dict[str, list[tuple[str, str, float]]] = {}
         self._background: Optional[asyncio.Task] = None
+        self._profile_update_tasks: dict[str, asyncio.Task] = {}
+        self.registered_sender = None
+        self._brain_jobs = None
+
+    @property
+    def brain_jobs(self):
+        if self._brain_jobs is None:
+            from .brain_jobs import BrainJobs
+            self._brain_jobs = BrainJobs(self)
+        return self._brain_jobs
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -178,6 +196,12 @@ class PersonalReplyAgent:
         self.store.upsert_contact(chat_id, name)
         self._last_contact = chat_id
         text = (getattr(message, "text", "") or "").strip()
+        try:
+            from jarvis.core.language_shadow import get_language_service
+            if not getattr(message, 'history', False):
+                get_language_service().submit(text, 'whatsapp', mode='conversation', event_id=mid)
+        except Exception:
+            pass  # Shadow understanding never changes truth, style, or send authorization.
         if self.store.load_profile(chat_id) is not None:
             self.store.add_sources(chat_id, [ChatLine(timestamp=self.clock(), sender=name, direction=Direction.CONTACT,
                                                       text=text, message_id=mid)], import_id="live")
@@ -230,9 +254,24 @@ class PersonalReplyAgent:
         decision = self.policy.decide(cid, batch.chat_id, has_profile=prof_exists, now=self.clock())
         if decision.mode == ReplyMode.OFF:
             return {"status": Outcome.NOT_ENABLED.value if decision.reason != "GROUP_BLOCKED" else Outcome.IGNORED_GROUP.value}
+        from jarvis.core.language_shadow import generated_auto_reply_blocked
+        if decision.auto and generated_auto_reply_blocked():
+            return {"status": Outcome.NEEDS_USER_REVIEW.value,
+                    "reason": "Generated auto-reply is OFF during multilingual language shadow",
+                    "auto_reply": False}
         if self._owner_replied_at.get(cid, 0) > batch.received_at:
             self._activity(cid, name, "Skipped", "you replied yourself")
             return {"status": Outcome.OWNER_REPLIED.value}
+        intelligence = None
+        version = None
+        if self.semantic_context_enabled and getattr(self.inbox, "db_path", None):
+            from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
+            from jarvis.integrations.whatsapp.intelligence.language import semantic_frame, reply_necessity
+            intelligence = get_intelligence(self.inbox)
+            version = intelligence.store.version(cid)
+            if decision.auto and reply_necessity(semantic_frame(cid, batch.text, batch.received_at)) == "NO_REPLY_NEEDED":
+                intelligence.store.metric("no_reply_needed")
+                return {"status": "NO_REPLY_NEEDED", "reason": "Acknowledgement does not need a further reply"}
         reply_id = self.store.start_reply(batch.last_message_id, batch.message_ids, cid, batch.chat_id, decision.mode.value,
                                           decision.grant.grant_id if decision.grant else None, batch.text)
         if reply_id is None:
@@ -251,13 +290,19 @@ class PersonalReplyAgent:
             return await self._send(reply_id, cid, batch.chat_id, name, text, decision, batch.last_message_id)
         self._activity(cid, name, "Analyzing")
         draft = await self.draft(cid, batch.texts, exclude_message_ids=set(batch.message_ids), name=name)
+        if decision.auto and not self.policy.still_allowed(decision, stop_gen, now=self.clock()):
+            self.store.update_reply(reply_id, status=Outcome.EXPIRED.value, reason="auto-reply stopped while drafting")
+            return {"status": Outcome.EXPIRED.value, "reply_id": reply_id}
         cand, quality, profile, ctx, und = draft["candidate"], draft["quality"], draft["profile"], draft["context"], draft["understanding"]
         self._activity(cid, name, "Style", f"{ctx.target_language.title()}/{profile.effective_formality().replace('_', ' ').title()}")
         if cand is None:
-            self.store.update_reply(reply_id, status=Outcome.NEEDS_USER_REVIEW.value, reason="reply model unavailable")
-            self._activity(cid, name, "NOT SENT", "needs review (model unavailable)")
+            hold_reason = draft.get("hold_reason", "reply model unavailable")
+            self.store.update_reply(reply_id, status=Outcome.NEEDS_USER_REVIEW.value, reason=hold_reason)
+            self._activity(cid, name, "NOT SENT", "needs owner context" if draft.get("hold_reason") else "needs review (model unavailable)")
             await self._notify(f"New WhatsApp message from {name} needs your reply.")
-            return {"status": Outcome.NEEDS_USER_REVIEW.value, "reply_id": reply_id, "reason": "model unavailable"}
+            return {"status": Outcome.NEEDS_USER_REVIEW.value, "reply_id": reply_id, "reason": hold_reason,
+                    "answerability": draft["answerability"].category,
+                    "required_state": draft["answerability"].gate}
         self.store.update_reply(reply_id, text=cand.text, draft_hash=text_hash(cand.text), quality=quality.to_dict())
         self._activity(cid, name, "Draft generated", "instant (your own usual reply)" if cand.generator == "instant" else "")
         reasons = list(quality.reasons)
@@ -265,6 +310,8 @@ class PersonalReplyAgent:
             reasons.append("asks for files or actions - conversation reply only")
         if und.confidence < 0.5 or und.intent in ("EMPTY", "UNCLEAR"):
             reasons.append("could not understand the message")
+        if draft["modality"].modality == "STICKER_ONLY":
+            reasons.append("sticker reply needs owner review and a separately verified media send")
         if decision.mode == ReplyMode.SUGGEST_ONLY:
             self.store.update_reply(reply_id, status=Outcome.SUGGESTED.value, reason="; ".join(reasons)[:300])
             self._emit("suggestion", contact_id=cid, reply_id=reply_id, display_name=name, text=cand.text)
@@ -293,28 +340,121 @@ class PersonalReplyAgent:
             self.store.update_reply(reply_id, status=Outcome.EXPIRED.value, reason="auto-reply ended or was stopped before sending")
             self._activity(cid, name, "NOT SENT", "auto-reply ended")
             return {"status": Outcome.EXPIRED.value, "reply_id": reply_id}
+        if intelligence is not None and version != intelligence.store.version(cid):
+            self.store.update_reply(reply_id, status=Outcome.NEEDS_USER_REVIEW.value, reason="conversation changed while drafting")
+            return {"status": Outcome.NEEDS_USER_REVIEW.value, "reply_id": reply_id, "reason": "stale conversation"}
         return await self._send(reply_id, cid, batch.chat_id, name, cand.text, decision, batch.last_message_id)
 
     async def draft(self, contact_id: str, texts: list[str], exclude_message_ids: set[str] | None = None,
                     name: str = "") -> dict[str, Any]:
         """Everything short of sending: used by the live pipeline, Test Reply and Preview Style."""
+        t0 = time.perf_counter()
         profile, has_profile = self.profile_for(contact_id)
+        t_profile = time.perf_counter()
         current = "\n".join(t for t in texts if t)
         und = understand(current, use_jde=self.use_jde)
+        t_understand = time.perf_counter()
         thread = self._thread(contact_id, exclude_message_ids or set())
-        examples = self.index.retrieve(contact_id, current, k=6) if has_profile else []
-        ctx = build_context(contact_id, name or self.store.display_name(contact_id), profile, thread, examples, texts)
+        t_thread = time.perf_counter()
+        answerability = self.answerability_classifier(current, thread)
+        retrieval_need = memory_need(current, answerability.category)
+        t_classified = time.perf_counter()
+        examples = (self.index.retrieve(contact_id, current, k=6)
+                    if has_profile and answerability.gate == "ANSWERABLE"
+                    and retrieval_need != "MEMORY_NOT_NEEDED" else [])
+        t_retrieved = time.perf_counter()
+        from jarvis.integrations.whatsapp.personal_reply.modality import predict
+        from jarvis.integrations.whatsapp.personal_reply.sticker_memory import StickerMemory
+        sticker_candidates = StickerMemory(self.store).candidates(contact_id, current, und.conversation_mode)
+        modality = predict(profile, und.conversation_mode, sensitive=bool(sensitive_topics(current)),
+                           sticker_candidates=sticker_candidates)
+        ctx = build_context(contact_id, name or self.store.display_name(contact_id), profile, thread, examples, texts,
+                            reply_policy_extra=f"Preferred owner reply modality: {modality.modality}.")
+        from jarvis.integrations.whatsapp.personal_reply.conversation_grounding import missing_owner_status, owner_clarification
+        if missing_owner_status(current, thread):
+            clarification = owner_clarification(self.store.sources(contact_id), self.clock())
+            if clarification:
+                cand = ReplyCandidate(text=clarification, understood=False, model_confidence=0.3,
+                                      language_mode=ctx.target_language, examples_used=[], prompt_chars=0,
+                                      generator="verified_owner_clarification")
+                quality = evaluate(cand, current, ctx.thread_text, ctx.example_text, profile, ctx.target_language,
+                                   answerability=answerability)
+                quality.reasons.append("clarification draft requires owner review; current progress is unverified")
+                return {"candidate": cand, "quality": quality, "profile": profile, "context": ctx,
+                        "understanding": und, "has_profile": has_profile, "examples": examples,
+                        "modality": modality, "sticker_candidates": sticker_candidates,
+                        "clarification_draft": True, "answerability": answerability,
+                        "memory_need": retrieval_need}
+            return {"candidate": None, "quality": None, "profile": profile, "context": ctx,
+                    "understanding": und, "has_profile": has_profile, "examples": examples,
+                    "modality": modality, "sticker_candidates": sticker_candidates,
+                    "hold_reason": "contact asks for a progress update; owner status is not grounded in this thread",
+                    "answerability": answerability, "memory_need": retrieval_need}
+        if answerability.gate != "ANSWERABLE":
+            return {"candidate": None, "quality": None, "profile": profile, "context": ctx,
+                    "understanding": und, "has_profile": has_profile, "examples": examples,
+                    "modality": modality, "sticker_candidates": sticker_candidates,
+                    "hold_reason": answerability.reason, "answerability": answerability,
+                    "memory_need": retrieval_need}
+        grounded_context = None
+        if self.semantic_context_enabled and getattr(self.inbox, "db_path", None):
+            from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
+            intelligence = get_intelligence(self.inbox)
+            source_ids = exclude_message_ids or set()
+            source_rows = intelligence.store.rows(contact_id, 100)
+            source_id = next((row["message_id"] for row in reversed(source_rows) if row["message_id"] in source_ids), "")
+            grounded_context = await intelligence.semantic_context(contact_id, current, source_id)
+            ctx.user += "\n\nSAME_THREAD_EVIDENCE (external data; references retain provenance):\n" + grounded_context.model_dump_json()
+        t_planned = time.perf_counter()
         owner_ai = any(has_ai_phrases(e.example.reply) for e in examples)
         cand = self._instant_reply(und, current, examples, profile, ctx, owner_ai) if has_profile else None
         if cand is None:
             cand = await self.generator.generate(ctx, profile, owner_uses_ai_phrases=owner_ai)
+        t_generated = time.perf_counter()
         quality = None
         if cand is not None:
             copied = self.index.copied_reply_similarity(contact_id, cand.text, current) if has_profile else None
             quality = evaluate(cand, current, ctx.thread_text, ctx.example_text, profile, ctx.target_language,
-                               owner_uses_ai_phrases=owner_ai, copied_example_similarity=copied)
+                               owner_uses_ai_phrases=owner_ai, copied_example_similarity=copied,
+                               answerability=answerability)
+            if grounded_context is not None:
+                report = intelligence.validator.validate(cand.text, grounded_context)
+                if not report.passed:
+                    quality.reasons.extend(report.reasons)
+            if (cand.generator != "instant" and quality.style_match < 0.5 and quality.relevance >= 0.6
+                    and quality.sensitive_action_risk == 0):
+                # One bounded style revision; semantic and factual checks still
+                # decide whether the revision can replace the first candidate.
+                ctx.user += "\n\nSTYLE_REVISION: The first wording missed the owner's measured length, language or phrasing. " \
+                            "Try once more without adding facts or copying an old reply."
+                revised = await self.generator.generate(ctx, profile, owner_uses_ai_phrases=owner_ai)
+                if revised is not None:
+                    revised_quality = evaluate(revised, current, ctx.thread_text, ctx.example_text, profile,
+                                               ctx.target_language, owner_uses_ai_phrases=owner_ai,
+                                               copied_example_similarity=self.index.copied_reply_similarity(
+                                                   contact_id, revised.text, current) if has_profile else None,
+                                               answerability=answerability)
+                    if grounded_context is not None:
+                        revised_report = intelligence.validator.validate(revised.text, grounded_context)
+                        if not revised_report.passed:
+                            revised_quality.reasons.extend(revised_report.reasons)
+                    if (revised_quality.style_match > quality.style_match
+                            and revised_quality.relevance >= quality.relevance
+                            and revised_quality.hallucination_risk <= quality.hallucination_risk
+                            and revised_quality.sensitive_action_risk <= quality.sensitive_action_risk):
+                        cand, quality = revised, revised_quality
         return {"candidate": cand, "quality": quality, "profile": profile, "context": ctx, "understanding": und,
-                "has_profile": has_profile, "examples": examples}
+                "has_profile": has_profile, "examples": examples, "modality": modality,
+                "sticker_candidates": sticker_candidates, "answerability": answerability,
+                "memory_need": retrieval_need,
+                "timing_ms": {"profile_lookup": round((t_profile-t0)*1000, 2),
+                              "classification": round(((t_understand-t_profile)+(t_classified-t_thread))*1000, 2),
+                              "recent_context": round((t_thread-t_understand)*1000, 2),
+                              "retrieval": round((t_retrieved-t_classified)*1000, 2),
+                              "planning": round((t_planned-t_retrieved)*1000, 2),
+                              "generation": round((t_generated-t_planned)*1000, 2),
+                              "validation_and_revision": round((time.perf_counter()-t_generated)*1000, 2),
+                              "total": round((time.perf_counter()-t0)*1000, 2)}}
 
     INSTANT_SIMILARITY = 0.88
 
@@ -385,7 +525,7 @@ class PersonalReplyAgent:
         for part in parts:
             self._remember_sent_part(chat_id, part)
         try:
-            ack = await asyncio.wait_for(self.transport.send_text(to=chat_id, text=parts[0]), timeout=30.0)
+            ack = await asyncio.wait_for(self._send_registered(chat_id, parts[0]), timeout=30.0)
         except ConnectionError as exc:  # transport refused before anything left the PC
             return self._finish(reply_id, action_id, fingerprint, Outcome.FAILED, f"not connected: {exc}", contact_id, name)
         except Exception as exc:  # timeout / unknown: the message MAY have been sent - never resend blindly
@@ -396,7 +536,7 @@ class PersonalReplyAgent:
                 break
             await asyncio.sleep(self.burst_gap_s)
             try:
-                more = await asyncio.wait_for(self.transport.send_text(to=chat_id, text=part), timeout=30.0) or {}
+                more = await asyncio.wait_for(self._send_registered(chat_id, part), timeout=30.0) or {}
                 self._remember_sent_part(chat_id, "", str(more.get("message_id") or (more.get("result") or {}).get("message_id") or ""))
             except Exception as exc:
                 return self._finish(reply_id, action_id, fingerprint, Outcome.UNCERTAIN,
@@ -418,6 +558,14 @@ class PersonalReplyAgent:
         return self._finish(reply_id, action_id, fingerprint, Outcome.VERIFIED, "", contact_id, name, sent_id=sent_id, text=text)
 
     burst_gap_s = 0.8
+
+    async def _send_registered(self, chat_id, text):
+        if self.registered_sender is not None:
+            result = await self.registered_sender(chat_id, text)
+            return {"success": result.get("status") == "SENT", "result": result,
+                    "error": None if result.get("status") == "SENT" else result.get("message", "send failed"),
+                    "status": result.get("status")}
+        return await self.transport.send_text(to=chat_id, text=text)
 
     def _message_parts(self, contact_id: str, text: str) -> list[str]:
         """One message, or 2-3 short ones when that is how the owner texts this person."""
@@ -491,15 +639,58 @@ class PersonalReplyAgent:
         text = (edited_text or row["text"] or "").strip()
         if not text:
             return {"status": "EMPTY"}
-        if edited_text and edited_text.strip() != (row["text"] or "").strip():
-            self._learn_example(row["contact_id"], row["incoming"], text, ExampleSource.USER_EDITED)
-        elif mark_good:
-            self._learn_example(row["contact_id"], row["incoming"], text, ExampleSource.APPROVED)
+        was_edited = bool(edited_text and edited_text.strip() != (row["text"] or "").strip())
         name = self.store.display_name(row["contact_id"])
-        return await self._send(reply_id, row["contact_id"], row["chat_id"], name, text, None, row["incoming_message_id"])
+        result = await self._send(reply_id, row["contact_id"], row["chat_id"], name, text, None, row["incoming_message_id"])
+        # The candidate stays separate. Neither an unsent edit nor an echoed
+        # JARVIS send is ever relabelled as organically typed owner text.
+        if result.get("status") == Outcome.VERIFIED.value and result.get("sent_message_id"):
+            final_id = result["sent_message_id"]
+            edit_ratio = 1.0 - difflib.SequenceMatcher(None, row["text"] or "", text).ratio()
+            if was_edited:
+                self.store.record_edit(reply_id, row["contact_id"], row["text"] or "", text, final_id, edit_ratio)
+            provenance = Authorship.USER_EDITED_AI_DRAFT if was_edited else Authorship.USER_APPROVED_AI_DRAFT
+            delta = {}
+            if was_edited:
+                from jarvis.integrations.whatsapp.personal_reply import language as lang
+                before_words = max(1, len((row['text'] or '').split()))
+                delta = {'length_ratio': round(len(text.split()) / before_words, 3),
+                         'emoji_before': bool(lang.emojis(row['text'] or '')),
+                         'emoji_after': bool(lang.emojis(text)),
+                         'language_before': lang.detect(row['text'] or '').label,
+                         'language_after': lang.detect(text).label}
+            self.store.record_draft_feedback(reply_id, row['contact_id'], 'EDITED_SENT' if was_edited else 'APPROVED_SENT',
+                                             row['text'] or '', text, edit_ratio, final_id, delta)
+            if was_edited:
+                profile = self.store.load_profile(row['contact_id'])
+                if profile is not None:
+                    prefs = dict(profile.preferences)
+                    prior = float(prefs.get('length_factor', 1.0))
+                    prefs['length_factor'] = round(max(.5, min(2.0, prior * (.9 + .1 * delta['length_ratio']))), 3)
+                    prefs['reviewed_edits'] = int(prefs.get('reviewed_edits', 0)) + 1
+                    profile.preferences = prefs
+                    self.store.save_profile(profile)
+            self.store.add_sources(row["contact_id"], [ChatLine(timestamp=self.clock(), sender="owner",
+                                   direction=Direction.USER, text=text, message_id=final_id,
+                                   provenance=provenance, provenance_confidence=1.0,
+                                   reply_to=row['incoming_message_id'])], import_id="reviewed_draft")
+            if row['incoming']:
+                from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import evidence_weight
+                example = ReplyExample(contact_id=row['contact_id'], context=row['incoming'], reply=text,
+                                       timestamp=self.clock(), source=ExampleSource.USER_EDITED, split='TRAIN',
+                                       provenance=provenance, evidence_weight=evidence_weight(provenance, 1.0))
+                self.store.add_example(example, embed([row['incoming']])[0])
+                self.index.invalidate(row['contact_id'])
+            self._schedule_profile_update(row['contact_id'])
+        elif result.get('status') == Outcome.UNCERTAIN.value:
+            self.store.record_draft_feedback(reply_id, row['contact_id'], 'SEND_UNCERTAIN', row['text'] or '', text)
+        return result
 
     def reject_reply(self, reply_id: int) -> dict[str, Any]:
         self.store.update_reply(reply_id, status="REJECTED")
+        row = self.store.reply(reply_id)
+        if row:
+            self.store.record_draft_feedback(reply_id, row['contact_id'], 'NO_REPLY', row['text'] or '')
         return {"status": "REJECTED"}
 
     # ------------------------------------------------------------------ learning (owner-authored text only)
@@ -507,37 +698,76 @@ class PersonalReplyAgent:
         chat_id = getattr(message, "chat_id", "") or ""
         text = (getattr(message, "text", "") or "").strip()
         mid = getattr(message, "message_id", "") or ""
-        if is_group_chat(chat_id) or not text or is_placeholder(message):
+        if is_group_chat(chat_id) or not text or is_placeholder(message) or getattr(message, "type", "text") != "text":
             return {"status": Outcome.IGNORED_OWN.value}
-        if self._is_own_part(chat_id, mid, text) or self.store.is_sent_reply(chat_id, sent_message_id=mid, text=text):
+        generated = False
+        if getattr(self.inbox, "db_path", None):
+            from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
+            generated = get_intelligence(self.inbox).store.is_generated(chat_id, mid, text)
+        if generated or self._is_own_part(chat_id, mid, text) or self.store.is_sent_reply(chat_id, sent_message_id=mid, text=text):
             # JARVIS's own reply echoed back from the phone: not the owner replying, never style training data
             return {"status": Outcome.IGNORED_OWN.value, "reason": "JARVIS's own reply is never style training data"}
         self._owner_replied_at[chat_id] = self.clock()
         pending = self._flush_tasks.pop(chat_id, None)
         if pending and not pending.done():
-            pending.cancel()  # the owner answered manually: JARVIS must not answer too
+            pending.cancel()
             self._buffers.pop(chat_id, None)
-        if self.store.load_profile(chat_id) is None:
-            return {"status": Outcome.IGNORED_OWN.value, "reason": "no profile for this contact"}
+        # A fromMe echo can originate on any linked device, including JARVIS.
+        # Absence from a completed-send log is insufficient while an external
+        # send may still be in flight. Require a separate exact-ID owner proof.
+        proof = getattr(message, 'owner_origin_proof', '')
+        from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import LegacyProvenanceResolver
+        resolver = LegacyProvenanceResolver(self.inbox.db_path, self.store.path)
+        attribution = resolver.classify_live(message_id=mid, chat_id=chat_id, timestamp=self.clock(),
+                                             message_type=getattr(message, 'type', 'text'), text=text,
+                                             source_device_proof=proof)
+        if attribution.provenance != Authorship.VERIFIED_MANUAL_OWNER_SEND:
+            return {"status": Outcome.IGNORED_OWN.value, "reason": "manual authorship unproven"}
         self.store.add_sources(chat_id, [ChatLine(timestamp=self.clock(), sender="owner", direction=Direction.USER,
-                                                  text=text, message_id=mid)], import_id="live")
+                                                  text=text, message_id=mid,
+                                                  provenance=Authorship.VERIFIED_MANUAL_OWNER_SEND,
+                                                  provenance_confidence=1.0,
+                                                  provenance_reasons=list(attribution.reasons))], import_id="live")
         context = [t for mine, t in self._thread(chat_id, {mid}, limit=6) if not mine][-3:]
         if context:
             self._learn_example(chat_id, "\n".join(context), text, ExampleSource.LIVE_USER)
+        self._schedule_profile_update(chat_id)
         return {"status": Outcome.IGNORED_OWN.value, "learned": True}
 
     def _learn_example(self, contact_id: str, context: str, reply: str, source: ExampleSource) -> None:
-        ex = ReplyExample(contact_id=contact_id, context=context, reply=reply, timestamp=self.clock(), source=source, split="TRAIN")
+        provenance = (Authorship.USER_EDITED_AI_DRAFT if source == ExampleSource.USER_EDITED else
+                      Authorship.VERIFIED_MANUAL_OWNER_SEND if source == ExampleSource.LIVE_USER else Authorship.USER_TYPED)
+        ex = ReplyExample(contact_id=contact_id, context=context, reply=reply, timestamp=self.clock(), source=source,
+                          split="TRAIN", provenance=provenance, evidence_weight=0.9 if source == ExampleSource.USER_EDITED else 1.0)
         self.store.add_example(ex, embed([context])[0])
         self.index.invalidate(contact_id)
 
+    def _schedule_profile_update(self, contact_id: str) -> None:
+        task = self._profile_update_tasks.get(contact_id)
+        if task is not None and not task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.rebuild_profile(contact_id)
+            return
+        async def refresh() -> None:
+            await asyncio.sleep(2)
+            if self._brain_jobs is not None:
+                await asyncio.to_thread(self._brain_jobs.start, 'CONTACT', contact_id)
+            else:
+                await asyncio.to_thread(self.rebuild_profile, contact_id)
+        self._profile_update_tasks[contact_id] = loop.create_task(refresh())
+
     # ------------------------------------------------------------------ import / profile
     def import_chat(self, contact_id: str, display_name: str = "", export_text: str = "", from_inbox: bool = False,
-                    owner_name: str = "") -> dict[str, Any]:
+                    owner_name: str = "", verified_fixture: bool = False) -> dict[str, Any]:
         if is_group_chat(contact_id):
             raise imp.ImportError_("Group chats are never used for personal reply learning.")
         if from_inbox:
-            lines = imp.lines_from_inbox(self.inbox, contact_id)
+            from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import LegacyProvenanceResolver
+            resolver = LegacyProvenanceResolver(self.inbox.db_path, self.store.path)
+            lines = imp.lines_from_inbox(self.inbox, contact_id, resolver=resolver)
             owner, contact = "you", display_name
         else:
             owners = [owner_name] if owner_name else self.owner_names
@@ -547,13 +777,26 @@ class PersonalReplyAgent:
                                        "(the feed folder) so each chat goes to the right person.")
             parsed = chats[0].chat
             lines, owner, contact = parsed.lines, parsed.owner_name, parsed.contact_name
-        return self._import_lines(contact_id, display_name or contact, lines, owner)
+            if verified_fixture:
+                # Test harnesses with synthetic, known-authored rows may state
+                # provenance explicitly. Public REST imports never expose this.
+                from dataclasses import replace
+                lines = [replace(line, provenance=Authorship.USER_TYPED,
+                                 provenance_confidence=1.0, provenance_reasons=['verified_test_fixture'])
+                         if line.direction == Direction.USER else line for line in lines]
+        return self._import_lines(contact_id, display_name or contact, lines, owner,
+                                  import_id='legacy_inbox' if from_inbox else '')
 
-    def _import_lines(self, contact_id: str, display_name: str, lines: list, owner: str) -> dict[str, Any]:
+    def _import_lines(self, contact_id: str, display_name: str, lines: list, owner: str,
+                      import_id: str = '') -> dict[str, Any]:
         if is_group_chat(contact_id):
             raise imp.ImportError_("Group chats are never used for personal reply learning.")
         self.store.upsert_contact(contact_id, display_name)
-        added = self.store.add_sources(contact_id, lines)
+        added = self.store.add_sources(contact_id, lines, import_id=import_id)
+        if import_id == 'legacy_inbox':
+            self.store.record_legacy_audit([(ln.message_id, contact_id, ln.provenance.value,
+                                            ln.provenance_confidence, ln.provenance_reasons)
+                                            for ln in lines if ln.direction == Direction.USER])
         result = self.rebuild_profile(contact_id)
         result.update({"lines_added": added, "owner_detected_as": owner,
                        "user_messages": sum(1 for ln in lines if ln.direction == Direction.USER),
@@ -643,19 +886,38 @@ class PersonalReplyAgent:
     def rebuild_profile(self, contact_id: str) -> dict[str, Any]:
         sources = self.store.sources(contact_id)
         name = self.store.display_name(contact_id)
+        with self.store._lock, self.store._conn() as conn:
+            conn.execute("UPDATE wa_pr_evaluations SET approved_at=NULL WHERE contact_id=?", (contact_id,))
         examples = imp.build_examples(contact_id, sources)
         vecs = embed([e.context for e in examples]) if examples else embed([""])[:0]
-        self.store.replace_examples(contact_id, examples, vecs, sources=(ExampleSource.IMPORT.value, ExampleSource.LIVE_USER.value))
-        holdout = {(e.timestamp, e.reply) for e in examples if e.split == "HOLDOUT"}
-        holdout_parts = {(ts, part) for ts, rep in holdout for part in rep.split("\n")}
-        user_lines = [ln for ln in sources if ln.direction == Direction.USER and (ln.timestamp, ln.text) not in holdout_parts
-                      and not any(abs(ln.timestamp - ts) < 601 and ln.text in rep.split("\n") for ts, rep in holdout)]
-        approved, _ = self.store.examples(contact_id, splits=("TRAIN",))
-        user_lines += [ChatLine(timestamp=e.timestamp, sender="owner", direction=Direction.USER, text=e.reply)
-                       for e in approved if e.source in (ExampleSource.USER_EDITED, ExampleSource.APPROVED)]
+        self.store.replace_examples(contact_id, examples, vecs, sources=(ExampleSource.IMPORT.value, ExampleSource.LIVE_USER.value,
+                                                                         ExampleSource.USER_EDITED.value))
+        train_cutoff = max((e.timestamp for e in examples if e.split == "TRAIN"), default=float("inf"))
+        evaluation_replies = {(e.timestamp, e.reply) for e in examples if e.split != "TRAIN"}
+        holdout_parts = {(ts, part) for ts, rep in evaluation_replies for part in rep.split("\n")}
+        user_lines = [ln for ln in sources if ln.direction == Direction.USER
+                      and ln.provenance in (Authorship.USER_TYPED, Authorship.VERIFIED_MANUAL_OWNER_SEND,
+                                            Authorship.USER_EDITED_AI_DRAFT, Authorship.USER_APPROVED_AI_DRAFT,
+                                            Authorship.VERIFIED_LEGACY_OWNER, Authorship.LEGACY_OWNER_LIKELY)
+                      and ln.timestamp <= train_cutoff
+                      and (ln.timestamp, ln.text) not in holdout_parts
+                      and not any(abs(ln.timestamp - ts) < 601 and ln.text in rep.split("\n")
+                                  for ts, rep in evaluation_replies)]
         old = self.store.load_profile(contact_id)
         prof = style_analyzer.analyze(contact_id, name, user_lines, preferences=old.preferences if old else None)
-        version = self.store.save_profile(prof) if prof.messages_analyzed else 0
+        from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import evidence_weight
+        with self.store._conn() as conn:
+            sticker_rows = conn.execute("SELECT provenance,provenance_confidence FROM wa_pr_sticker_usage WHERE contact_id=?",
+                                        (contact_id,)).fetchall()
+        sticker_weight = sum(evidence_weight(Authorship(r[0]), r[1]) for r in sticker_rows)
+        if sticker_weight:
+            prof.modality_counts["STICKER_ONLY"] = round(sticker_weight, 3)
+            prof.sticker_frequency = round(sticker_weight / max(1, prof.effective_evidence + sticker_weight), 3)
+        if prof.messages_analyzed:
+            version = self.store.save_profile(prof)
+        else:
+            self.store.clear_profile(contact_id, keep_sources=True)
+            version = 0
         self.index.invalidate(contact_id)
         self._refresh_default_profile()
         self._emit("profile", contact_id=contact_id, version=version)
@@ -663,14 +925,154 @@ class PersonalReplyAgent:
                 "examples": len(examples), "holdout_examples": sum(1 for e in examples if e.split == "HOLDOUT"),
                 "summary": prof.summary()}
 
+    def refresh_all(self) -> dict[str, Any]:
+        results = [self.rebuild_profile(row["contact_id"]) for row in self.store.contacts()
+                   if row["contact_id"] != "__default__" and not is_group_chat(row["contact_id"])]
+        return {"contacts": len(results), "valid_reply_pairs": sum(r["examples"] for r in results),
+                "owner_authored_messages": sum(r["messages_analyzed"] for r in results),
+                "results": results}
+
+    def explain_style(self, contact_id: str) -> dict[str, Any]:
+        profile = self.store.load_profile(contact_id)
+        with self.store._conn() as conn:
+            rows = conn.execute("SELECT provenance,count(*) FROM wa_pr_sources WHERE contact_id=? AND direction='USER' "
+                                "GROUP BY provenance", (contact_id,)).fetchall()
+        provenance = {row[0]: row[1] for row in rows}
+        return {"contact_id": contact_id, "ready": bool(profile and profile.messages_analyzed),
+                "summary": profile.summary() if profile else None, "owner_source_counts": provenance,
+                "explanation": "Verified and lower-weight legacy owner evidence shape drafts. Generated, "
+                               "draft-only and unattributed outgoing messages are excluded; legacy alone never permits auto-reply."}
+
+    def maturity(self, contact_id: str) -> str:
+        profile = self.store.load_profile(contact_id)
+        if profile is None or profile.messages_analyzed == 0:
+            return 'INSUFFICIENT_HISTORY'
+        with self.store._conn() as conn:
+            source_counts = dict(conn.execute(
+                "SELECT provenance,count(*) FROM wa_pr_sources WHERE contact_id=? AND direction='USER' "
+                "GROUP BY provenance", (contact_id,)).fetchall())
+        reviewed = sum(source_counts.get(p, 0) for p in (
+            'VERIFIED_MANUAL_OWNER_SEND', 'USER_EDITED_AI_DRAFT', 'USER_TYPED',
+            'VERIFIED_LEGACY_OWNER'))
+        strong = sum(source_counts.get(p, 0) for p in (
+            'VERIFIED_MANUAL_OWNER_SEND', 'USER_EDITED_AI_DRAFT', 'USER_TYPED'))
+        if reviewed == 0:
+            return ('DRAFT_READY' if profile.confidence >= .16 and profile.messages_analyzed >= 10
+                    and self.store.example_count(contact_id) >= 3 else 'LEGACY_BOOTSTRAP')
+        if not self.store.auto_reply_evaluated(contact_id):
+            return 'VERIFIED_STYLE_BUILDING' if strong < 20 else 'AUTO_REPLY_CANDIDATE'
+        return 'TIMED_AUTO_REPLY_READY'
+
+    def legacy_review_batch(self, contact_id: str, limit: int = 35) -> dict[str, Any]:
+        if is_group_chat(contact_id):
+            raise ValueError('Only direct contacts can be reviewed')
+        return {'contact_id': contact_id, 'examples': self.store.legacy_review_candidates(contact_id, limit)}
+
+    def review_legacy(self, contact_id: str, decisions: dict[str, bool]) -> dict[str, Any]:
+        if is_group_chat(contact_id):
+            raise ValueError('Only direct contacts can be reviewed')
+        counts = self.store.review_legacy_rows(contact_id, decisions)
+        if any(counts.values()):
+            self._schedule_profile_update(contact_id)
+        return {'contact_id': contact_id, **counts, 'maturity': self.maturity(contact_id)}
+
+    def review_legacy_batch(self, contact_id: str, action: str,
+                            selected_ids: list[str] | None = None, limit: int = 35) -> dict[str, Any]:
+        batch = self.legacy_review_batch(contact_id, limit=min(40, max(1, limit)))
+        eligible = {row['message_id'] for row in batch['examples']}
+        if action == 'CANCEL':
+            return {'contact_id': contact_id, 'status': 'CANCELLED', 'changed': 0}
+        if action not in ('APPROVE_ALL', 'APPROVE_SELECTED', 'REJECT_SELECTED'):
+            raise ValueError('Unsupported batch review action')
+        chosen = eligible if action == 'APPROVE_ALL' else set(selected_ids or [])
+        if not chosen or not chosen.issubset(eligible):
+            return {'contact_id': contact_id, 'status': 'NEEDS_VALID_SELECTION', 'changed': 0}
+        result = self.review_legacy(contact_id, {mid: action != 'REJECT_SELECTED' for mid in chosen})
+        return {'status': action, 'changed': len(chosen), **result}
+
+    def verify_manual_owner_send(self, contact_id: str, message_id: str) -> dict[str, Any]:
+        """An explicit exact-ID owner attestation, checked against stored inbox and send records."""
+        if is_group_chat(contact_id) or not message_id:
+            raise ValueError('Direct contact and exact message ID required')
+        with self.inbox._get_conn() as conn:
+            row = conn.execute("SELECT message_id,chat_id,timestamp,type,text,is_from_me FROM whatsapp_messages "
+                               "WHERE message_id=? AND chat_id=?", (message_id, contact_id)).fetchone()
+        if not row or not row['is_from_me'] or row['type'] != 'text':
+            return {'status': 'NOT_ELIGIBLE'}
+        from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import LegacyProvenanceResolver
+        resolver = LegacyProvenanceResolver(self.inbox.db_path, self.store.path)
+        decision = resolver.classify_live(message_id=message_id, chat_id=contact_id, timestamp=row['timestamp'],
+                                          message_type=row['type'], text=row['text'],
+                                          source_device_proof='OWNER_ATTESTED_MESSAGE_ID')
+        if decision.provenance != Authorship.VERIFIED_MANUAL_OWNER_SEND:
+            return {'status': 'NOT_ELIGIBLE', 'reasons': decision.reasons}
+        self.store.add_sources(contact_id, [ChatLine(timestamp=row['timestamp'], sender='owner',
+            direction=Direction.USER, text=row['text'], message_id=message_id,
+            provenance=decision.provenance, provenance_confidence=1.0,
+            provenance_reasons=list(decision.reasons))], import_id='owner_attested')
+        self._schedule_profile_update(contact_id)
+        return {'status': 'VERIFIED_MANUAL_OWNER_SEND', 'message_id': message_id}
+
+    def verify_last_manual_owner_send(self, confirmation: str, contact_id: str = '',
+                                      within_seconds: int = 600) -> dict[str, Any]:
+        """Resolve an owner's natural attestation to one exact, recent outgoing ID.
+
+        Account direction alone never establishes authorship. Ambiguous or
+        recorded JARVIS sends cannot be promoted by this convenience path.
+        """
+        phrase = ' '.join((confirmation or '').casefold().split())
+        if phrase not in ('that last message was mine', 'mark my last reply as manual',
+                          'yes i wrote that', 'yes i wrote that.'):
+            return {'status': 'NEEDS_OWNER_CONFIRMATION'}
+        if contact_id and is_group_chat(contact_id):
+            return {'status': 'NOT_ELIGIBLE'}
+        cutoff = self.clock() - max(60, min(int(within_seconds), 3600))
+        with self.inbox._get_conn() as conn:
+            if contact_id:
+                rows = conn.execute(
+                    "SELECT message_id,chat_id,timestamp,type,text FROM whatsapp_messages "
+                    "WHERE is_from_me=1 AND chat_id=? AND timestamp>=? ORDER BY timestamp DESC LIMIT 20",
+                    (contact_id, cutoff)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT message_id,chat_id,timestamp,type,text FROM whatsapp_messages "
+                    "WHERE is_from_me=1 AND timestamp>=? ORDER BY timestamp DESC LIMIT 20",
+                    (cutoff,)).fetchall()
+        from jarvis.integrations.whatsapp.personal_reply.legacy_provenance import LegacyProvenanceResolver
+        resolver = LegacyProvenanceResolver(self.inbox.db_path, self.store.path)
+        candidates = []
+        for row in rows:
+            if is_group_chat(row['chat_id']) or row['type'] != 'text' or not row['text']:
+                continue
+            decision = resolver.classify_live(message_id=row['message_id'], chat_id=row['chat_id'],
+                timestamp=row['timestamp'], message_type=row['type'], text=row['text'],
+                source_device_proof='OWNER_ATTESTED_MESSAGE_ID')
+            if decision.provenance == Authorship.VERIFIED_MANUAL_OWNER_SEND:
+                candidates.append(row)
+        if len(candidates) != 1:
+            return {'status': 'NEEDS_CLARIFICATION' if candidates else 'NO_ELIGIBLE_MESSAGE',
+                    'candidate_count': len(candidates)}
+        row = candidates[0]
+        return self.verify_manual_owner_send(row['chat_id'], row['message_id'])
+
     def _refresh_default_profile(self) -> None:
         lines: list[ChatLine] = []
         for c in self.store.contacts():
             if c["contact_id"] == "__default__":
                 continue
-            lines += [ln for ln in self.store.sources(c["contact_id"]) if ln.direction == Direction.USER]
+            train, _ = self.store.examples(c["contact_id"], splits=("TRAIN",))
+            lines += [ChatLine(timestamp=e.timestamp, sender="owner", direction=Direction.USER, text=e.reply,
+                               provenance=e.provenance, provenance_confidence=(e.evidence_weight / 0.45 if e.provenance == Authorship.LEGACY_OWNER_LIKELY else 1.0)) for e in train
+                      if e.source in (ExampleSource.IMPORT, ExampleSource.LIVE_USER, ExampleSource.USER_EDITED)]
         if lines:
             prof = style_analyzer.default_profile([], lines)
+            # Global fallback is statistical style only. Never expose private
+            # words, phrases, names, or full examples from another contact.
+            for field in ("common_words", "common_tanglish_phrases", "greeting_patterns", "closing_patterns",
+                          "acknowledgement_style", "address_terms", "response_patterns", "example_message_ids",
+                          "elongation_examples"):
+                setattr(prof, field, [])
+            prof.shorthand = {}
             existing = self.store.load_profile("__default__")
             if existing is None or existing.messages_analyzed != prof.messages_analyzed:
                 self.store.save_profile(prof)
@@ -709,15 +1111,199 @@ class PersonalReplyAgent:
                 "example_reply": d["candidate"].text if d["candidate"] else None,
                 "target_language": d["context"].target_language}
 
+    async def draft_latest(self, contact_id: str) -> dict[str, Any]:
+        """Generate and persist a reviewable draft for the latest real direct incoming text."""
+        if is_group_chat(contact_id) or self.maturity(contact_id) not in (
+            'DRAFT_READY','VERIFIED_STYLE_BUILDING','AUTO_REPLY_CANDIDATE','TIMED_AUTO_REPLY_READY'):
+            return {'status': 'INSUFFICIENT_HISTORY'}
+        history = self.inbox.get_chat_history(contact_id, limit=100)
+        incoming = history[-1] if history else None
+        if incoming is None or incoming.is_from_me or incoming.type != 'text' or not incoming.text:
+            return {'status': 'NO_UNANSWERED_INCOMING_TEXT'}
+        old = self.store.reply_for_message(incoming.message_id)
+        if old and old['status'] in ('SUGGESTED','AWAITING_APPROVAL','NEEDS_USER_REVIEW'):
+            return {'status': old['status'], 'reply_id': old['id'], 'text': old['text']}
+        draft = await self.draft(contact_id, [incoming.text], exclude_message_ids={incoming.message_id})
+        candidate = draft['candidate']
+        if candidate is None:
+            return {'status': _hold_status(draft['answerability'].gate) if draft.get('hold_reason') else 'MODEL_UNAVAILABLE',
+                    'reason': draft.get('hold_reason', ''),
+                    'answerability': draft['answerability'].category,
+                    'required_state': draft['answerability'].gate}
+        reply_id = self.store.start_reply(incoming.message_id, [incoming.message_id], contact_id, contact_id,
+                                          ReplyMode.SUGGEST_ONLY.value, None, incoming.text)
+        if reply_id is None:
+            return {'status': 'ALREADY_REVIEWED'}
+        quality = draft['quality']
+        self.store.update_reply(reply_id, status=Outcome.SUGGESTED.value, text=candidate.text,
+                                draft_hash=text_hash(candidate.text), quality=quality.to_dict())
+        return {'status': 'SUGGESTED', 'reply_id': reply_id, 'text': candidate.text,
+                'quality': quality.to_dict(), 'sent': False}
+
+    def draft_feedback(self, reply_id: int, state: str) -> dict[str, Any]:
+        if state not in ('NO_REPLY','BAD_STYLE','WRONG_CONTEXT','REGENERATE'):
+            raise ValueError('Unsupported feedback state')
+        row = self.store.reply(reply_id)
+        if not row or row['status'] not in ('SUGGESTED','AWAITING_APPROVAL','NEEDS_USER_REVIEW'):
+            return {'status': 'NOT_REVIEWABLE'}
+        self.store.record_draft_feedback(reply_id, row['contact_id'], state, row['text'] or '')
+        if state == 'NO_REPLY':
+            self.store.update_reply(reply_id, status='REJECTED', reason='owner chose no reply')
+        elif state in ('BAD_STYLE','WRONG_CONTEXT'):
+            self.store.update_reply(reply_id, reason=state)
+        return {'status': state, 'reply_id': reply_id}
+
+    async def regenerate_reply(self, reply_id: int) -> dict[str, Any]:
+        row = self.store.reply(reply_id)
+        if not row or row['status'] not in ('SUGGESTED','AWAITING_APPROVAL','NEEDS_USER_REVIEW'):
+            return {'status': 'NOT_REVIEWABLE'}
+        self.store.record_draft_feedback(reply_id, row['contact_id'], 'REGENERATE', row['text'] or '')
+        draft = await self.draft(row['contact_id'], [row['incoming']],
+                                 exclude_message_ids=set(row['message_ids']))
+        candidate = draft['candidate']
+        if candidate is None:
+            return {'status': 'MODEL_UNAVAILABLE'}
+        self.store.update_reply(reply_id, status=Outcome.SUGGESTED.value, text=candidate.text,
+                                draft_hash=text_hash(candidate.text), quality=draft['quality'].to_dict())
+        return {'status': 'SUGGESTED', 'reply_id': reply_id, 'text': candidate.text, 'sent': False}
+
     async def test_reply(self, contact_id: str, incoming: str) -> dict[str, Any]:
         """Generate a reply WITHOUT sending (profile quality check)."""
         d = await self.draft(contact_id, [incoming])
         cand, q = d["candidate"], d["quality"]
+        policy = self.policy.decide(contact_id, contact_id, has_profile=d["has_profile"], now=self.clock())
         return {"contact_id": contact_id, "incoming": incoming, "reply": cand.text if cand else None,
                 "target_language": d["context"].target_language, "understanding": d["understanding"].__dict__,
-                "quality": q.to_dict() if q else None, "would_auto_send": bool(q and q.passed and not d["understanding"].requests_pc_action),
+                "quality": q.to_dict() if q else None,
+                "status": ("DRAFT" if cand else _hold_status(d["answerability"].gate)
+                           if d.get("hold_reason") else "MODEL_UNAVAILABLE"),
+                "answerability": d["answerability"].category, "required_state": d["answerability"].gate,
+                "memory_need": d["memory_need"],
+                "would_auto_send": bool(policy.auto and cand and q and q.passed
+                                        and not d["understanding"].requests_pc_action
+                                        and d["modality"].modality != "STICKER_ONLY"),
+                "predicted_modality": d["modality"].modality,
+                "timing_ms": d.get("timing_ms", {}),
                 "examples_used": [{"them": e.example.context, "you": e.example.reply} for e in d["examples"]],
                 "sent": False}
+
+    async def evaluate_contact(self, contact_id: str, limit: int = 30) -> dict[str, Any]:
+        """Chronological replay with verified and legacy holdouts reported separately."""
+        from jarvis.integrations.whatsapp.personal_reply import language as lang
+        from jarvis.integrations.whatsapp.personal_reply.modality import observed
+        holdout, _ = self.store.examples(contact_id, splits=("HOLDOUT",))
+        profile, trained = self.profile_for(contact_id)
+        if not trained or not holdout:
+            return {"contact_id": contact_id, "samples": 0, "status": "INSUFFICIENT_VERIFIED_HISTORY",
+                    "VERIFIED_HOLDOUT": {"samples": 0}, "LEGACY_HOLDOUT": {"samples": 0},
+                    "auto_reply_eligible": False}
+        reports = {}
+        source_lines = self.store.sources(contact_id)
+        for label, subset in (
+            ('VERIFIED_HOLDOUT', [e for e in holdout if e.provenance in (
+                Authorship.USER_TYPED, Authorship.VERIFIED_MANUAL_OWNER_SEND,
+                Authorship.USER_EDITED_AI_DRAFT, Authorship.VERIFIED_LEGACY_OWNER)]),
+            ('LEGACY_HOLDOUT', [e for e in holdout if e.provenance in (
+                Authorship.LEGACY_OWNER_LIKELY, Authorship.USER_APPROVED_AI_DRAFT)]),
+        ):
+            replay_profile = profile
+            if subset:
+                cutoff = min(e.timestamp for e in subset)
+                replay_profile = style_analyzer.analyze(
+                    contact_id, self.store.display_name(contact_id),
+                    [line for line in source_lines if line.timestamp < cutoff])
+            reports[label] = await self._evaluate_holdout_subset(contact_id, replay_profile, subset, limit)
+        verified = reports['VERIFIED_HOLDOUT']
+        report = {"contact_id": contact_id, "samples": verified['samples'], "generated": verified['generated'],
+                  "profile_confidence": profile.confidence, "VERIFIED_HOLDOUT": verified,
+                  "LEGACY_HOLDOUT": reports['LEGACY_HOLDOUT'], "auto_reply_eligible": False,
+                  "unsafe_auto_send_count": verified['unsafe_auto_send_count'],
+                  **{k: v for k, v in verified.items() if k.endswith('_rate')}}
+        # Only verified holdout can support an approval record. Legacy replay is
+        # bootstrap diagnostic evidence and never satisfies the auto-send gate.
+        with self.store._lock, self.store._conn() as conn:
+            conn.execute("INSERT OR REPLACE INTO wa_pr_evaluations "
+                         "(contact_id,evaluated_at,samples,metrics_json,approved_at) VALUES (?,?,?,?,NULL)",
+                         (contact_id, self.clock(), verified['samples'], json.dumps(report)))
+        return report
+
+    async def _evaluate_holdout_subset(self, contact_id: str, profile: ContactStyleProfile,
+                                       holdout: list[ReplyExample], limit: int) -> dict[str, Any]:
+        from jarvis.integrations.whatsapp.personal_reply import language as lang
+        from jarvis.integrations.whatsapp.personal_reply.modality import observed
+        counts = {"generated": 0, "clarification_draft": 0, "needs_owner_context": 0, "model_unavailable": 0,
+                  "tool_required": 0, "no_reply_needed": 0, "retrieval_invoked": 0, "retrieval_empty": 0,
+                  "semantic_pass": 0, "language_match": 0, "emoji_match": 0,
+                  "length_match": 0, "modality_match": 0, "unsafe_auto_send": 0,
+                  "style_score_sum": 0.0}
+        review_case_ids: list[str] = []
+        for example in holdout[:max(1, min(limit, 200))]:
+            prior = [line for line in self.store.sources(contact_id) if line.timestamp < example.timestamp][-8:]
+            thread = [(line.direction == Direction.USER, line.text) for line in prior]
+            current = example.context
+            answerability = self.answerability_classifier(current, thread)
+            from jarvis.integrations.whatsapp.personal_reply.conversation_grounding import missing_owner_status, owner_clarification
+            if missing_owner_status(current, thread):
+                if owner_clarification(self.store.sources(contact_id), example.timestamp):
+                    counts["clarification_draft"] += 1
+                else:
+                    counts["needs_owner_context"] += 1
+                continue
+            if answerability.gate != "ANSWERABLE":
+                key = "tool_required" if answerability.gate == "REQUIRES_TOOL" else (
+                    "no_reply_needed" if answerability.category == "NO_REPLY_NEEDED" else "needs_owner_context")
+                counts[key] += 1
+                continue
+            retrieval_need = memory_need(current, answerability.category)
+            if retrieval_need == "MEMORY_NOT_NEEDED":
+                retrieved = []
+            else:
+                counts["retrieval_invoked"] += 1
+                retrieved = self.index.retrieve(contact_id, current, k=6, now=example.timestamp)
+                counts["retrieval_empty"] += int(not retrieved)
+            ctx = build_context(contact_id, self.store.display_name(contact_id), profile, thread, retrieved, [current])
+            candidate = await self.generator.generate(ctx, profile)
+            if candidate is None:
+                counts["model_unavailable"] += 1
+                continue
+            counts["generated"] += 1
+            if (example.provenance in (Authorship.USER_TYPED, Authorship.VERIFIED_MANUAL_OWNER_SEND,
+                                       Authorship.USER_EDITED_AI_DRAFT, Authorship.VERIFIED_LEGACY_OWNER)
+                    and len(review_case_ids) < 5):
+                review_case_ids.append(self.store.save_holdout_review_case(
+                    contact_id, current, candidate.text, example.reply, example.timestamp))
+            quality = evaluate(candidate, current, ctx.thread_text, ctx.example_text, profile, ctx.target_language,
+                               answerability=answerability)
+            counts['style_score_sum'] += quality.style_match
+            counts["semantic_pass"] += int(quality.semantic_pass and quality.hallucination_risk <= 0.5)
+            counts["language_match"] += int(lang.detect(candidate.text).label == lang.detect(example.reply).label)
+            counts["emoji_match"] += int(bool(lang.emojis(candidate.text)) == bool(lang.emojis(example.reply)))
+            expected_length = max(1, len(example.reply.split()))
+            counts["length_match"] += int(abs(len(candidate.text.split()) - expected_length) <= max(2, expected_length // 2))
+            counts["modality_match"] += int(observed(candidate.text) == observed(example.reply))
+            counts["unsafe_auto_send"] += int(bool(quality.sensitive_topics) and quality.passed)
+        n = counts["generated"]
+        report = {"samples": len(holdout[:max(1, min(limit, 200))]), "generated": n,
+                  **{key + "_rate": round(value / n, 3) if n else None for key, value in counts.items()
+                     if key not in ("generated", "clarification_draft", "needs_owner_context", "model_unavailable",
+                                    "tool_required", "no_reply_needed", "retrieval_invoked", "retrieval_empty",
+                                    "unsafe_auto_send", "style_score_sum")},
+                  "clarification_draft": counts["clarification_draft"],
+                  "needs_owner_context": counts["needs_owner_context"],
+                  "model_unavailable": counts["model_unavailable"],
+                  "tool_required": counts["tool_required"],
+                  "no_reply_needed": counts["no_reply_needed"],
+                  "retrieval_invoked": counts["retrieval_invoked"],
+                  "retrieval_empty": counts["retrieval_empty"],
+                  "unsafe_auto_send_count": counts["unsafe_auto_send"],
+                  "style_score": round(counts['style_score_sum'] / n, 3) if n else None,
+                  "review_case_ids": review_case_ids}
+        return report
+
+    def approve_offline_evaluation(self, contact_id: str) -> dict[str, Any]:
+        if not self.store.approve_offline_evaluation(contact_id):
+            return {"status": "REFUSED", "reason": "At least 20 generated holdout replies and zero critical unsafe cases are required"}
+        return {"status": "APPROVED_FOR_TIMED_GRANT", "contact_id": contact_id}
 
     # ------------------------------------------------------------------ grants / modes
     def enable(self, contact_ids: list[str], expires_at: float, everyone: bool = False, names: Optional[list[str]] = None,

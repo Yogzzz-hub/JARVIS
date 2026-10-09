@@ -29,6 +29,20 @@ async def verify_postconditions(
     t0 = time.perf_counter_ns()
     tn = tool_name.lower()
 
+    if tn in {"send_whatsapp_message", "whatsapp_draft_send", "whatsapp_send_media"}:
+        data = execution_result or {}
+        status = str(data.get("status", "")).upper()
+        evidence = data.get("evidence") or {}
+        receipt = data.get("message_id")
+        verified = status == "SENT" and bool(receipt) and evidence.get("transport_ack") is True
+        unknown = status == "UNCERTAIN" or status == "SENT" and not verified
+        return VerificationResult(
+            status=VerificationStatus.VERIFIED if verified else VerificationStatus.UNCERTAIN if unknown else VerificationStatus.FAILED,
+            verified=verified, confidence=1.0 if verified else 0.0,
+            evidence={"message_id": receipt, "transport_ack": True, "recipient_jid": data.get("recipient_jid")} if verified else {},
+            error=None if verified else str(data.get("message") or "WhatsApp submission was not verified"),
+            method="whatsapp_transport_ack_probe", retry_safe=False)
+
     if tn in ("move_file", "move"):
         dst = args.get("destination") or args.get("dest")
         src = args.get("source") or args.get("path")

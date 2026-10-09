@@ -309,11 +309,37 @@ _COUNT_WORDS = re.compile(r"\b(?:total|how many|count|number of)\b")
 
 def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     """Instant deterministic routing for reading/counting/summarising WhatsApp messages."""
+    # Scope words identify WhatsApp chat classes, not Gmail folders or contact names.
+    # Require a message object and a read/summarize predicate; a bare statement is not a command.
+    scope_terms = re.search(r"\b(?:individual|personal|direct|groups?|grps?)\b", t)
+    message_object = re.search(r"\b(?:messages?|msgs?|chats?)\b", t)
+    read_predicate = re.search(r"\b(?:read|show|check|list|kaatu|katu|paaru|paru|sollu|summari[sz]e|summary)\b", t)
+    if (scope_terms and message_object and read_predicate
+            and not re.search(r"\b(?:gmail|e-?mails?|sms|telegram)\b", t)):
+        from jarvis.tools.system.whatsapp_tools import group_scope_from_text
+        scope = group_scope_from_text(t)
+        intent = ("summarize_whatsapp_messages" if re.search(r"\b(?:summari[sz]e|summary)\b", t)
+                  else "read_whatsapp_messages")
+        slots = dict(scope)
+        if intent == "read_whatsapp_messages":
+            slots["filter"] = "unread" if re.search(r"\b(?:unread|new)\b", t) else "all"
+        return _decision(request_id, t, intent, slots)
     if _GROUP_WORD.search(t):
         return None
 
+    if re.fullmatch(r"read my chats", t):
+        return _decision(request_id, t, "read_whatsapp_messages", {"filter": "unread"})
+
+    if re.fullmatch(r"(?:catch me up|give me (?:the |a )?(?:whats\s*app )?(?:rundown|digest|update)|"
+                    r"what(?:'s| is) waiting for me|what have i missed)(?:\s+(?:on|in|from)\s+whats\s*app)?", t) \
+            and "whatsapp" in t:
+        return _decision(request_id, t, "summarize_whatsapp_messages", {})
+    if re.fullmatch(r"(?:anything new|what(?:'s| is) new)\s+in\s+(?:my\s+)?personal\s+chats?", t):
+        return _decision(request_id, t, "summarize_whatsapp_messages", {})
+
     # 1. Summaries: "summarize whatsapp", "summarize my whatsapp messages", "whatsapp summary", "who messaged me on whatsapp"
-    if re.match(rf"^(?:summari[sz]e|summary of)\s+(?:my\s+|the\s+)?(?:whats\s*app(?:\s+{_MSG_WORDS})?|{_MSG_WORDS}{_WA_IN_ON})$", t) \
+    if re.fullmatch(r"summari[sz]e my chats", t) \
+            or re.match(rf"^(?:summari[sz]e|summary of)\s+(?:my\s+|the\s+)?(?:whats\s*app(?:\s+{_MSG_WORDS})?|{_MSG_WORDS}{_WA_IN_ON})$", t) \
             or re.match(r"^whats\s*app\s+summary$", t) \
             or re.match(rf"^(?:who\s+messaged\s+me|who\s+sent\s+me\s+{_MSG_WORDS}){_WA_IN_ON}$", t):
         return _decision(request_id, t, "summarize_whatsapp_messages", {})
@@ -360,6 +386,8 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
         return _decision(request_id, t, "read_whatsapp_messages", {"filter": "needs_reply"})
 
     # 3. Reading / counting unread messages without explicitly saying "in whatsapp"
+    if re.fullmatch(rf"how many\s+unread\s+personal\s+{_MSG_WORDS}\s+can you(?:\s+currently)?\s+see", t):
+        return _decision(request_id, t, "read_whatsapp_messages", {"filter": "unread", "count_only": True})
     # "read my unread messages", "show my new messages"
     if re.fullmatch(rf"(?:read|check|show)(?:\s+me)?\s+(?:my\s+|the\s+|all\s+(?:my\s+|the\s+)?)?(?:unread|new)\s+{_MSG_WORDS}", t):
         return _decision(request_id, t, "read_whatsapp_messages", {"filter": "unread"})
@@ -1203,6 +1231,9 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     if not t:
         return None
     from jarvis.core.router.operator_intents import _NESTED, match_operator
+    wa_read = match_whatsapp_read(t, raw, request_id)
+    if wa_read:
+        return wa_read
     operated = None if _NESTED.get() else match_operator(t, raw, request_id)  # windows/controls/text/delivery/tabs/video/IDE
     if operated:
         return operated
@@ -1210,9 +1241,6 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     domain = match_domains(t, raw, request_id)  # the object of the request picks the tool, not the verb alone
     if domain:
         return domain
-    wa_read = match_whatsapp_read(t, raw, request_id)
-    if wa_read:
-        return wa_read
     question = match_knowledge_question(t, request_id)
     if question:
         return question

@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>JARVIS owner voice test</title>
+<style>body{background:#101924;color:#e7edf5;font:17px system-ui;margin:32px;max-width:1000px}button,select{font:inherit;padding:10px;margin:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#74d7ff}</style>
+<h1>Owner microphone acceptance</h1><p>Audio stays on this PC. Recording pauses command intake; test phrases never execute tools. These recordings are evaluation evidence and are not used for training.</p>
+<p>Bare Jarvis model readiness remains a development blocker. Use this test to measure the installed detector honestly.</p>
+<p>Read the selected phrase after clicking Record. You have 7 seconds. Background tests should contain no wake word. Each prompt may be recorded once.</p>
+<select id="prompt"></select><button id="record">Record this prompt</button><p id="notice"></p><pre id="result"></pre>
+<h2>Listen and rate</h2><p>Listen to the existing local samples, then rate each language.</p>
+<div id="listening"></div><h2>Progress</h2><pre id="progress"></pre>
+<p><a href="/dashboard/voice-language/page">Voice / Language status</a></p>
+<script>
+const token='__TOKEN__';
+async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Benchmark':token},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(d.detail);return d}
+async function refresh(){const d=await (await fetch('/dashboard/voice-benchmark')).json();const select=document.querySelector('#prompt');select.replaceChildren();for(const p of d.prompts){if(d.claimed_ids.includes(p.id))continue;const o=document.createElement('option');o.value=p.id;o.textContent=p.id+' · '+p.text+' ('+p.condition+')';select.append(o)}document.querySelector('#progress').textContent=JSON.stringify({...d,prompts:undefined},null,2)}
+document.querySelector('#record').onclick=async()=>{const b=document.querySelector('#record');b.disabled=true;document.querySelector('#notice').textContent='Recording now. Speak the selected phrase; wait for processing to finish.';try{const d=await post('/dashboard/voice-benchmark/record',{sample_id:document.querySelector('#prompt').value});document.querySelector('#result').textContent=JSON.stringify(d,null,2);document.querySelector('#notice').textContent='Saved locally. No command was executed.';await refresh()}catch(e){document.querySelector('#notice').textContent=e.message}finally{b.disabled=false}};
+for(const language of ['ENGLISH','TANGLISH','TAMIL','MIXED']){const box=document.createElement('div');const label=document.createElement('p');label.textContent=language;box.append(label);const audio=document.createElement('audio');audio.controls=true;audio.src='/dashboard/voice-benchmark/audio/'+language.toLowerCase();box.append(audio);for(const rating of ['CLEAR','OK','BAD']){const b=document.createElement('button');b.textContent=rating;b.onclick=async()=>{try{await post('/dashboard/voice-benchmark/rating',{language,rating});await refresh()}catch(e){document.querySelector('#notice').textContent=e.message}};box.append(b)}document.querySelector('#listening').append(box)}
+refresh();
+</script></html>

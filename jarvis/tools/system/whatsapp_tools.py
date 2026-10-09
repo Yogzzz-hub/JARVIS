@@ -9,7 +9,7 @@ import logging
 import re
 from collections import Counter
 import time
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import Field
 
 from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
@@ -118,7 +118,7 @@ class SendWhatsAppMessageTool(Tool):
                 return {"status": "FAILED", "recipient": recipient_raw, "recipient_jid": "", "message": label,
                         "message_id": None, "action_ledger_status": "CANCELLED", "evidence": {"unknown_group": named_group}}
             recipient_raw, allow_group = group_id, True
-        if "@" in recipient_raw and not recipient_raw.endswith("@s.whatsapp.net") and not allow_group:
+        if "@" in recipient_raw and not recipient_raw.endswith(("@s.whatsapp.net", "@lid")) and not allow_group:
             return {"status": "FAILED", "recipient": recipient_raw, "recipient_jid": recipient_raw,
                     "message": "That is a group chat. I only write in a group when you name it, e.g. 'send it to the CSE group'.",
                     "message_id": None, "action_ledger_status": "CANCELLED", "evidence": {"group_blocked": True}}
@@ -171,13 +171,16 @@ class SendWhatsAppMessageTool(Tool):
 
         # 3. Transport Send Execution & Receipt Verification
         res = None
+        request_submitted = False
         if not self.transport:
             # Fallback: connect directly to local Baileys bridge WebSocket (ws://127.0.0.1:8768)
             try:
                 import websockets, uuid, json, asyncio
                 async def _direct_bridge_send():
-                    async with websockets.connect("ws://127.0.0.1:8768", open_timeout=4.0) as ws:
+                    nonlocal request_submitted
+                    async with websockets.connect("ws://127.0.0.1:8768/commands", open_timeout=4.0) as ws:
                         req_id = str(uuid.uuid4())
+                        request_submitted = True
                         await ws.send(json.dumps({
                             "id": req_id,
                             "action": "send_text",
@@ -189,19 +192,19 @@ class SendWhatsAppMessageTool(Tool):
                             msg = json.loads(raw)
                             if msg.get("id") == req_id:
                                 if not msg.get("success", False):
-                                    raise RuntimeError(msg.get("error") or "WhatsApp bridge delivery failed")
-                                return msg.get("result") or {"status": "SENT"}
+                                    return msg
+                                return msg.get("result") or {"status": "UNCERTAIN"}
                         raise TimeoutError("WhatsApp bridge did not acknowledge message delivery within deadline")
                 res = asyncio.run(_direct_bridge_send())
             except Exception as bridge_exc:
                 logger.warning("Direct bridge send error: %s", bridge_exc)
                 return {
-                    "status": "FAILED",
+                    "status": "UNCERTAIN" if request_submitted else "FAILED",
                     "recipient": resolved_name,
                     "recipient_jid": target_jid,
                     "message": f"WhatsApp transport error: {bridge_exc}",
                     "message_id": None,
-                    "action_ledger_status": "FAILED",
+                    "action_ledger_status": "UNCERTAIN" if request_submitted else "FAILED",
                     "evidence": {"transport_connected": False, "error": str(bridge_exc)},
                 }
         else:
@@ -222,33 +225,43 @@ class SendWhatsAppMessageTool(Tool):
                         )
                         res = fut.result(timeout=10.0)
                     else:
-                        res = {"status": "SENT", "message_id": f"msg_wa_{int(time.time()*1000)}"}
+                        raise ValueError("Configured WhatsApp transport has no send method")
                 else:
                     if hasattr(self.transport, "send_text"):
                         res = asyncio.run(self.transport.send_text(target_jid, msg_text))
                     elif hasattr(self.transport, "sendTextMessage"):
                         res = asyncio.run(self.transport.sendTextMessage(target_jid, msg_text))
                     else:
-                        res = {"status": "SENT", "message_id": f"msg_wa_{int(time.time()*1000)}"}
+                        raise ValueError("Configured WhatsApp transport has no send method")
             except Exception as exc:
                 logger.error("Failed to send WhatsApp message via transport: %s", exc)
                 return {
-                    "status": "FAILED",
+                    "status": "FAILED" if isinstance(exc, ValueError) else "UNCERTAIN",
                     "recipient": resolved_name,
                     "recipient_jid": target_jid,
                     "message": f"Transport failure: {exc}",
                     "message_id": None,
-                    "action_ledger_status": "FAILED",
+                    "action_ledger_status": "FAILED" if isinstance(exc, ValueError) else "UNCERTAIN",
                     "evidence": {"transport_connected": True, "error": str(exc)},
                 }
 
         send_result = res.get("result") if (isinstance(res, dict) and isinstance(res.get("result"), dict)) else res
+        msg_id = send_result.get("message_id") if isinstance(send_result, dict) else None
+        acknowledged = isinstance(res, dict) and (res.get("success") is True or res.get("status") == "SENT")
+        uncertain = (isinstance(res, dict) and res.get("status") == "UNCERTAIN") or (
+            isinstance(send_result, dict) and send_result.get("status") == "UNCERTAIN") or (
+            not msg_id and (acknowledged or isinstance(send_result, dict) and send_result.get("status") == "SENT"))
+        if uncertain:
+            return {"status": "UNCERTAIN", "recipient": resolved_name, "recipient_jid": target_jid,
+                    "message": "WhatsApp submission outcome is uncertain. Check the conversation before retrying.",
+                    "message_id": None, "action_ledger_status": "UNCERTAIN",
+                    "evidence": {"transport_ack": False, "outcome_unknown": True}}
         is_sent = (
             (isinstance(send_result, dict) and send_result.get("status") == "SENT")
             or (isinstance(res, dict) and res.get("success") is True)
         )
 
-        if not is_sent:
+        if not is_sent or not msg_id:
             err_msg = (res.get("error") if isinstance(res, dict) else None) or "WhatsApp message delivery not confirmed by bridge"
             return {
                 "status": "FAILED",
@@ -259,8 +272,6 @@ class SendWhatsAppMessageTool(Tool):
                 "action_ledger_status": "FAILED",
                 "evidence": {"transport_ack": False, "raw_response": str(res)},
             }
-
-        msg_id = (send_result.get("message_id") if isinstance(send_result, dict) else None) or f"msg_wa_{int(time.time()*1000)}"
 
         # Mark existing messages in this conversation as replied
         try:
@@ -283,7 +294,7 @@ class SendWhatsAppMessageTool(Tool):
             "status": "SENT",
             "recipient": resolved_name,
             "recipient_jid": target_jid,
-            "message": f"Message delivered to {resolved_name}: '{msg_text}'",
+            "message": f"Message sent to {resolved_name}: '{msg_text}'",
             "message_id": msg_id,
             "ticket_id": ticket_id,
             "action_ledger_status": LedgerState.COMMITTED.value,
@@ -308,15 +319,23 @@ jarvis hey ok can could would will pending and""".split())
 
 
 def group_scope_from_text(text: str) -> dict[str, Any]:
-    """{} (personal chats only) / {"include_groups": True} ("my group messages") / {"group": "cse"} ("the CSE group")."""
+    """Resolve requested chat scope before a read; sending still uses only the named group."""
     t = " ".join((text or "").lower().split())
+    both = bool(re.search(r"\b(?:personal|individual|direct)(?:\s+(?:messages?|msgs?|chats?))?\s+(?:and|&)\s+"
+                          r"(?:groups?|grps?)\b", t)
+                or (re.search(r"\b(?:both|all)\b", t)
+                    and re.search(r"\b(?:personal|individual|direct)\b", t) and _GROUP_WORD.search(t)))
     m = re.search(r"^(.*?)\b(?:groups?|grps?)\b", t)
     if not m:
+        if re.search(r"\b(?:personal|individual|direct)\s+(?:chats?|messages?|msgs?)\b", t):
+            return {"scope": "DIRECT_ONLY"}
         return {}
+    if both:
+        return {"scope": "DIRECT_AND_GROUP"}
     words = re.findall(r"[\w&'-]+", m.group(1))
     # the group's name is the run of words right before "group", after the verbs / articles / prepositions
     if words and words[-1] in ("that", "this", "same"):
-        return {"group": "that"}
+        return {"group": "that", "scope": "GROUP_ONLY"}
     while words and words[0] in _GROUP_FILLER:
         words.pop(0)
     cut = max((i for i, w in enumerate(words) if w in ("in", "from", "of", "on", "to", "for", "at")), default=-1)
@@ -325,8 +344,8 @@ def group_scope_from_text(text: str) -> dict[str, Any]:
         words.pop(0)
     name = " ".join(words).strip()
     if not name or all(w in _GROUP_FILLER for w in words):
-        return {"include_groups": True}
-    return {"group": name}
+        return {"scope": "GROUP_ONLY"}
+    return {"group": name, "scope": "GROUP_ONLY"}
 
 
 _last_group: dict[str, str] = {}  # the group the owner last named ("reply in that group")
@@ -356,6 +375,7 @@ class ReadWhatsAppMessagesInput(Contract):
     filter: str = Field(default="unread", description="Filter: 'unread' (as WhatsApp shows it), 'needs_reply', 'urgent', or 'all'")
     limit: int = Field(default=5, ge=1, le=50, description="Max messages to retrieve")
     include_groups: bool = Field(default=False, description="Also read group chats (only when the owner asks about groups)")
+    scope: Literal["DIRECT_ONLY", "GROUP_ONLY", "DIRECT_AND_GROUP"] = "DIRECT_ONLY"
     group: str = Field(default="", max_length=80, description="Read only this named group (only when the owner names it)")
     sender: str = Field(default="", max_length=80, description="Only messages from this person (name or number)")
     count_only: bool = Field(default=False, description="Answer 'how many' questions: the exact total, per person")
@@ -367,6 +387,7 @@ class ReadWhatsAppMessagesOutput(Contract):
     filter: str
     messages: list[dict]
     spoken_summary: str
+    selected_sender: str = ''
 
 
 class ReadWhatsAppMessagesTool(Tool):
@@ -403,7 +424,9 @@ class ReadWhatsAppMessagesTool(Tool):
             group_id, label = _resolve_group(self.inbox, arguments.group)
             if group_id is None:
                 return {"status": "NOT_FOUND", "count": 0, "filter": filt, "messages": [], "spoken_summary": label}
-        scope = {"include_groups": arguments.include_groups, "group": group_id}
+        mode = "GROUP_ONLY" if group_id else ("DIRECT_AND_GROUP" if arguments.include_groups else arguments.scope)
+        scope = {"include_groups": mode == "DIRECT_AND_GROUP", "group": group_id,
+                 "group_only": mode == "GROUP_ONLY"}
 
         if filt == "urgent":
             raw_msgs = [m for m in self.inbox.get_messages_needing_reply(limit=lim, **scope) if m.urgency == "URGENT"]
@@ -421,26 +444,44 @@ class ReadWhatsAppMessagesTool(Tool):
         who_filter = arguments.sender.strip().casefold()
         if who_filter:
             digits = re.sub(r"\D", "", who_filter)
-            msg_dicts = [m for m in msg_dicts if who_filter in (m.get("sender") or "").casefold()
+            msg_dicts = [m for m in msg_dicts if who_filter in {(m.get("chat_id") or "").casefold(),(m.get("sender_id") or "").casefold()}
+                         or who_filter in (m.get("sender") or "").casefold()
                          or (len(digits) >= 6 and digits in re.sub(r"\D", "", m.get("chat_id") or ""))]
         count = len(msg_dicts)
 
-        where = f" in {label}" if group_id else ("" if arguments.include_groups else " in your personal chats")
+        where = f" in {label}" if group_id else (" in group chats" if mode == "GROUP_ONLY" else
+                                                     "" if mode == "DIRECT_AND_GROUP" else " in your personal chats")
         if arguments.count_only and filt == "unread" and not who_filter and hasattr(self.inbox, "unread_chats"):
             # WhatsApp's own badge counts (a chat can have more unread messages than JARVIS received)
-            chats = self.inbox.unread_chats(include_groups=arguments.include_groups, group=group_id)
+            chats = self.inbox.unread_chats(**scope)
             total = sum(c["unread"] for c in chats)
-            return {"status": "SUCCESS", "count": total, "filter": filt, "messages": msg_dicts[:arguments.limit],
-                    "spoken_summary": self._badge_count_summary(chats, where, arguments)}
+            sync_state = self.inbox.sync_state()
+            spoken = self._badge_count_summary(chats, where, arguments) if sync_state == "READY" or total else (
+                "WhatsApp history is not fully synced, so I can't verify the unread count.")
+            if sync_state != "READY" and total:
+                spoken += " WhatsApp history is not fully synced; this count may be incomplete."
+            return {"status": "SUCCESS" if sync_state == "READY" else "PARTIAL_SYNC", "count": total,
+                    "filter": filt, "messages": msg_dicts[:arguments.limit], "spoken_summary": spoken}
         if arguments.count_only:
-            return {"status": "SUCCESS", "count": count, "filter": filt, "messages": msg_dicts[:arguments.limit],
-                    "spoken_summary": self._count_summary(msg_dicts, filt, where, arguments)}
+            incomplete = filt == "unread" and self.inbox.sync_state() != "READY"
+            spoken = self._count_summary(msg_dicts, filt, where, arguments)
+            if incomplete:
+                spoken = (spoken + " WhatsApp history is not fully synced; this count may be incomplete."
+                          if count else "WhatsApp history is not fully synced, so I can't verify the unread count.")
+            return {"status": "PARTIAL_SYNC" if incomplete else "SUCCESS", "count": count,
+                    "filter": filt, "messages": msg_dicts[:arguments.limit], "spoken_summary": spoken}
         if who_filter and count == 0:
-            spoken = f"No {filt.replace('_', ' ')} WhatsApp messages from {arguments.sender.strip()}."
-            return {"status": "SUCCESS", "count": 0, "filter": filt, "messages": [], "spoken_summary": spoken}
-        msg_dicts = msg_dicts[:max(arguments.limit, 5)] if who_filter else msg_dicts
+            incomplete = filt == "unread" and self.inbox.sync_state() != "READY"
+            spoken = (f"WhatsApp history is not fully synced, so I can't verify unread messages from {arguments.sender.strip()}."
+                      if incomplete else f"No {filt.replace('_', ' ')} WhatsApp messages from {arguments.sender.strip()}.")
+            return {"status": "PARTIAL_SYNC" if incomplete else "SUCCESS", "count": 0, "filter": filt,
+                    "messages": [], "spoken_summary": spoken}
+        msg_dicts = msg_dicts[:arguments.limit]
+        if who_filter and arguments.limit==1: count=len(msg_dicts)
         if count == 0:
-            spoken = f"You have no {filt.replace('_', ' ')} WhatsApp messages{where}."
+            spoken = ("WhatsApp history is not fully synced, so I can't verify whether you have unread messages."
+                      if filt == "unread" and self.inbox.sync_state() != "READY" else
+                      f"You have no {filt.replace('_', ' ')} WhatsApp messages{where}.")
         else:
             items_spoken = []
             for m in msg_dicts[:3]:
@@ -450,12 +491,16 @@ class ReadWhatsAppMessagesTool(Tool):
                 items_spoken.append(f"{urg_prefix}: {describe_message(m['text'] or m['summary'])}")
             spoken = f"Found {count} message{'s' if count > 1 else ''}{where}: " + ". ".join(items_spoken)
 
+        incomplete = filt == "unread" and self.inbox.sync_state() != "READY"
+        if incomplete and count:
+            spoken += " WhatsApp history is not fully synced; these messages may be incomplete."
         return {
-            "status": "SUCCESS",
+            "status": "PARTIAL_SYNC" if incomplete else "SUCCESS",
             "count": count,
             "filter": filt,
             "messages": msg_dicts,
             "spoken_summary": spoken,
+            "selected_sender": arguments.sender,
         }
 
     def _badge_count_summary(self, chats: list[dict], where: str, arguments: Any) -> str:
@@ -468,9 +513,9 @@ class ReadWhatsAppMessagesTool(Tool):
             more = f" and {len(chats) - 5} more chats" if len(chats) > 5 else ""
             text = (f"You have {n} unread WhatsApp message{'s' if n != 1 else ''}{where}"
                     + (f" from {len(chats)} chats: {people}{more}." if len(chats) > 1 else f", all from {chats[0]['name']}."))
-            if not arguments.include_groups and not arguments.group.strip():
+            if arguments.scope == "DIRECT_ONLY" and not arguments.include_groups and not arguments.group.strip():
                 text = text.replace(" chats:", " people:", 1).replace(" more chats", " more people", 1)
-        if not arguments.include_groups and not arguments.group.strip():
+        if arguments.scope == "DIRECT_ONLY" and not arguments.include_groups and not arguments.group.strip():
             groups = [c for c in self.inbox.unread_chats(include_groups=True) if c["is_group"]]
             if groups:
                 g = sum(c["unread"] for c in groups)
@@ -508,6 +553,7 @@ class ReadWhatsAppMessagesTool(Tool):
 class SummarizeWhatsAppMessagesInput(Contract):
     include_all: bool = Field(default=False, description="Whether to include already read messages")
     include_groups: bool = Field(default=False, description="Also summarise group chats (only when the owner asks about groups)")
+    scope: Literal["DIRECT_ONLY", "GROUP_ONLY", "DIRECT_AND_GROUP"] = "DIRECT_ONLY"
     group: str = Field(default="", max_length=80, description="Summarise only this named group (only when the owner names it)")
 
 
@@ -519,7 +565,14 @@ class SummarizeWhatsAppMessagesOutput(Contract):
     spoken_summary: str
     urgent_messages: list[dict]
     normal_messages: list[dict]
+    unread_chats: list[dict] = Field(default_factory=list)
     unread_count: int = 0
+    sync_state: str = "PARTIAL_SYNC"
+    total_direct_chats: int = 0
+    unread_direct_chats: int = 0
+    unread_messages: int = 0
+    groups_unread_count: int = 0
+    generated_at: str = ""
 
 
 class SummarizeWhatsAppMessagesTool(Tool):
@@ -555,17 +608,28 @@ class SummarizeWhatsAppMessagesTool(Tool):
                 return {"status": "NOT_FOUND", "total_pending": 0, "urgent_count": 0, "normal_count": 0,
                         "spoken_summary": label, "urgent_messages": [], "normal_messages": []}
         # Deterministic and attributed per person: instant, and a model can never mix up who said what.
-        data = self.inbox.summarize_inbox(include_groups=arguments.include_groups, group=group_id)
+        if hasattr(self.inbox, "wait_for_ready"):
+            self.inbox.wait_for_ready()
+        mode = "GROUP_ONLY" if group_id else ("DIRECT_AND_GROUP" if arguments.include_groups else arguments.scope)
+        data = self.inbox.summarize_inbox(include_groups=mode == "DIRECT_AND_GROUP", group=group_id,
+                                          group_only=mode == "GROUP_ONLY")
         spoken = data["spoken_summary"]
         return {
-            "status": "SUCCESS",
+            "status": "SUCCESS" if data.get("sync_state") == "READY" else "PARTIAL_SYNC",
             "total_pending": data["total_pending"],
             "urgent_count": data["urgent_count"],
             "normal_count": data["normal_count"],
             "spoken_summary": spoken,
             "urgent_messages": data["urgent_messages"],
             "normal_messages": data["normal_messages"],
+            "unread_chats": data.get('unread_chats', []),
             "unread_count": data.get("unread_count", 0),
+            "sync_state": data.get("sync_state", "PARTIAL_SYNC"),
+            "total_direct_chats": data.get("total_direct_chats", 0),
+            "unread_direct_chats": data.get("unread_direct_chats", 0),
+            "unread_messages": data.get("unread_messages", 0),
+            "groups_unread_count": data.get("groups_unread", 0),
+            "generated_at": data.get("generated_at", ""),
         }
 
 
@@ -628,7 +692,12 @@ class DraftWhatsAppReplyTool(Tool):
                     "next_action": {"tool": "send_whatsapp_message",
                                     "arguments": {"recipient": group_id, "message": draft.text, "allow_group": True},
                                     "display_recipient": f"the {label} group"}}
-        draft = await ai.draft_reply(arguments.recipient, arguments.instruction)
+        from jarvis.integrations.whatsapp.ai import ContextualReplyUnavailable
+        try:
+            draft = await ai.draft_reply(arguments.recipient, arguments.instruction)
+        except ContextualReplyUnavailable:
+            return {"status": "NEEDS_GUIDANCE", "recipient": arguments.recipient, "recipient_jid": "",
+                "original_message": "", "draft": "", "message": "I couldn't create a safe contextual reply. Tell me what you'd like to say.", "next_action": {}}
         if draft is None:
             who = f" from {arguments.recipient}" if arguments.recipient else ""
             return {"status": "NOT_FOUND", "recipient": arguments.recipient, "recipient_jid": "", "original_message": "",
@@ -725,7 +794,10 @@ class ReplyWhatsAppAllTool(Tool):
                 text = await ai.compose_for_person(name, msg.chat_id, message, msg.text)
             else:
                 reply = await ai.draft_reply(msg.sender_id if "@" in msg.sender_id else msg.chat_id)
-                text = reply.text if reply else "Got your message, I'll get back to you soon."
+                if not reply:
+                    from jarvis.integrations.whatsapp.ai import ContextualReplyUnavailable
+                    raise ContextualReplyUnavailable('No conversation was available for a contextual draft.')
+                text = reply.text
             target = msg.chat_id if "@" in msg.chat_id else msg.sender_id
             return {"recipient": target, "name": name, "message": text, "their_message": (msg.text or "")[:200]}
 

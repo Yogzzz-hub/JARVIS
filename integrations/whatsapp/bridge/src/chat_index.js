@@ -5,6 +5,7 @@
  */
 
 const fs = require("fs");
+const { randomUUID } = require("crypto");
 const { isGroupJid } = require("./protocol");
 
 const MAX_CHATS = 600;
@@ -42,6 +43,14 @@ class ChatIndex {
     this.chats = new Map();
     this.names = new Map();
     this.synced = false; // WhatsApp sent the chat list (history sync when linking): the counts are complete
+    this.generation = randomUUID();
+    this.syncedGeneration = null;
+    this.lastHistoryEvent = null;
+    this.lastChatStateEvent = null;
+    this.lastMessageEvent = null;
+    this.historyEvents = [];
+    this.lastHistoryFilter = null;
+    this.chatEvents = { upsert: 0, update: 0, messages_upsert: 0 };
     this.historyAttempts = 0;
     this.dirty = new Set();
     this.timer = null;
@@ -53,8 +62,11 @@ class ChatIndex {
     try {
       if (!fs.existsSync(this.file)) return;
       const raw = JSON.parse(fs.readFileSync(this.file, "utf-8"));
-      this.synced = Boolean(raw.synced);
-      this.historyAttempts = Number(raw.history_attempts) || 0;
+      // A saved chat list is a cache, not proof that this connection has received
+      // a complete history snapshot. Keep its counts for provisional results.
+      this.synced = false;
+      this.historyAttempts = 0;
+      this.storeAgeSeconds = Math.max(0, (Date.now() - fs.statSync(this.file).mtimeMs) / 1000);
       for (const c of raw.chats || []) {
         if (c && c.jid) this.chats.set(c.jid, c);
       }
@@ -106,6 +118,7 @@ class ChatIndex {
    * Baileys: a positive count is new unread messages, 0 = read, -1 = marked unread, null = no change.
    */
   applyChats(list, { absolute = false } = {}) {
+    this.lastChatStateEvent = new Date().toISOString();
     for (const u of list || []) {
       const jid = normJid(u && u.id);
       if (skipJid(jid)) continue;
@@ -131,6 +144,7 @@ class ChatIndex {
    * whose counts are already exact.
    */
   noteMessage(msg, { keepUnread = false } = {}) {
+    this.lastMessageEvent = new Date().toISOString();
     const jid = normJid(msg && msg.chat_id);
     if (skipJid(jid)) return;
     const c = this.chat(jid);
@@ -160,15 +174,33 @@ class ChatIndex {
     this.chats.clear();
     this.names.clear();
     this.synced = false;
+    this.generation = randomUUID();
+    this.syncedGeneration = null;
     this.historyAttempts = 0;
     this.touch(null);
   }
 
   markSynced() {
+    this.lastHistoryEvent = new Date().toISOString();
+    this.syncedGeneration = this.generation;
     if (!this.synced) {
       this.synced = true;
       this.touch(null);
     }
+  }
+
+  recordHistory(event) {
+    this.lastHistoryEvent = new Date().toISOString();
+    this.historyEvents.push({ at: this.lastHistoryEvent, generation: this.generation, ...event });
+    if (this.historyEvents.length > 20) this.historyEvents.shift();
+    this.touch(null);
+  }
+
+  markPartial() {
+    this.generation = randomUUID();
+    this.syncedGeneration = null;
+    this.synced = false;
+    this.touch(null);
   }
 
   entry(c) {
@@ -189,7 +221,21 @@ class ChatIndex {
     const all = [...this.chats.values()].sort((a, b) => b.lastTs - a.lastTs);
     const unread = all.filter((c) => c.unread > 0);
     const recent = all.filter((c) => c.unread === 0).slice(0, Math.max(0, limit - unread.length));
-    return { synced: this.synced, full: true, chats: [...unread, ...recent].map((c) => this.entry(c)) };
+    const chats = [...unread, ...recent].map((c) => this.entry(c));
+    const direct = all.filter((c) => !c.isGroup);
+    const events = [this.lastHistoryEvent, this.lastChatStateEvent, this.lastMessageEvent].filter(Boolean);
+    return {
+      synced: this.synced && this.syncedGeneration === this.generation,
+      full: true, generation: this.generation, synced_generation: this.syncedGeneration,
+      last_history_event: this.lastHistoryEvent, last_chat_state_event: this.lastChatStateEvent,
+      last_message_event: this.lastMessageEvent, store_age_seconds: this.storeAgeSeconds ?? null,
+      last_event_at: events.length ? events.sort().at(-1) : null,
+      history_events: this.historyEvents, chat_events: this.chatEvents,
+      last_history_filter: this.lastHistoryFilter,
+      counts: { chats: all.length, direct: direct.length, groups: all.length - direct.length,
+        unread_direct_chats: direct.filter((c) => c.unread > 0).length,
+        unread_direct_messages: direct.reduce((n, c) => n + c.unread, 0) }, chats
+    };
   }
 
   touch(jid) {
@@ -207,7 +253,7 @@ class ChatIndex {
     this.save();
     if (this.onChange) {
       try {
-        this.onChange({ synced: this.synced, full: false, chats: changed });
+        this.onChange({ ...this.snapshot(), full: false, chats: changed });
       } catch (e) {}
     }
   }

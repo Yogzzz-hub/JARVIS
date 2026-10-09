@@ -1,0 +1,12 @@
+# Offline Stage 2.4 experiments. Install a supported CUDA PyTorch wheel from
+# https://download.pytorch.org/whl/cu128, or use the official CPU wheel index.
+torch==2.11.0+cu128
+transformers==4.57.1
+tokenizers==0.22.2
+huggingface-hub==0.36.2
+safetensors==0.8.0
+sentencepiece==0.2.2
+fastembed==0.8.1
+onnxruntime==1.20.1
+numpy==2.4.6
+psutil==7.2.2

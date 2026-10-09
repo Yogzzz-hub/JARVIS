@@ -122,6 +122,10 @@ def sandbox_home(tmp_path, monkeypatch):
     home = build(tmp_path)
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("HOME", str(home))
+    from jarvis.security import paths
+    # Windows Known Folders may still point into the real OneDrive even after
+    # USERPROFILE changes. Keep this destructive-target test inside its fixture.
+    monkeypatch.setattr(paths, "get_known_folder", lambda name: home / name.capitalize())
     from jarvis.tools.system import file_tools
     monkeypatch.setattr(file_tools, "_find_existing_item", lambda name: None)   # only the typed resolver below
     return home

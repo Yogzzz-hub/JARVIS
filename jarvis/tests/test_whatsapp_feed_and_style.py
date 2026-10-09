@@ -11,7 +11,7 @@ import pytest
 
 from jarvis.integrations.whatsapp.personal_reply import importer as imp
 from jarvis.integrations.whatsapp.personal_reply.feed import parse_any
-from jarvis.integrations.whatsapp.personal_reply.models import ChatLine, ContactStyleProfile, Direction
+from jarvis.integrations.whatsapp.personal_reply.models import Authorship, ChatLine, ContactStyleProfile, Direction
 from jarvis.integrations.whatsapp.personal_reply.reply_generator import apply_habits
 from jarvis.integrations.whatsapp.personal_reply.style_analyzer import analyze
 from jarvis.integrations.whatsapp.personal_reply.tanglish_gloss import gloss
@@ -84,7 +84,8 @@ def test_import_file_and_feed_folder(tmp_path):
     exporter = {ARUN: {"name": "Arun", "messages": {str(i): {"from_me": i % 2 == 1, "timestamp": 1715529990 + i * 60,
                                                              "data": "gm" if i % 2 == 0 else "gm da ☀️"} for i in range(20)}}}
     res = agent.import_file(json.dumps(exporter), "result.json")
-    assert res[0]["status"] == "IMPORTED" and agent.store.load_profile(ARUN).messages_analyzed == 10
+    assert res[0]["status"] == "IMPORTED" and agent.store.source_count(ARUN)["USER"] == 10
+    assert agent.store.load_profile(ARUN).messages_analyzed > 0
     unknown = ANDROID.replace("Arun", "Zara")
     assert agent.import_file(unknown, "chat.txt", owner_name="Yoga")[0]["status"] == "NEEDS_CONTACT"  # never a guess
 
@@ -104,7 +105,8 @@ def _lines(texts, gap=3600.0):
     out, t = [], 1_700_000_000.0
     for group in texts:
         for j, text in enumerate(group if isinstance(group, list) else [group]):
-            out.append(ChatLine(timestamp=t + j * 20, sender="me", direction=Direction.USER, text=text))
+            out.append(ChatLine(timestamp=t + j * 20, sender="me", direction=Direction.USER, text=text,
+                                provenance=Authorship.USER_TYPED, provenance_confidence=1.0))
         t += gap
     return out
 
@@ -187,8 +189,9 @@ def test_bursty_texter_gets_several_short_messages_and_echoes_are_not_learned(tm
         agent.enable([ARUN], agent.clock() + 3600)
         return await deliver(agent, msg(ARUN, "where are you now", "Arun"))
     out = asyncio.run(run())
-    assert out["status"] == "VERIFIED"
-    assert [m["text"] for m in sends_to(agent, ARUN)] == ["reached office", "will call later"]  # two messages, like the owner
+    assert out["status"] == "NEEDS_USER_REVIEW"
+    # Provisional export history cannot authorize a generated live send.
+    assert sends_to(agent, ARUN) == []
     for part in [m["text"] for m in sends_to(agent, ARUN)]:
         echo = agent.learn_owner_message(msg(ARUN, part, "Me", from_me=True))
         assert echo.get("learned") is not True  # JARVIS's own messages never train the owner's style

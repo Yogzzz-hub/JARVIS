@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
 from pathlib import Path
 import tomllib
 from typing import Any, Callable, Dict, Optional, Set
@@ -25,6 +27,7 @@ from jarvis.integrations.whatsapp.models import (
     NormalizedWhatsAppMessage,
     WhatsAppBridgeStatus,
 )
+from jarvis.integrations.whatsapp.incoming_trace import trace_generation, trace_incoming
 from jarvis.security.confirmation.manager import ConfirmationManager
 
 logger = logging.getLogger("jarvis.integrations.whatsapp.service")
@@ -54,6 +57,7 @@ class BaileysWebSocketTransport:
         on_qr: Optional[Callable[[str], Any]] = None,
         on_pairing_code: Optional[Callable[[str], Any]] = None,
         on_chat_state: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        read_only: bool = False,
     ) -> None:
         self.host = host
         self.port = port
@@ -63,6 +67,8 @@ class BaileysWebSocketTransport:
         self.on_qr = on_qr
         self.on_pairing_code = on_pairing_code
         self.on_chat_state = on_chat_state
+        self.read_only = read_only
+        self.intelligence = None
 
         self._ws: Any = None
         self._running = False
@@ -70,16 +76,23 @@ class BaileysWebSocketTransport:
         self._pending_requests: Dict[str, asyncio.Future] = {}
         self.status = WhatsAppBridgeStatus()
         self.is_connected = False
+        self._dispatch_workers = []
 
     async def start(self) -> None:
         """Start the background WebSocket connection loop."""
         self._loop = asyncio.get_running_loop()
         self._running = True
+        if self.intelligence is not None:
+            self._dispatch_workers = [asyncio.create_task(self._dispatch_loop(), name=f"whatsapp-dispatch-{i}") for i in range(2)]
         self._loop_task = asyncio.create_task(self._connect_loop())
 
     async def stop(self) -> None:
         """Stop the background connection loop and close connection."""
         self._running = False
+        for worker in self._dispatch_workers:
+            worker.cancel()
+        await asyncio.gather(*self._dispatch_workers, return_exceptions=True)
+        self._dispatch_workers = []
         if hasattr(self, "_loop_task") and self._loop_task:
             self._loop_task.cancel()
         if self._ws:
@@ -89,6 +102,31 @@ class BaileysWebSocketTransport:
                 pass
         self.is_connected = False
         self.status.state = "DISCONNECTED"
+        if self.on_status:
+            self.on_status({"state": "DISCONNECTED"})
+
+    async def _dispatch_loop(self):
+        while self._running:
+            job = await asyncio.to_thread(self.intelligence.store.claim_dispatch)
+            if job is None:
+                await asyncio.sleep(0.25)
+                continue
+            try:
+                message = NormalizedWhatsAppMessage(**json.loads(job["payload"]))
+                # Old queued work remains searchable but cannot execute commands or
+                # send delayed replies after a restart.
+                if time.time() - job["created_at"] > 120:
+                    message.history = True
+                if self.on_incoming:
+                    result = self.on_incoming(message)
+                    if asyncio.iscoroutine(result):
+                        await result
+                await asyncio.to_thread(self.intelligence.store.finish_dispatch, job["message_id"])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("WhatsApp dispatch held after failure")
+                await asyncio.to_thread(self.intelligence.store.finish_dispatch, job["message_id"], type(exc).__name__)
 
     async def _connect_loop(self) -> None:
         backoff = 2.0
@@ -98,6 +136,8 @@ class BaileysWebSocketTransport:
                 async with websockets.connect(self.ws_url, ping_interval=20, ping_timeout=10) as ws:
                     self._ws = ws
                     self.is_connected = True
+                    if self.on_status:
+                        self.on_status({"state": "CONNECTING"})
                     backoff = 2.0
                     logger.info("Connected to WhatsApp transport bridge at %s", self.ws_url)
 
@@ -115,6 +155,8 @@ class BaileysWebSocketTransport:
                 self.is_connected = False
                 self._ws = None
                 self.status.state = "DISCONNECTED"
+                if self.on_status:
+                    self.on_status({"state": "DISCONNECTED"})
                 if self._running:
                     logger.debug("WhatsApp bridge unavailable (%s). Retrying in %.1fs...", exc, backoff)
                     await asyncio.sleep(backoff)
@@ -123,6 +165,8 @@ class BaileysWebSocketTransport:
                 self.is_connected = False
                 self._ws = None
                 self.status.state = "DISCONNECTED"
+                if self.on_status:
+                    self.on_status({"state": "DISCONNECTED"})
                 if self._running:
                     logger.error("Unexpected error in WhatsApp bridge connection: %s", e)
                     await asyncio.sleep(5.0)
@@ -141,14 +185,42 @@ class BaileysWebSocketTransport:
 
         if msg_type == "incoming_message":
             payload = data.get("payload", {})
+            token = trace_generation.set(str(data.get("generation") or ""))
+            trace_incoming(stage="python_websocket_receive", event_type=msg_type,
+                           message_id=payload.get("message_id"), chat_jid=payload.get("chat_id"),
+                           from_me=payload.get("is_from_me"), message_type=payload.get("type"),
+                           timestamp=payload.get("timestamp"), python_receive_result="RECEIVED")
             try:
                 msg = NormalizedWhatsAppMessage(**payload)
-                if self.on_incoming:
+                if self.intelligence is not None:
+                    await asyncio.to_thread(self.intelligence.inbox.record_python_event)
+                trace_incoming(stage="python_schema", event_type=msg_type, message_id=msg.message_id,
+                               chat_jid=msg.chat_id, from_me=msg.is_from_me, message_type=msg.type,
+                               timestamp=msg.timestamp, python_receive_result="SCHEMA_ACCEPTED")
+                if self.intelligence is not None:
+                    await asyncio.to_thread(self.intelligence.inbox.add_message, msg)
+                    await asyncio.to_thread(self.intelligence.store.enqueue_dispatch, msg)
+                    trace_incoming(stage="python_dispatch", event_type=msg_type, message_id=msg.message_id,
+                                   chat_jid=msg.chat_id, python_receive_result="ENQUEUED")
+                elif self.on_incoming:
                     res = self.on_incoming(msg)
                     if asyncio.iscoroutine(res):
                         asyncio.create_task(res)
             except Exception as exc:
-                logger.error("Failed to parse incoming WhatsApp message: %s", exc)
+                reason = type(exc).__name__
+                if hasattr(exc, "errors"):
+                    try:
+                        reason += ":" + ",".join(
+                            f"{'.'.join(map(str, error.get('loc', ())))}:{error.get('type', '')}"
+                            for error in exc.errors()[:4])
+                    except Exception:
+                        pass
+                trace_incoming(stage="python_receive_error", event_type=msg_type,
+                               message_id=payload.get("message_id"), chat_jid=payload.get("chat_id"),
+                               python_receive_result="REJECTED", reason=reason)
+                logger.error("WhatsApp incoming message rejected: %s", reason)
+            finally:
+                trace_generation.reset(token)
 
         elif msg_type == "status_update":
             payload = data.get("payload", {})
@@ -183,20 +255,31 @@ class BaileysWebSocketTransport:
             await self._ws.send(json.dumps(data))
 
     async def _call(self, action: str, payload: Optional[Dict[str, Any]] = None, timeout: float = 15.0) -> Dict[str, Any]:
+        if self.read_only and action in {"send_text", "send_media"}:
+            return {"success": False, "error": "WhatsApp read-only mode blocks sending"}
         if not self.is_connected or not self._ws:
             return {"success": False, "error": "WhatsApp bridge not connected"}
 
         req_id = uuid4().hex
+        if action in {"send_text", "send_media"} and self.intelligence is not None:
+            self.intelligence.store.generated((payload or {}).get("to", ""), (payload or {}).get("text", (payload or {}).get("caption", "")), req_id)
         fut = asyncio.get_running_loop().create_future()
         self._pending_requests[req_id] = fut
 
-        await self._send({"id": req_id, "action": action, "payload": payload or {}})
-
         try:
-            return await asyncio.wait_for(fut, timeout=timeout)
+            await self._send({"id": req_id, "action": action, "payload": payload or {}})
+            response = await asyncio.wait_for(fut, timeout=timeout)
+            if action in {"send_text", "send_media"} and self.intelligence is not None and response.get("success"):
+                result = response.get("result") or {}
+                if result.get("message_id"):
+                    self.intelligence.store.generated(payload.get("to", ""), payload.get("text", payload.get("caption", "")), req_id, result["message_id"])
+            return response
         except asyncio.TimeoutError:
             self._pending_requests.pop(req_id, None)
-            return {"success": False, "error": "Request timed out"}
+            return {"success": False, "status": "UNCERTAIN" if action in {"send_text", "send_media"} else "FAILED",
+                    "error": "Request timed out"}
+        finally:
+            self._pending_requests.pop(req_id, None)
 
     async def send_text(self, to: str, text: str, quoted: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Send outbound text message via WhatsApp bridge."""
@@ -224,9 +307,9 @@ class BaileysWebSocketTransport:
         )
         return res
 
-    async def get_message(self, message_id: str, chat_id: str = "") -> Optional[NormalizedWhatsAppMessage]:
+    async def get_message(self, message_id: str, chat_id: str = "", download: bool = False) -> Optional[NormalizedWhatsAppMessage]:
         """Re-fetch a message by id (used to recover messages that arrived undecrypted)."""
-        res = await self._call("get_message", {"message_id": message_id, "chat_id": chat_id}, timeout=5.0)
+        res = await self._call("get_message", {"message_id": message_id, "chat_id": chat_id, "download": download}, timeout=30.0 if download else 5.0)
         payload = res.get("result") if res.get("success") else None
         return NormalizedWhatsAppMessage(**payload) if payload else None
 
@@ -273,14 +356,15 @@ class WhatsAppIntegrationService:
                 logger.warning("Could not load config/whatsapp.toml: %s", e)
 
         wa_cfg = self.config.get("whatsapp", {})
+        self.read_only = os.environ.get("JARVIS_WHATSAPP_READ_ONLY") == "1"
         self.enabled = wa_cfg.get("enabled", True)
         self.bridge_host = wa_cfg.get("bridge_host", "127.0.0.1")
         self.bridge_port = wa_cfg.get("bridge_port", 8768)
-        self.mode = wa_cfg.get("mode", "DRAFT_ONLY")
+        self.mode = "OFF" if self.read_only else wa_cfg.get("mode", "DRAFT_ONLY")
         self.voice_reply_enabled = wa_cfg.get("voice_reply_enabled", False)
         self.owner_name = wa_cfg.get("owner_name", "Boss")
-        self.ai_replies = bool(wa_cfg.get("ai_replies", True))
-        self.announce_new_messages = bool(wa_cfg.get("announce_new_messages", True))
+        self.ai_replies = not self.read_only and bool(wa_cfg.get("ai_replies", True))
+        self.announce_new_messages = not self.read_only and bool(wa_cfg.get("announce_new_messages", True))
 
         owner_numbers = wa_cfg.get("owner", {}).get("phone_numbers", ["6381456199", "+916381456199"])
         self.owner_identities: Set[str] = set(owner_numbers)
@@ -297,6 +381,7 @@ class WhatsAppIntegrationService:
             on_qr=self._on_qr_code,
             on_pairing_code=self._on_pairing_code,
             on_chat_state=self._on_chat_state,
+            read_only=self.read_only,
         )
 
         # Multimodal media pipeline
@@ -324,8 +409,9 @@ class WhatsAppIntegrationService:
 
         # Contact-specific personal replies (style learning + time-boxed auto-reply grants; groups never).
         self.personal_reply = None
+        self.draft_only_agent = None
         pr_cfg = wa_cfg.get("personal_reply", {})
-        if bool(pr_cfg.get("enabled", True)):
+        if not self.read_only and bool(pr_cfg.get("enabled", True)):
             try:
                 from jarvis.integrations.whatsapp.personal_reply.agent import PersonalReplyAgent, set_personal_reply_agent
                 from jarvis.integrations.whatsapp.personal_reply.auto_reply_policy import AutoReplyPolicy
@@ -338,7 +424,8 @@ class WhatsAppIntegrationService:
                     store=store, transport=self.transport, inbox=self.gateway.inbox,
                     generator=ReplyGenerator(client=getattr(whatsapp_ai, "_client", None)),
                     policy=AutoReplyPolicy(store, auto_reply_untrained=bool(pr_cfg.get("auto_reply_untrained_contacts", False)),
-                                           max_hours=float(pr_cfg.get("max_auto_reply_hours", 12))),
+                                           max_hours=float(pr_cfg.get("max_auto_reply_hours", 12)),
+                                           generated_auto_reply_enabled=bool(pr_cfg.get('generated_auto_reply_enabled', False))),
                     ledger=ActionLedger(), policy_evaluator=PolicyEvaluator(), event_bus=event_bus,
                     coalesce_s=float(pr_cfg.get("coalesce_seconds", 1.2)),
                     owner_names=[self.owner_name, *pr_cfg.get("export_names", [])],
@@ -362,6 +449,30 @@ class WhatsAppIntegrationService:
             logger.info("WhatsApp omnichannel integration is disabled by config.")
             return
         logger.info("Starting WhatsApp omnichannel service (Owner: %s)...", self.owner_identities)
+        from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
+        self.intelligence = get_intelligence(self.gateway.inbox)
+        from jarvis.core.llm.client import get_llm
+        self.intelligence.client = get_llm()
+        if self.config.get("whatsapp", {}).get("semantic_retrieval", True):
+            async def embed_message(text):
+                model = await self.intelligence.client.resolve("embed")
+                vectors = await self.intelligence.client.embed([text], model=model)
+                self.intelligence.embedding_model = model
+                return vectors[0] if vectors else []
+            self.intelligence.embedder = embed_message
+        self.intelligence.style_agent = self.personal_reply
+        if self.personal_reply is None and self.read_only:
+            from jarvis.integrations.whatsapp.personal_reply.store import PersonalReplyStore, default_db_path
+            if default_db_path().is_file():
+                self.intelligence.style_store = PersonalReplyStore()
+                from jarvis.integrations.whatsapp.personal_reply.agent import PersonalReplyAgent
+                self.draft_only_agent = PersonalReplyAgent(store=self.intelligence.style_store,
+                                                            inbox=self.gateway.inbox, transport=None,
+                                                            use_jde=False)
+        if self.personal_reply is not None:
+            self.personal_reply.policy.pause_store = self.intelligence.store
+        self.transport.intelligence = self.intelligence
+        await self.intelligence.start()
         await self.transport.start()
         if self.personal_reply is not None:
             recovered = self.personal_reply.recover()  # expire old grants; never resend interrupted sends
@@ -385,35 +496,63 @@ class WhatsAppIntegrationService:
         if self.personal_reply is not None:
             await self.personal_reply.close()
         await self.transport.stop()
+        if getattr(self, "intelligence", None):
+            await self.intelligence.close()
 
     async def _on_chat_state(self, payload: Dict[str, Any]) -> None:
         """Store WhatsApp's unread badges (what the phone shows) so summaries and counts match it."""
         chats = payload.get("chats") or []
-        if not chats and not payload.get("synced"):
-            return
         try:
             await asyncio.to_thread(self.gateway.inbox.update_chats, chats, bool(payload.get("full")),
-                                    bool(payload.get("synced")))
+                                    bool(payload.get("synced")), str(payload.get("generation") or ""),
+                                    str(payload.get("synced_generation") or ""), payload)
         except Exception as exc:
             logger.warning("Could not store WhatsApp chat state: %s", exc)
 
     async def _on_incoming_message(self, message: NormalizedWhatsAppMessage) -> None:
         """Handle incoming message routed from transport."""
+        trace_incoming(stage="python_service", event_type="incoming_message", message_id=message.message_id,
+                       chat_jid=message.chat_id, from_me=message.is_from_me, message_type=message.type,
+                       timestamp=message.timestamp, python_receive_result="DISPATCHED")
+        if self.read_only:
+            await self.gateway.handle_incoming(message.model_copy(update={"history": True}))
+            if (not message.history and not message.is_from_me and message.type == 'text'
+                    and getattr(self, 'draft_only_agent', None) is not None
+                    and self.draft_only_agent.maturity(message.chat_id) in (
+                        'DRAFT_READY', 'VERIFIED_STYLE_BUILDING', 'AUTO_REPLY_CANDIDATE',
+                        'TIMED_AUTO_REPLY_READY')):
+                # Read-only listener may create a local suggestion. The agent
+                # has no transport, so this branch cannot send a WhatsApp reply.
+                async def prepare_draft(chat_id: str) -> None:
+                    try:
+                        await self.draft_only_agent.draft_latest(chat_id)
+                    except Exception:
+                        logger.exception('Could not prepare read-only personal draft')
+                asyncio.create_task(prepare_draft(message.chat_id))
+            return
         if message.history:  # missed while JARVIS was offline: stored only (no announcement, reply or command)
             await self.gateway.handle_incoming(message)
             self._remember_chat(message.chat_id)
             return
         logger.info("Received WhatsApp message from %s (%s)", message.sender_display_name, message.sender_id)
-        if self.event_bus:
-            self.event_bus.emit(
-                "whatsapp.incoming",
-                "",
-                sender=message.sender_display_name,
-                sender_id=message.sender_id,
-                text=message.text,
-                type=message.type,
-            )
-        await self.gateway.handle_incoming(message)
+        # The gateway's in-memory dedupe is reset on restart. Capture durable
+        # existence first so a replay of an already stored ID cannot fire an
+        # automation again after a new Python generation starts.
+        was_stored = self.gateway.inbox.contains_message(message.message_id, message.chat_id)
+        result = await self.gateway.handle_incoming(message)
+        from jarvis.integrations.whatsapp.personal_reply.dedupe import is_group_chat
+        if self.event_bus and not message.is_from_me and not getattr(message, "is_group", False) \
+                and not is_group_chat(message.chat_id) \
+                and not self.gateway.is_owner(message.sender_id) \
+                and not was_stored and self.gateway.inbox.contains_message(message.message_id, message.chat_id) \
+                and (not isinstance(result, dict) or result.get("status") not in
+                     {"DUPLICATE_IGNORED", "PENDING_DECRYPTION"}):
+            # This event is evidence that a current direct message reached the
+            # Python gateway. Its body is never a command or event-bus payload.
+            self.event_bus.emit("whatsapp.message_received", message.message_id,
+                                message_id=message.message_id, chat_id=message.chat_id,
+                                sender_id=message.sender_id, message_type=message.type,
+                                history=False, from_me=False, is_group=False)
         self._remember_chat(message.chat_id)
 
     def _remember_chat(self, chat_id: str) -> None:
@@ -430,6 +569,15 @@ class WhatsAppIntegrationService:
     def _on_bridge_status(self, status_payload: Dict[str, Any]) -> None:
         state = status_payload.get("state", "UNKNOWN")
         logger.info("WhatsApp Bridge status updated: %s", state)
+        try:
+            self.gateway.inbox.set_connector_state(state)
+            if status_payload.get("identity"):
+                diagnostics = dict(status_payload.get("diagnostics") or {})
+                diagnostics["event_health"] = status_payload.get("event_health") or {}
+                self.gateway.inbox.set_bridge_runtime(status_payload["identity"],
+                                                       diagnostics)
+        except Exception as exc:
+            logger.warning("Could not store WhatsApp connector state: %s", exc)
         if self.event_bus:
             self.event_bus.emit("whatsapp.status", "", state=state, payload=status_payload)
 

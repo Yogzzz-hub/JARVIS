@@ -121,7 +121,12 @@ class PiperEngine:
             config = PiperConfig.from_dict(config_dict)
 
             sess_options = ort.SessionOptions()
-            sess_options.intra_op_num_threads = min(8, max(4, os.cpu_count() or 4))
+            # Two resident voices share CPU with wake/VAD/STT. Avoid large
+            # spinning pools per voice on the intended laptop runtime.
+            sess_options.intra_op_num_threads = min(2, os.cpu_count() or 1)
+            sess_options.inter_op_num_threads = 1
+            sess_options.add_session_config_entry('session.intra_op.allow_spinning', '0')
+            sess_options.add_session_config_entry('session.inter_op.allow_spinning', '0')
             sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
             providers = ["CPUExecutionProvider"]

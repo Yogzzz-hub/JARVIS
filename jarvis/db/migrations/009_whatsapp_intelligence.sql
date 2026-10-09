@@ -1,0 +1,4 @@
+-- Main database version compatibility marker.
+-- The inbox-specific migration is applied by IntelligenceStore, with a SQLite backup,
+-- from db/migrations/whatsapp_inbox/009_whatsapp_intelligence.sql.
+-- No message tables are added to the main database on new installations.

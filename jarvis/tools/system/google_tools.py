@@ -221,5 +221,59 @@ class EventCreateTool(Tool):
                 "items": [{"summary": ev.summary, "start": start.isoformat()}]}
 
 
+class _LazyGoogleConnectorTool(Tool):
+    """Expose existing typed connector tools without acquiring OAuth at startup."""
+
+    def __init__(self, tool_class: type[Tool], service: str, capability: Any) -> None:
+        self.definition = tool_class.definition
+        self._tool_class = tool_class
+        self._service = service
+        self._capability = capability
+
+    async def run(self, arguments: Contract) -> Any:
+        credentials = await _credentials(self._capability)
+        if self._service == "calendar":
+            client = await asyncio.to_thread(_calendar_client, credentials)
+        else:
+            from googleapiclient.discovery import build
+            from jarvis.integrations.google.drive.client import DriveClient
+            service = await asyncio.to_thread(build, "drive", "v3", credentials=credentials,
+                                              cache_discovery=False)
+            client = DriveClient(service, account_id=getattr(credentials, "account_id", "default"))
+        return await asyncio.to_thread(self._tool_class(client).run, arguments)
+
+
 def create_google_tools() -> list[Tool]:
-    return [MailListTool(), EventsListTool(), EventCreateTool()]
+    from jarvis.integrations.google.auth.scopes import GoogleCapability
+    from jarvis.integrations.google.calendar.tools import (
+        CalendarDeleteEventTool, CalendarFindEventsTool, CalendarGetEventTool,
+        CalendarUpdateEventTool,
+    )
+    from jarvis.integrations.google.drive.tools import (
+        DriveCreateFolderTool, DriveDownloadFileTool, DriveGetMetadataTool,
+        DriveListFilesTool, DriveSearchTool, DriveUploadFileTool,
+    )
+    from jarvis.integrations.google.gmail.client import GmailClient
+    from jarvis.integrations.google.gmail.tools import (
+        GmailCreateDraftTool, GmailGetMessageTool, GmailSearchTool, GmailSendDraftTool,
+    )
+
+    gmail = GmailClient()
+    tools = [MailListTool(client=gmail), EventsListTool(), EventCreateTool(),
+             GmailSearchTool(gmail), GmailGetMessageTool(gmail),
+             GmailCreateDraftTool(gmail), GmailSendDraftTool(gmail)]
+    tools.extend(_LazyGoogleConnectorTool(cls, "calendar", cap) for cls, cap in (
+        (CalendarFindEventsTool, GoogleCapability.CALENDAR_READ),
+        (CalendarGetEventTool, GoogleCapability.CALENDAR_READ),
+        (CalendarUpdateEventTool, GoogleCapability.CALENDAR_WRITE),
+        (CalendarDeleteEventTool, GoogleCapability.CALENDAR_WRITE),
+    ))
+    tools.extend(_LazyGoogleConnectorTool(cls, "drive", cap) for cls, cap in (
+        (DriveListFilesTool, GoogleCapability.DRIVE_APP_FILE_READ),
+        (DriveSearchTool, GoogleCapability.DRIVE_APP_FILE_READ),
+        (DriveGetMetadataTool, GoogleCapability.DRIVE_APP_FILE_READ),
+        (DriveDownloadFileTool, GoogleCapability.DRIVE_APP_FILE_READ),
+        (DriveUploadFileTool, GoogleCapability.DRIVE_APP_FILE_WRITE),
+        (DriveCreateFolderTool, GoogleCapability.DRIVE_APP_FILE_WRITE),
+    ))
+    return tools

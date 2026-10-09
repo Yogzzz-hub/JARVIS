@@ -35,6 +35,9 @@ class PulseEngine:
         self.ack_cache = ack_cache
         self.tts = tts_manager
         self.event_bus = event_bus
+        from jarvis.core.response.coordinator import ResponseCoordinator
+        self.coordinator = ResponseCoordinator()
+        self.final_delivery = None
 
         if self.audio_output and hasattr(self.audio_output, "start") and not getattr(self.audio_output, "_running", False):
             try:
@@ -96,21 +99,25 @@ class PulseEngine:
         else:
             pcm, _backend = self.tts.synthesize(chunk)
         if not pcm:
-            return
-        self.audio_output.play(SpokenResponse(
+            raise RuntimeError('TTS_UNAVAILABLE_FOR_LANGUAGE')
+        response = SpokenResponse(
             text=chunk,
             type=ResponseType.FINAL,
             request_id=request_id,
             priority=ResponsePriority.FINAL,
             interruptible=True,
             audio_bytes=pcm,
+            source=_backend,
             sample_rate=getattr(self.tts, "sample_rate", 22050),
             # Every sentence is one chunk of the same answer: only the explicit end of the answer completes it.
             # (Marking the first sentence as a whole answer made the queue drop every sentence after it.)
             is_chunk=True,
             chunk_index=index,
             is_last_chunk=last,
-        ))
+        )
+        if not self.audio_output.play(response):
+            raise RuntimeError('Audio queue rejected streamed response')
+        return response
 
     def end_of_answer(self, request_id: str) -> None:
         """The answer has no more sentences: lets the audio queue close this request once all of it has played."""
@@ -356,6 +363,8 @@ class PulseEngine:
         is_waiting_confirmation: bool = False,
     ) -> None:
         """Handles post-verification feedback."""
+        if self.final_delivery is None and not self.coordinator.claim_final(request_id):
+            return
         self.scheduler.mark_verified(request_id)
 
         # 1. UI state transition: DONE, WAITING_CONFIRMATION, or ERROR
@@ -377,6 +386,16 @@ class PulseEngine:
         stream = self._streams.pop(request_id, None)
         if stream is not None:
             stream.close()
+            if self.final_delivery is not None:
+                async def finish_stream():
+                    if stream.task is not None:
+                        await stream.task
+                    if not stream.spoke:
+                        self.final_delivery(request_id, result_message)
+                    self.scheduler.cleanup(request_id)
+                    self._active_interactions.discard(request_id)
+                asyncio.create_task(finish_stream())
+                return
             if stream.spoke and not is_waiting_confirmation:
                 def _done(_task, rid=request_id):
                     self.scheduler.cleanup(rid)
@@ -388,7 +407,12 @@ class PulseEngine:
                 return
 
         # 4. Final spoken response for voice requests or confirmation talk-back
-        if (is_voice or is_waiting_confirmation) and result_message and self.audio_output and self.tts:
+        if is_voice and result_message and self.audio_output and self.tts:
+            if self.final_delivery is not None:
+                self.final_delivery(request_id, result_message)
+                self.scheduler.cleanup(request_id)
+                self._active_interactions.discard(request_id)
+                return
             async def _speak_final():
                 try:
                     from time import perf_counter_ns
@@ -444,6 +468,11 @@ class SpeechStream:
         self.started_ns = perf_counter_ns()
         self.queue: asyncio.Queue = asyncio.Queue()
         self.spoke = False
+        self.responses = []
+        delivery_service = getattr(engine.final_delivery, '__self__', None)
+        self.delivery = getattr(delivery_service, 'delivery', None)
+        from jarvis.core.response.coordinator import RESPONSE_LANGUAGE
+        self.job = self.delivery.begin(request_id, RESPONSE_LANGUAGE.get()) if self.delivery else None
         self.closed = False
         self.task: Optional[asyncio.Task] = asyncio.create_task(self._worker())
         engine._speech_tasks.add(self.task)
@@ -455,7 +484,6 @@ class SpeechStream:
         if self.closed or not text or not any(ch.isalnum() for ch in text):
             return
         if not self.spoke:
-            self.spoke = True
             # The real answer is about to play: a pending "one moment" acknowledgement would only delay it.
             try:
                 self.engine.scheduler.cancel_race_timer(self.request_id)
@@ -471,6 +499,7 @@ class SpeechStream:
     async def _worker(self) -> None:
         index = 0
         audio = self.engine.audio_output
+        failure = None
         while True:
             chunk = await self.queue.get()
             if chunk is None:
@@ -478,11 +507,23 @@ class SpeechStream:
             if getattr(audio, "_cancel_ns", 0) > self.started_ns:
                 continue  # barge-in / "stop talking": drop the rest of this answer
             try:
-                await self.engine._speak_chunk(self.request_id, chunk, index)
+                response = await asyncio.wait_for(self.engine._speak_chunk(self.request_id, chunk, index), 15)
+                self.spoke = True
+                self.responses.append(response)
+                if self.job:
+                    self.delivery.update(self.job, 'QUEUED', queue_entered=True,
+                        synthesis_started=True, synthesis_completed=True, tts_engine=response.source)
                 index += 1
             except Exception as exc:
+                failure = str(exc) or type(exc).__name__
                 logger.warning("Streamed speech chunk failed (non-fatal): %s", exc)
         try:
-            self.engine.end_of_answer(self.request_id)
+            if self.spoke:
+                self.engine.end_of_answer(self.request_id)
         except Exception:
             pass
+        if self.job:
+            await self.delivery.monitor(self.job, self.responses, audio)
+            if failure and self.job['state'] != 'CANCELLED':
+                self.delivery.update(self.job, 'FAILED', failure_reason=failure,
+                                     playback_completed=False)

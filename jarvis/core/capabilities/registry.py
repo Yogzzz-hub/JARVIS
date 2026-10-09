@@ -1796,6 +1796,25 @@ class CapabilityRegistry:
         # Index master definitions
         for cap in CAPABILITY_DEFINITIONS + EXTENDED_CAPABILITY_DEFINITIONS:
             self.register(cap)
+        self.register_tool_metadata()
+
+    def register_tool_metadata(self) -> None:
+        if self.tool_registry is not None:
+            for tool in self.tool_registry.list():
+                if not hasattr(tool, "capability_metadata"):
+                    continue
+                metadata = tool.capability_metadata()
+                definition = tool.definition
+                self.register(CapabilityDefinition(id=metadata["id"], category=CapabilityCategory.WHATSAPP,
+                    description=definition.description, keywords=["whatsapp", *definition.name.split("_")[1:]],
+                    target_tool=definition.name, risk_level=definition.risk, verifier=metadata["verification_method"],
+                    availability_check="tool.availability", dependencies=["existing_whatsapp_inbox"],
+                    cost_tier=CostTier.EXPENSIVE if "draft" in definition.name or "summarize" in definition.name else CostTier.LOW,
+                    required_slots=[n for n, info in definition.input_model.model_fields.items() if info.is_required()],
+                    optional_slots=[n for n, info in definition.input_model.model_fields.items() if not info.is_required()],
+                    side_effects=metadata["side_effects"], auth_requirements=metadata["auth_requirements"],
+                    confirmation_required=metadata["confirmation_required"], latency_budget_ms=metadata["latency_budget_ms"],
+                    input_schema=metadata["input_schema"], output_schema=metadata["output_schema"], family="WHATSAPP"))
 
     def register(self, cap: CapabilityDefinition) -> None:
         self._capabilities[cap.id] = cap
@@ -1906,4 +1925,5 @@ def get_default_capability_registry(tool_registry: Optional[ToolRegistry] = None
         _GLOBAL_CAPABILITY_REGISTRY = CapabilityRegistry(tool_registry=tool_registry)
     elif tool_registry and _GLOBAL_CAPABILITY_REGISTRY.tool_registry is None:
         _GLOBAL_CAPABILITY_REGISTRY.tool_registry = tool_registry
+        _GLOBAL_CAPABILITY_REGISTRY.register_tool_metadata()
     return _GLOBAL_CAPABILITY_REGISTRY

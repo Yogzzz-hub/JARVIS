@@ -159,6 +159,22 @@ class AudioOutputManager:
         response.response_requested_ns = perf_counter_ns()
         return self.queue.put(response)
 
+    def queue_wait_seconds(self, response: SpokenResponse) -> float:
+        """Known audio ahead of this job; a busy speaker is not a stuck worker."""
+        current = self._current_response
+        remaining = 0.0
+        if current is not None and current is not response:
+            duration = len(current.audio_bytes or b'') / (2 * (current.sample_rate or 22050))
+            elapsed = ((perf_counter_ns() - current.playback_started_ns) / 1e9
+                       if current.playback_started_ns else 0.0)
+            remaining = max(0.0, duration - elapsed)
+        with self.queue._lock:
+            for _, _, queued in sorted(self.queue._heap):
+                if queued is response:
+                    break
+                remaining += len(queued.audio_bytes or b'') / (2 * (queued.sample_rate or 22050))
+        return remaining
+
     def cancel_current(self) -> None:
         """Immediately interrupt and stop currently playing audio (barge-in)."""
         self._paused.clear()
@@ -225,6 +241,9 @@ class AudioOutputManager:
             # If mock output or hardware disabled, simulate playback duration
             if self.mock_output:
                 self._is_playing = True
+                response.delivery_status = DeliveryStatus.PLAYING
+                response.playback_started_ns = perf_counter_ns()
+                self._emit('tts.started', response)
                 duration_s = len(pcm_bytes) / (2 * sr)
                 step = 0.05
                 elapsed = 0.0
@@ -360,7 +379,8 @@ class AudioOutputManager:
 
     def _emit(self, name, response, **data):
         if self.event_callback:
-            self.event_callback(name, response.request_id, {"text": response.text, **data})
+            self.event_callback(name, response.request_id, {"text": response.text,
+                'response_id': response.response_id, **data})
 
     def stop(self) -> None:
         """Stop playback thread and close resources."""

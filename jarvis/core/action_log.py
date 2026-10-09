@@ -106,7 +106,7 @@ def get_action_log() -> ActionLog:
 # ------------------------------------------------------------------ follow-up questions
 _U = r"(?:you|u|jarvis)"
 FOLLOWUP = re.compile(
-    rf"^(?:to\s+whom|who)\s+(?:did|have|has|was|were)\s+(?:{_U}\s+)?(?:just\s+)?(?:sen[dt]|message[d]?|text(?:ed)?|reply|replied)"
+    rf"^(?:to\s+whom|who)\s+(?:did|have|has|was|were)\s+{_U}\s+(?:just\s+)?(?:sen[dt]|message[d]?|text(?:ed)?|reply|replied)"
     rf"(?:\s+(?:it|that|this|the\s+message|the\s+msg|a\s+message))?(?:\s+(?:to|sent\s+to))?"
     rf"|^(?:to\s+whom|who)\s+{_U}\s+(?:have\s+|has\s+)?(?:just\s+)?(?:sen[dt]|messaged|texted)(?:\s+(?:it|that))?(?:\s+to)?"
     rf"|^who\s+(?:was|is)\s+(?:it|that|the\s+message)\s+(?:sent\s+)?(?:to|for)"
@@ -139,6 +139,13 @@ FOLLOWUP = re.compile(
 
 def is_followup(text: str) -> bool:
     t = re.sub(r"\s+", " ", (text or "").lower()).strip(" .!?")
+    # A question about an external inbox is not a question about JARVIS's
+    # previous action. Preserve explicit outgoing-action history questions.
+    messaging = re.search(r'\b(?:message|msg|text|mail|email|reply)\b', t)
+    outgoing = re.search(r'\b(?:you|u|jarvis|i|we)\s+(?:(?:just|last|already)\s+)?(?:sent|send|replied|reply|messaged|texted)\b', t)
+    inbox_scope = re.search(r'\b(?:received|incoming|got)\b|\b(?:in|on|from)\s+(?:my\s+)?(?:whatsapp|gmail|outlook|telegram|signal)\b', t)
+    if messaging and inbox_scope and not outgoing:
+        return False
     t = re.sub(r"^(?:hey\s+|ok\s+)?jarvis,?\s+", "", t)
     t = re.sub(r"^(?:(?:and|so|wait|but|then|ok|okay|hold\s+on|hang\s+on|um+|uh+|hey|please|jarvis|sorry|pardon|excuse\s+me|"
                r"(?:can|could|would|will)\s+(?:you|u)(?:\s+please)?)\s*,?\s+)+", "", t)

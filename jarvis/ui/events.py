@@ -24,6 +24,7 @@ class AssistantState(StrEnum):
 
 class ConnectionState(StrEnum):
     ONLINE = "ONLINE"
+    DEGRADED = "DEGRADED"
     OFFLINE = "OFFLINE"
     RECONNECTING = "RECONNECTING"
 

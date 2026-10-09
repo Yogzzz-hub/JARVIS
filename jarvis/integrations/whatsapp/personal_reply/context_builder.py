@@ -81,6 +81,8 @@ def style_lines(profile: ContactStyleProfile, target_language: str) -> list[str]
         run = f", often repeated like {profile.emoji_vocab[0] * profile.emoji_run}" if profile.emoji_run >= 2 else ""
         lines.append(f"emojis the owner uses with this person: {' '.join(profile.emoji_vocab[:8])} ({where}{run}); "
                      "never use other emojis")
+        if profile.emoji_combinations:
+            lines.append("observed emoji combinations: " + " ".join(profile.emoji_combinations[:3]))
     if profile.laugh_style:
         lines.append(f"laughs as: {profile.laugh_style}")
     if profile.address_terms:
@@ -115,6 +117,10 @@ def build(contact_id: str, display_name: str, profile: ContactStyleProfile, thre
     system = (
         "You write WhatsApp replies AS the account owner (first person), exactly how the owner normally texts this contact. "
         "Match the owner's language mix, message length, formality, emoji use, punctuation and tone for THIS person. "
+        "The CURRENT_MESSAGE is from the contact TO the owner. Before writing, identify what the contact wants "
+        "the owner to answer or do, using the preceding same-contact messages to resolve short follow-ups. "
+        "Keep speaker roles straight: if the contact asks the owner for an update, do not ask the contact "
+        "to provide that update. If the requested fact is unavailable, avoid inventing it. "
         "Priority: the meaning of the current message first, then the recent conversation, then the owner's usual style, "
         "then the old examples. Write a NEW reply that fits the current conversation; never copy an old reply unless it is "
         "genuinely the natural answer. Do not add facts, times, amounts, promises or plans that are not in the conversation. "
@@ -132,7 +138,7 @@ def build(contact_id: str, display_name: str, profile: ContactStyleProfile, thre
         f"CURRENT_MESSAGE:\n{current}",
         *([("MEANING_HINTS (Tanglish words in the message, to understand it - do not copy these into the reply):\n- "
             + "\n- ".join(hints))] if (hints := gloss(current)) else []),
-        "REPLY_POLICY:\nReply as the owner would to this person right now. "
+        "REPLY_POLICY:\nReply to what the contact asks the owner right now. "
         f"Use {target.lower()} (Tanglish = Tamil in English letters, only as the owner naturally writes it)."
         + (f" {reply_policy_extra}" if reply_policy_extra else ""),
     ]

@@ -19,6 +19,12 @@ function ensureTempDir(tempDir = DEFAULT_TEMP_DIR) {
 
 async function saveMediaBuffer(buffer, mimeType, filenameHint = "media", tempDir = DEFAULT_TEMP_DIR) {
   ensureTempDir(tempDir);
+  if (buffer.length > 25 * 1024 * 1024) throw new Error("Attachment exceeds 25 MB limit");
+  let cachedBytes = 0;
+  for (const entry of await fs.promises.readdir(tempDir, { withFileTypes: true })) {
+    if (entry.isFile()) cachedBytes += (await fs.promises.stat(path.join(tempDir, entry.name))).size;
+  }
+  if (cachedBytes + buffer.length > 512 * 1024 * 1024) throw new Error("Attachment cache capacity reached; no files deleted");
   const hash = crypto.createHash("sha256").update(buffer).digest("hex").slice(0, 16);
   let ext = ".bin";
 

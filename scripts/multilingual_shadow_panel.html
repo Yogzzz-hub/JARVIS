@@ -1,0 +1,23 @@
+<section id="shadowPanel"><h2>Multilingual NLP — Shadow Disagreements</h2>
+<p>Production executes. V2 candidate is advisory only. English · Tanglish · Tamil · Mixed · ASR.
+Normal WhatsApp messages use conversation-only features; Personal Reply Brain keeps truth and style gates. No new auto-reply permission.</p>
+<button id="shadowRefresh">Refresh shadow evidence</button><button id="shadowPrevious">Previous disagreements</button><button id="shadowNext">Next disagreements</button><pre id="shadowSummary"></pre>
+<div id="shadowCases"></div></section>
+<script>
+let shadowOffset=0;
+async function refreshShadow(){
+ const s=await fetch('/api/shadow?offset='+shadowOffset).then(r=>r.json());
+ document.getElementById('shadowSummary').textContent=JSON.stringify({enabled:s.enabled,production_nlp:s.production_nlp,candidate_nlp:s.candidate_nlp,production_authoritative:s.production_authoritative,languages:s.language_status,real_metrics:s.real_metrics,DEV_ONLY_PROVISIONAL:s.DEV_ONLY_PROVISIONAL,counts:s.counts,sources:s.sources,agreement:s.agreement,owner_reviewed:s.owner_reviewed,review_counts:s.review_counts,latency:s.latency,disagreements:s.disagreement_total,offset:s.offset,execute_precision:s.execute_precision,execute_coverage:s.execute_coverage,note:s.note,counters:s.counters},null,2);
+ document.getElementById('shadowNext').disabled=shadowOffset+50>=s.disagreement_total;
+ document.getElementById('shadowPrevious').disabled=shadowOffset===0;
+ const box=document.getElementById('shadowCases');box.replaceChildren();
+ for(const row of s.disagreements){const d=document.createElement('details'),title=document.createElement('summary');title.textContent=row.source+' · '+row.language+' · '+row.raw_text;d.append(title);
+ const p=document.createElement('pre');p.textContent=JSON.stringify({production:row.production,candidate:row.candidate,agreement:row.agreements,owner_decision:row.owner_decision},null,2);d.append(p);
+ for(const decision of ['PRODUCTION_CORRECT','CANDIDATE_CORRECT','BOTH_CORRECT','BOTH_WRONG','UNSURE']){const b=document.createElement('button');b.textContent=decision;b.onclick=async()=>{const reviewer=document.getElementById('reviewer').value;if(!reviewer.trim()){alert('Enter reviewer identity first');return;}
+ const r=await fetch('/api/shadow/review',{method:'POST',headers:{'Content-Type':'application/json','X-Audit-Token':'__TOKEN__'},body:JSON.stringify({case_id:row.id,decision,reviewer})});if(!r.ok){alert('Review could not be saved');return;}await refreshShadow();};d.append(b);}box.append(d);}
+}
+document.getElementById('shadowRefresh').onclick=()=>refreshShadow().catch(()=>{document.getElementById('shadowSummary').textContent='Shadow service unavailable';});
+document.getElementById('shadowNext').onclick=()=>{shadowOffset+=50;refreshShadow();};
+document.getElementById('shadowPrevious').onclick=()=>{shadowOffset=Math.max(0,shadowOffset-50);refreshShadow();};
+refreshShadow().catch(()=>{});
+</script>

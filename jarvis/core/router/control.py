@@ -116,9 +116,10 @@ def match_control(text: str, request_id: str) -> RouteDecision | None:
     elif cleaned in ("confirm", "yes", "proceed", "approve", "do it", "sure", "go ahead", "yes go ahead", "yes do it", "yes please",
                    "ok do it", "okay do it", "sure go ahead", "confirmed", "yep", "yeah", "yeah do it", "go for it", "yes proceed",
                    "send it", "yes send it", "ok send it") \
-            or cleaned.startswith(("confirm ticket", "approve ticket")):
+            or cleaned.startswith(("confirm ticket", "approve ticket")) \
+            or re.fullmatch(r"(?:confirm|approve) tkt_[a-z0-9]+", cleaned):
         parts = cleaned.split()
-        ticket_id = parts[2] if len(parts) >= 3 else ""
+        ticket_id = parts[2] if len(parts) >= 3 else parts[1] if len(parts) == 2 and parts[1].startswith("tkt_") else ""
         return RouteDecision(
             request_id=request_id,
             lane=RouteLane.CONTROL,

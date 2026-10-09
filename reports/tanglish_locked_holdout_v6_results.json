@@ -1,0 +1,4973 @@
+{
+  "file": "jarvis\\tests\\fixtures\\tanglish_corpus\\locked_holdout_v6.jsonl.gz",
+  "counts": {
+    "total": 5000,
+    "speech_correct": 4398,
+    "action_correct": 4596,
+    "target_correct": 4614,
+    "recipient_correct": 3979,
+    "channel_correct": 4913,
+    "gold_slots": 6548,
+    "predicted_slots": 8492,
+    "correct_slots": 5737,
+    "no_action": 1988,
+    "false_action": 8,
+    "prohibition_cases": 504,
+    "prohibition_correct": 504,
+    "context_cases": 1338,
+    "context_target_correct": 1187,
+    "polysemous_cases": 1994,
+    "polysemous_action_correct": 1737,
+    "action_cases": 3012,
+    "triggered": 2705,
+    "action_true_positive": 2616,
+    "exclusion_cases": 361,
+    "exclusion_correct": 361
+  },
+  "metrics": {
+    "speech_accuracy": 0.8796,
+    "semantic_action_accuracy": 0.9192,
+    "target_accuracy": 0.9228,
+    "recipient_accuracy": 0.7958,
+    "channel_accuracy": 0.9826,
+    "no_action_specificity": 0.9959758551307847,
+    "false_action_rate": 0.004024144869215292,
+    "slot_precision": 0.6755770136599152,
+    "slot_recall": 0.8761453879047038,
+    "slot_f1": 0.7628989361702128,
+    "prohibition_accuracy": 1.0,
+    "context_target_accuracy": 0.8871449925261584,
+    "verb_sense_accuracy": 0.8711133400200601,
+    "explicit_exclusion_accuracy": 1.0,
+    "action_trigger_precision": 0.9642462218945816
+  },
+  "by_action": {
+    "NO_ACTION": {
+      "total": 1988,
+      "correct": 1980
+    },
+    "REWRITE_STYLE": {
+      "total": 117,
+      "correct": 117
+    },
+    "SELECT": {
+      "total": 170,
+      "correct": 131
+    },
+    "SUMMARIZE": {
+      "total": 145,
+      "correct": 111
+    },
+    "DRAFT_REPLY": {
+      "total": 131,
+      "correct": 58
+    },
+    "LIST": {
+      "total": 196,
+      "correct": 196
+    },
+    "CREATE": {
+      "total": 110,
+      "correct": 110
+    },
+    "ENTER": {
+      "total": 111,
+      "correct": 105
+    },
+    "SET_VALUE": {
+      "total": 141,
+      "correct": 127
+    },
+    "INSTALL": {
+      "total": 191,
+      "correct": 191
+    },
+    "RETRIEVE": {
+      "total": 125,
+      "correct": 71
+    },
+    "PROVIDE": {
+      "total": 120,
+      "correct": 61
+    },
+    "PLAY": {
+      "total": 133,
+      "correct": 133
+    },
+    "SWITCH_RESOURCE": {
+      "total": 179,
+      "correct": 163
+    },
+    "DISPLAY": {
+      "total": 213,
+      "correct": 213
+    },
+    "READ": {
+      "total": 126,
+      "correct": 83
+    },
+    "INSERT": {
+      "total": 135,
+      "correct": 135
+    },
+    "CAPTURE": {
+      "total": 167,
+      "correct": 167
+    },
+    "CHECK_STATUS": {
+      "total": 183,
+      "correct": 183
+    },
+    "CONVERT_FORMAT": {
+      "total": 195,
+      "correct": 137
+    },
+    "SEND": {
+      "total": 124,
+      "correct": 124
+    }
+  },
+  "top_confusions": [
+    [
+      "DRAFT_REPLY -> NO_ACTION",
+      73
+    ],
+    [
+      "PROVIDE -> SEND",
+      59
+    ],
+    [
+      "CONVERT_FORMAT -> NO_ACTION",
+      58
+    ],
+    [
+      "RETRIEVE -> NO_ACTION",
+      48
+    ],
+    [
+      "READ -> NO_ACTION",
+      43
+    ],
+    [
+      "SELECT -> NO_ACTION",
+      39
+    ],
+    [
+      "SUMMARIZE -> SEND",
+      24
+    ],
+    [
+      "SWITCH_RESOURCE -> NO_ACTION",
+      16
+    ],
+    [
+      "SET_VALUE -> NO_ACTION",
+      14
+    ],
+    [
+      "SUMMARIZE -> NO_ACTION",
+      10
+    ],
+    [
+      "RETRIEVE -> SELECT",
+      6
+    ],
+    [
+      "ENTER -> NO_ACTION",
+      6
+    ],
+    [
+      "NO_ACTION -> SWITCH_RESOURCE",
+      3
+    ],
+    [
+      "NO_ACTION -> REWRITE_STYLE",
+      3
+    ],
+    [
+      "NO_ACTION -> CONVERT_FORMAT",
+      1
+    ],
+    [
+      "NO_ACTION -> SET_VALUE",
+      1
+    ]
+  ],
+  "failure_examples": [
+    {
+      "text": "next step la latest chat summary irukku Phoenix ku; kudu please",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": "latest"
+      },
+      "predicted": {
+        "text": "next step la latest chat summary irukku Phoenix ku; kudu please",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "CHAT",
+        "recipient": "Phoenix",
+        "channel": null,
+        "selector": "latest",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "CHAT",
+          "recipient": "Phoenix",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la yesterday oda number irukku Sigma ku; kodu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "NUMBER",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda"
+      },
+      "predicted": {
+        "text": "next step la yesterday oda number irukku Sigma ku; kodu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "NUMBER",
+        "recipient": "Sigma",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kodu",
+              "give"
+            ]
+          ],
+          "object": "NUMBER",
+          "recipient": "Sigma",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la old file irukku CREO ku; thaa",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "old"
+      },
+      "predicted": {
+        "text": "next step la old file irukku CREO ku; thaa",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "FILE",
+        "recipient": "CREO",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "thaa",
+              "give"
+            ]
+          ],
+          "object": "FILE",
+          "recipient": "CREO",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Mango review mudinja apram, Meena oda image pdf ah paathu mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Mango review mudinja apram, Meena oda image pdf ah paathu mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "IMAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Phoenix review mudinja apram, Arun oda document pdf ah paathu mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Phoenix review mudinja apram, Arun oda document pdf ah paathu mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu thedu",
+      "previous_turns": [
+        "First we discussed Helix",
+        "Then Divya selected third database la data"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "DATABASE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la new answer irukku Nimbus ku; kudu seri",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "new"
+      },
+      "predicted": {
+        "text": "next step la new answer irukku Nimbus ku; kudu seri",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Nimbus",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Nimbus",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Renu yesterday sonna database la data ready ah irukku; adhai thedu please",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Renu yesterday sonna database la data ready ah irukku; adhai thedu please",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "DATABASE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Mango review mudinja apram, Yoga oda document paathu kaatu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Mango review mudinja apram, Yoga oda document paathu kaatu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "LIST",
+          "DISPLAY",
+          "READ",
+          "OPEN",
+          "DIAGNOSE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "kaatu",
+              "show"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Atlas",
+        "Then Arun selected old reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "old",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la new answer irukku Atlas ku; kudu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "new"
+      },
+      "predicted": {
+        "text": "next step la new answer irukku Atlas ku; kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Atlas",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Atlas",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu reply ready pannu",
+      "previous_turns": [
+        "First we discussed Mango",
+        "Then Meena selected new message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "new",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "ippo Naveen yesterday sonna image pdf ah ready ah irukku; adhai mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "ippo Naveen yesterday sonna image pdf ah ready ah irukku; adhai mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "IMAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "work note Orbit la document mark panniyachu; ippo kaatu thanks",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Orbit la document mark panniyachu; ippo kaatu thanks",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "LIST",
+          "DISPLAY",
+          "READ",
+          "OPEN",
+          "DIAGNOSE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kaatu",
+              "show"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Kumar yesterday sonna folder la file ready ah irukku; adhai thedu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Kumar yesterday sonna folder la file ready ah irukku; adhai thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "FOLDER",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "FOLDER",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Divya yesterday sonna folder la file ready ah irukku; adhai thedu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Divya yesterday sonna folder la file ready ah irukku; adhai thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "FOLDER",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "FOLDER",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu reply ready pannu",
+      "previous_turns": [
+        "First we discussed Mango",
+        "Then Bala selected yesterday oda message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "jarvis Mohan yesterday sonna image pdf ah ready ah irukku; adhai maathu, screenshot venam",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "jarvis Mohan yesterday sonna image pdf ah ready ah irukku; adhai maathu, screenshot venam",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [
+          "screenshot"
+        ],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "IMAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la previous answer irukku CREO ku; kodu, screenshot venam",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "previous"
+      },
+      "predicted": {
+        "text": "next step la previous answer irukku CREO ku; kodu, screenshot venam",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "CREO",
+        "channel": null,
+        "selector": "previous",
+        "reference": "previous",
+        "exclusions": [
+          "screenshot"
+        ],
+        "corrections": [],
+        "missing": [
+          "reference",
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kodu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "CREO",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Sigma review mudinja apram, Naveen oda image pdf ah paathu maathu ippo",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Sigma review mudinja apram, Naveen oda image pdf ah paathu maathu ippo",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "IMAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "time irundha Helix review mudinja apram, Deepa oda reply paathu reply ready pannu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "time irundha Helix review mudinja apram, Deepa oda reply paathu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "third one eduthu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Yoga selected third second file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "third"
+      },
+      "predicted": {
+        "text": "third one eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "idhu reply ready pannu",
+      "previous_turns": [
+        "First we discussed Phoenix",
+        "Then Yoga selected latest reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "latest",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "please work note Phoenix la language English ku mark panniyachu; ippo podu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SET_VALUE",
+        "target_type": "LANGUAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "please work note Phoenix la language English ku mark panniyachu; ippo podu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "LANGUAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PLAY",
+          "SET_VALUE",
+          "ENTER",
+          "UPLOAD",
+          "INSTALL",
+          "CREATE",
+          "INSERT"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "podu",
+              "put"
+            ]
+          ],
+          "object": "LANGUAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Orbit review mudinja apram, Arun oda document paathu kaatu thanks",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Orbit review mudinja apram, Arun oda document paathu kaatu thanks",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "LIST",
+          "DISPLAY",
+          "READ",
+          "OPEN",
+          "DIAGNOSE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "kaatu",
+              "show"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Siva yesterday sonna folder la file ready ah irukku; adhai thedu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "old"
+      },
+      "predicted": {
+        "text": "Siva yesterday sonna folder la file ready ah irukku; adhai thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "FOLDER",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "FOLDER",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Nimbus",
+        "Then Yoga selected second chat summary"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": "second",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "CHAT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Phoenix review mudinja apram, Yoga oda document paathu kaatu, screenshot venam",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Phoenix review mudinja apram, Yoga oda document paathu kaatu, screenshot venam",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [
+          "screenshot"
+        ],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "LIST",
+          "DISPLAY",
+          "READ",
+          "OPEN",
+          "DIAGNOSE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "kaatu",
+              "show"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Delta review mudinja apram, Kumar oda document pdf ah paathu mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Delta review mudinja apram, Kumar oda document pdf ah paathu mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu thedu",
+      "previous_turns": [
+        "First we discussed Mango",
+        "Then Meena selected old folder la file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "old",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "FILE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "idhu eduthu",
+      "previous_turns": [
+        "First we discussed Atlas",
+        "Then Renu selected previous folder la file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "previous",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.9,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": "FILE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la old summary irukku Mango ku; kudu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "SUMMARY",
+        "recipient": null,
+        "channel": null,
+        "selector": "old"
+      },
+      "predicted": {
+        "text": "next step la old summary irukku Mango ku; kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "SUMMARY",
+        "recipient": "Mango",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "SUMMARY",
+          "recipient": "Mango",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Cedar",
+        "Then Renu selected new message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "new",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "last one edu",
+      "previous_turns": [
+        "First we discussed Cedar",
+        "Then Anu selected last second file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "last"
+      },
+      "predicted": {
+        "text": "last one edu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": "last",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "edu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la last file irukku Nimbus ku; thaa",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "last"
+      },
+      "predicted": {
+        "text": "next step la last file irukku Nimbus ku; thaa",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "FILE",
+        "recipient": "Nimbus",
+        "channel": null,
+        "selector": "last",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "thaa",
+              "give"
+            ]
+          ],
+          "object": "FILE",
+          "recipient": "Nimbus",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la second summary irukku Phoenix ku; kudu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "SUMMARY",
+        "recipient": null,
+        "channel": null,
+        "selector": "second"
+      },
+      "predicted": {
+        "text": "next step la second summary irukku Phoenix ku; kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "SUMMARY",
+        "recipient": "Phoenix",
+        "channel": null,
+        "selector": "second",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "SUMMARY",
+          "recipient": "Phoenix",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "work note Phoenix la tab mark panniyachu; ippo math who thanks",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "TAB",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Phoenix la tab mark panniyachu; ippo math who thanks",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SWITCH_RESOURCE",
+        "target_type": "TAB",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "tab_selection"
+        ],
+        "candidate_actions": [
+          "SWITCH_RESOURCE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "math",
+              "change"
+            ]
+          ],
+          "object": "TAB",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "yesterday oda one edu",
+      "previous_turns": [
+        "First we discussed Orbit",
+        "Then Kumar selected yesterday oda third pdf"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "PDF",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda"
+      },
+      "predicted": {
+        "text": "yesterday oda one edu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "edu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Anu yesterday sonna folder la file ready ah irukku; adhai eduthu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Anu yesterday sonna folder la file ready ah irukku; adhai eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "FOLDER",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": "FOLDER",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Mango review mudinja apram, Divya oda image pdf ah paathu maathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Mango review mudinja apram, Divya oda image pdf ah paathu maathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "IMAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu math who",
+      "previous_turns": [
+        "First we discussed Atlas",
+        "Then Siva selected second tab"
+      ],
+      "expected": {
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "TAB",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu math who",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SWITCH_RESOURCE",
+        "target_type": "TAB",
+        "recipient": null,
+        "channel": null,
+        "selector": "second",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [
+          "SWITCH_RESOURCE"
+        ],
+        "confidence": 0.9,
+        "evidence": {
+          "lexical_families": [
+            [
+              "math",
+              "change"
+            ]
+          ],
+          "object": "TAB",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Ravi yesterday sonna database la data ready ah irukku; adhai thedu ippo",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Ravi yesterday sonna database la data ready ah irukku; adhai thedu ippo",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "DATABASE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "work note Atlas la document mark panniyachu; ippo paaru, screenshot venam",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Atlas la document mark panniyachu; ippo paaru, screenshot venam",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [
+          "screenshot"
+        ],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la latest answer irukku Delta ku; thaa",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "latest"
+      },
+      "predicted": {
+        "text": "next step la latest answer irukku Delta ku; thaa",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Delta",
+        "channel": null,
+        "selector": "latest",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "thaa",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Delta",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Sara selected third message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Cedar review mudinja apram, Anu oda document pdf ah paathu mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Cedar review mudinja apram, Anu oda document pdf ah paathu mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Anu selected latest chat summary"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": "latest",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "CHAT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Phoenix review mudinja apram, Siva oda document pdf ah paathu maathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Phoenix review mudinja apram, Siva oda document pdf ah paathu maathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Vimal yesterday sonna folder la file ready ah irukku; adhai thedu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Vimal yesterday sonna folder la file ready ah irukku; adhai thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "FOLDER",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "FOLDER",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "konjam Priya yesterday sonna document pdf ah ready ah irukku; adhai mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "konjam Priya yesterday sonna document pdf ah ready ah irukku; adhai mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Siva yesterday sonna language English ku ready ah irukku; adhai podu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SET_VALUE",
+        "target_type": "LANGUAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Siva yesterday sonna language English ku ready ah irukku; adhai podu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "LANGUAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PLAY",
+          "SET_VALUE",
+          "ENTER",
+          "UPLOAD",
+          "INSTALL",
+          "CREATE",
+          "INSERT"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "podu",
+              "put"
+            ]
+          ],
+          "object": "LANGUAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "new one edu",
+      "previous_turns": [
+        "First we discussed Cedar",
+        "Then Kumar selected new third pdf"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "PDF",
+        "recipient": null,
+        "channel": null,
+        "selector": "new"
+      },
+      "predicted": {
+        "text": "new one edu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "edu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Helix review mudinja apram, Sara oda document pdf ah paathu maathu please",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Helix review mudinja apram, Sara oda document pdf ah paathu maathu please",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Arun selected yesterday oda chat summary"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "CHAT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la yesterday oda answer irukku Delta ku; thaa",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda"
+      },
+      "predicted": {
+        "text": "next step la yesterday oda answer irukku Delta ku; thaa",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Delta",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "thaa",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Delta",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Asha yesterday sonna folder la file ready ah irukku; adhai eduthu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Asha yesterday sonna folder la file ready ah irukku; adhai eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "FOLDER",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": "FOLDER",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Mango review mudinja apram, Akash oda document pdf ah paathu maathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Mango review mudinja apram, Akash oda document pdf ah paathu maathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la old answer irukku Atlas ku; kodu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "old"
+      },
+      "predicted": {
+        "text": "next step la old answer irukku Atlas ku; kodu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Atlas",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kodu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Atlas",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Cedar review mudinja apram, Renu oda document paathu paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Cedar review mudinja apram, Renu oda document paathu paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu thedu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Anu selected old database la data"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": "old",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "DATABASE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed CREO",
+        "Then Bala selected third chat summary"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "CHAT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la latest answer irukku Phoenix ku; kodu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "latest"
+      },
+      "predicted": {
+        "text": "next step la latest answer irukku Phoenix ku; kodu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Phoenix",
+        "channel": null,
+        "selector": "latest",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kodu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Phoenix",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Atlas",
+        "Then Kumar selected yesterday oda reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "work note Mango la document mark panniyachu; ippo paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Mango la document mark panniyachu; ippo paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Mango review mudinja apram, Karthik oda document paathu paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Mango review mudinja apram, Karthik oda document paathu paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "third one eduu",
+      "previous_turns": [
+        "First we discussed Delta",
+        "Then Divya selected third third pdf"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "PDF",
+        "recipient": null,
+        "channel": null,
+        "selector": "third"
+      },
+      "predicted": {
+        "text": "third one eduu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "idhu maathu",
+      "previous_turns": [
+        "First we discussed Delta",
+        "Then Akash selected previous Chrome Edge ku"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SWITCH_RESOURCE",
+        "target_type": "APP",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu maathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "APP",
+        "recipient": null,
+        "channel": null,
+        "selector": "previous",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "APP",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "seekiram Atlas review mudinja apram, Karthik oda reply paathu reply ready pannu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "seekiram Atlas review mudinja apram, Karthik oda reply paathu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Atlas review mudinja apram, Arun oda document paathu kaatu pannunga, screenshot venam",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Atlas review mudinja apram, Arun oda document paathu kaatu pannunga, screenshot venam",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [
+          "screenshot"
+        ],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "LIST",
+          "DISPLAY",
+          "READ",
+          "OPEN",
+          "DIAGNOSE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "kaatu",
+              "show"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu reply ready pannu",
+      "previous_turns": [
+        "First we discussed Mango",
+        "Then Divya selected last message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "last",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "work note Nimbus la document mark panniyachu; ippo paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Nimbus la document mark panniyachu; ippo paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Phoenix",
+        "Then Siva selected latest chat summary"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "CHAT",
+        "recipient": null,
+        "channel": null,
+        "selector": "latest",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "CHAT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la third number irukku Cedar ku; thaa da",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "NUMBER",
+        "recipient": null,
+        "channel": null,
+        "selector": "third"
+      },
+      "predicted": {
+        "text": "next step la third number irukku Cedar ku; thaa da",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "NUMBER",
+        "recipient": "Cedar",
+        "channel": null,
+        "selector": "third",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "thaa",
+              "give"
+            ]
+          ],
+          "object": "NUMBER",
+          "recipient": "Cedar",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Cedar",
+        "Then Meena selected new message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "new",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Nimbus",
+        "Then Kumar selected third reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "konjam Mango review mudinja apram, Kumar oda message reply paathu reply ready pannu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "konjam Mango review mudinja apram, Kumar oda message reply paathu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu mathu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Renu selected new Chrome Edge ku"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SWITCH_RESOURCE",
+        "target_type": "APP",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "APP",
+        "recipient": null,
+        "channel": null,
+        "selector": "new",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "APP",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Phoenix review mudinja apram, Yoga oda document paathu paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Phoenix review mudinja apram, Yoga oda document paathu paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "yesterday oda one edu",
+      "previous_turns": [
+        "First we discussed Mango",
+        "Then Asha selected yesterday oda third pdf"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "PDF",
+        "recipient": null,
+        "channel": null,
+        "selector": "yesterday oda"
+      },
+      "predicted": {
+        "text": "yesterday oda one edu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "edu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "idhu kudu",
+      "previous_turns": [
+        "First we discussed Delta",
+        "Then Renu selected third reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PROVIDE",
+          "SEND",
+          "RETURN",
+          "DRAFT_REPLY"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "old one eduthu",
+      "previous_turns": [
+        "First we discussed Phoenix",
+        "Then Mohan selected old second file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "old"
+      },
+      "predicted": {
+        "text": "old one eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "next step la new answer irukku Helix ku; kodu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "new"
+      },
+      "predicted": {
+        "text": "next step la new answer irukku Helix ku; kodu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Helix",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kodu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Helix",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "jarvis Vimal yesterday sonna image pdf ah ready ah irukku; adhai mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "jarvis Vimal yesterday sonna image pdf ah ready ah irukku; adhai mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "IMAGE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "IMAGE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la new file irukku Nimbus ku; thaa",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "new"
+      },
+      "predicted": {
+        "text": "next step la new file irukku Nimbus ku; thaa",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "FILE",
+        "recipient": "Nimbus",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "thaa",
+              "give"
+            ]
+          ],
+          "object": "FILE",
+          "recipient": "Nimbus",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Akash yesterday sonna login code ready ah irukku; adhai podu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "ENTER",
+        "target_type": "TEXT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Akash yesterday sonna login code ready ah irukku; adhai podu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "PLAY",
+          "SET_VALUE",
+          "ENTER",
+          "UPLOAD",
+          "INSTALL",
+          "CREATE",
+          "INSERT"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "podu",
+              "put"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "intha task ku Mohan yesterday sonna document pdf ah ready ah irukku; adhai matu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "intha task ku Mohan yesterday sonna document pdf ah ready ah irukku; adhai matu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": "task",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "matu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": "task",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "work note Orbit la document mark panniyachu; ippo paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Orbit la document mark panniyachu; ippo paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu thedu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Priya selected previous folder la file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu thedu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "previous",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "FILE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "work note Phoenix la document mark panniyachu; ippo paaru",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "work note Phoenix la document mark panniyachu; ippo paaru",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "new one eduthu",
+      "previous_turns": [
+        "First we discussed Nimbus",
+        "Then Yoga selected new third pdf"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "PDF",
+        "recipient": null,
+        "channel": null,
+        "selector": "new"
+      },
+      "predicted": {
+        "text": "new one eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Vimal yesterday sonna database la data ready ah irukku; adhai thedu, screenshot venam",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Vimal yesterday sonna database la data ready ah irukku; adhai thedu, screenshot venam",
+        "language": "tanglish",
+        "speech_act": "PROHIBITION",
+        "action": null,
+        "target_type": "DATABASE",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [
+          "screenshot"
+        ],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "DATABASE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la third answer irukku Helix ku; kudu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "PROVIDE",
+        "target_type": "ANSWER",
+        "recipient": null,
+        "channel": null,
+        "selector": "third"
+      },
+      "predicted": {
+        "text": "next step la third answer irukku Helix ku; kudu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "ANSWER",
+        "recipient": "Helix",
+        "channel": null,
+        "selector": "third",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "ANSWER",
+          "recipient": "Helix",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu eduthu",
+      "previous_turns": [
+        "First we discussed Sigma",
+        "Then Sara selected third folder la file"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "RETRIEVE",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "FILE",
+        "recipient": null,
+        "channel": null,
+        "selector": "third",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.9,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": "FILE",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "Cedar review mudinja apram, Mohan oda document pdf ah paathu maathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Cedar review mudinja apram, Mohan oda document pdf ah paathu maathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "maathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "jarvis Ravi yesterday sonna document pdf ah ready ah irukku; adhai mathu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "CONVERT_FORMAT",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "jarvis Ravi yesterday sonna document pdf ah ready ah irukku; adhai mathu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "SET_VALUE",
+          "CONVERT_FORMAT",
+          "SWITCH_RESOURCE",
+          "REPLACE_ENTITY",
+          "REWRITE_STYLE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "mathu",
+              "change"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "Mango review mudinja apram, Mohan oda document paathu paaru please",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "READ",
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "Mango review mudinja apram, Mohan oda document paathu paaru please",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "DOCUMENT",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ],
+            [
+              "paaru",
+              "see"
+            ]
+          ],
+          "object": "DOCUMENT",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "idhu reply ready pannu",
+      "previous_turns": [
+        "First we discussed Nimbus",
+        "Then Naveen selected new message reply"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "idhu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "UNKNOWN",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": "new",
+        "reference": "idhu",
+        "exclusions": [],
+        "corrections": [],
+        "missing": [],
+        "candidate_actions": [],
+        "confidence": 0.25,
+        "evidence": {
+          "lexical_families": [],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    },
+    {
+      "text": "seekiram CREO review mudinja apram, Meena oda message reply paathu reply ready pannu",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "DRAFT_REPLY",
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null
+      },
+      "predicted": {
+        "text": "seekiram CREO review mudinja apram, Meena oda message reply paathu reply ready pannu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": "REPLY",
+        "recipient": null,
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "READ",
+          "INSPECT",
+          "CHECK_STATUS"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "paathu",
+              "see"
+            ]
+          ],
+          "object": "REPLY",
+          "recipient": null,
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "next step la old summary irukku Cedar ku; kudu please",
+      "previous_turns": [],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SUMMARIZE",
+        "target_type": "SUMMARY",
+        "recipient": null,
+        "channel": null,
+        "selector": "old"
+      },
+      "predicted": {
+        "text": "next step la old summary irukku Cedar ku; kudu please",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": "SEND",
+        "target_type": "SUMMARY",
+        "recipient": "Cedar",
+        "channel": null,
+        "selector": null,
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "channel"
+        ],
+        "candidate_actions": [
+          "SEND",
+          "PROVIDE"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "kudu",
+              "give"
+            ]
+          ],
+          "object": "SUMMARY",
+          "recipient": "Cedar",
+          "channel": null,
+          "context_keys": []
+        }
+      }
+    },
+    {
+      "text": "last one eduthu",
+      "previous_turns": [
+        "First we discussed Helix",
+        "Then Naveen selected last third pdf"
+      ],
+      "expected": {
+        "speech_act": "COMMAND",
+        "action": "SELECT",
+        "target_type": "PDF",
+        "recipient": null,
+        "channel": null,
+        "selector": "last"
+      },
+      "predicted": {
+        "text": "last one eduthu",
+        "language": "tanglish",
+        "speech_act": "COMMAND",
+        "action": null,
+        "target_type": null,
+        "recipient": null,
+        "channel": null,
+        "selector": "last",
+        "reference": null,
+        "exclusions": [],
+        "corrections": [],
+        "missing": [
+          "verb_sense"
+        ],
+        "candidate_actions": [
+          "CAPTURE",
+          "SELECT",
+          "RETRIEVE",
+          "READ"
+        ],
+        "confidence": 0.55,
+        "evidence": {
+          "lexical_families": [
+            [
+              "eduthu",
+              "take"
+            ]
+          ],
+          "object": null,
+          "recipient": null,
+          "channel": null,
+          "context_keys": [
+            "selected_resource",
+            "semantic_hints"
+          ]
+        }
+      }
+    }
+  ],
+  "limitations": "Synthetic grammar benchmark; no end-to-end capability, policy, execution or human-label accuracy claim."
+}

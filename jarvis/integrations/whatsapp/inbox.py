@@ -7,8 +7,10 @@ and reply requirements, and provides concise summaries for voice and text interf
 from __future__ import annotations
 
 import logging
+import json
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -64,7 +66,7 @@ class InboxMessage:
 
     @property
     def is_group(self) -> bool:
-        return not WhatsAppInbox.is_direct_chat(self.chat_id)
+        return WhatsAppInbox.is_group_chat(self.chat_id)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -174,6 +176,8 @@ class WhatsAppInbox:
             db_path = ROOT / "data/whatsapp_inbox.db"
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._sync_event = threading.Event()
+        self._intelligence_lock = threading.RLock()
         self._init_db()
 
     @classmethod
@@ -186,6 +190,14 @@ class WhatsAppInbox:
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def contains_message(self, message_id: str, chat_id: str) -> bool:
+        """True only after this exact message is durable in the canonical inbox."""
+        if not message_id or not chat_id:
+            return False
+        with self._get_conn() as conn:
+            return conn.execute("SELECT 1 FROM whatsapp_messages WHERE message_id=? AND chat_id=?",
+                                (message_id, chat_id)).fetchone() is not None
 
     def _init_db(self) -> None:
         with self._get_conn() as conn:
@@ -265,7 +277,17 @@ class WhatsAppInbox:
             chat_name=(getattr(message, "chat_name", "") or "").strip(),
         )
 
+        if message.state != "READY":
+            from jarvis.integrations.whatsapp.incoming_trace import trace_incoming
+            trace_incoming(stage="sqlite", event_type="incoming_message", message_id=item.message_id,
+                           chat_jid=item.chat_id, sqlite_result="SKIPPED_PENDING_DECRYPTION")
+            return item
+
         with self._get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            prior = conn.execute("SELECT chat_id FROM whatsapp_messages WHERE message_id=?", (item.message_id,)).fetchone()
+            if prior and prior[0] != item.chat_id:
+                raise ValueError("Message identity cannot change thread")
             # a message seen again (history sync, late delivery) keeps its read / replied state
             conn.execute(
                 """
@@ -307,7 +329,19 @@ class WhatsAppInbox:
                     """,
                     (item.chat_id, item.chat_id, item.timestamp),
                 )
+            if not prior:
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('last_sqlite_insert_at', ?)",
+                             (datetime.now().astimezone().isoformat(),))
             conn.commit()
+
+        from jarvis.integrations.whatsapp.incoming_trace import trace_incoming
+        trace_incoming(stage="sqlite", event_type="incoming_message", message_id=item.message_id,
+                       chat_jid=item.chat_id, from_me=item.is_from_me, message_type=item.type,
+                       timestamp=item.timestamp, sqlite_result="DEDUPE_EXISTING" if prior else "INSERTED")
+
+        # Preserve reply/media metadata and invalidate thread context before generation.
+        from jarvis.integrations.whatsapp.intelligence.engine import get_intelligence
+        get_intelligence(self).persist(message.model_copy(update={"is_from_me": is_from_me}))
 
         logger.info(
             "Saved WhatsApp message %s from %s (urgency=%s, needs_reply=%s)",
@@ -330,20 +364,38 @@ class WhatsAppInbox:
             return time.time()
 
     # ------------------------------------------------------------------ chat scope (groups only when asked)
-    def _scoped(self, rows: list, limit: int, include_groups: bool, group: Optional[str]) -> List[InboxMessage]:
+    def _scoped(self, rows: list, limit: int, include_groups: bool, group: Optional[str],
+                group_only: bool = False) -> List[InboxMessage]:
         """Personal chats only by default; ``group`` (a chat id) = only that group; ``include_groups`` = everything."""
         out: List[InboxMessage] = []
         for r in rows:
             m = self._row_to_msg(r)
+            if not (self.is_direct_chat(m.chat_id) or self.is_group_chat(m.chat_id)):
+                continue
             if group:
                 if m.chat_id != group:
                     continue
-            elif not include_groups and m.is_group:
+            elif group_only and not self.is_group_chat(m.chat_id):
+                continue
+            elif not group_only and not include_groups and m.is_group:
                 continue
             out.append(m)
             if len(out) >= limit:
                 break
         return out
+
+    @staticmethod
+    def _scope_sql(include_groups: bool, group: Optional[str], group_only: bool) -> tuple[str, tuple]:
+        """Apply chat scope before LIMIT, so a busy other scope cannot starve results."""
+        if group:
+            return "chat_id = ? AND chat_id LIKE '%@g.us'", (group,)
+        direct = "(chat_id LIKE '%@s.whatsapp.net' OR chat_id LIKE '%@lid' OR chat_id LIKE '%@c.us')"
+        group_chat = "chat_id LIKE '%@g.us'"
+        if group_only:
+            return group_chat, ()
+        if include_groups:
+            return f"({direct} OR {group_chat})", ()
+        return direct, ()
 
     def find_group(self, name: str) -> Optional[Tuple[str, str]]:
         """(chat_id, group name) of the group whose name matches ``name`` ("cse", "CSE group", "the class group")."""
@@ -353,7 +405,8 @@ class WhatsAppInbox:
             return None
         with self._get_conn() as conn:
             rows = conn.execute("SELECT chat_id, chat_name, MAX(timestamp) AS ts FROM whatsapp_messages "
-                                "WHERE chat_name != '' GROUP BY chat_id ORDER BY ts DESC").fetchall()
+                                "WHERE chat_name != '' AND chat_id LIKE '%@g.us' "
+                                "GROUP BY chat_id ORDER BY ts DESC").fetchall()
         exact = [r for r in rows if r["chat_name"].casefold() == q]
         partial = [r for r in rows if q in r["chat_name"].casefold()
                    or all(w in r["chat_name"].casefold().split() for w in q.split())]
@@ -364,17 +417,19 @@ class WhatsAppInbox:
 
     def group_names(self) -> List[str]:
         with self._get_conn() as conn:
-            rows = conn.execute("SELECT DISTINCT chat_name FROM whatsapp_messages WHERE chat_name != ''").fetchall()
+            rows = conn.execute("SELECT DISTINCT chat_name FROM whatsapp_messages "
+                                "WHERE chat_name != '' AND chat_id LIKE '%@g.us'").fetchall()
         return sorted(r[0] for r in rows)
 
     def get_messages_needing_reply(self, limit: int = 10, include_groups: bool = False,
-                                   group: Optional[str] = None) -> List[InboxMessage]:
+                                   group: Optional[str] = None, group_only: bool = False) -> List[InboxMessage]:
         """Pending messages requiring attention ordered by urgency and time (personal chats unless asked)."""
+        scope_sql, scope_args = self._scope_sql(include_groups, group, group_only)
         with self._get_conn() as conn:
             cursor = conn.execute(
-                """
+                f"""
                 SELECT * FROM whatsapp_messages
-                WHERE needs_reply = 1 AND replied = 0 AND is_from_me = 0
+                WHERE needs_reply = 1 AND replied = 0 AND is_from_me = 0 AND {scope_sql}
                 ORDER BY
                     CASE urgency
                         WHEN 'URGENT' THEN 1
@@ -384,17 +439,18 @@ class WhatsAppInbox:
                     timestamp DESC
                 LIMIT ?
                 """,
-                (max(limit * 10, 200),),
+                (*scope_args, limit),
             )
-            return self._scoped(cursor.fetchall(), limit, include_groups, group)
+            return self._scoped(cursor.fetchall(), limit, include_groups, group, group_only)
 
-    def get_unread(self, limit: int = 10, include_groups: bool = False, group: Optional[str] = None) -> List[InboxMessage]:
+    def get_unread(self, limit: int = 10, include_groups: bool = False, group: Optional[str] = None,
+                   group_only: bool = False) -> List[InboxMessage]:
         """Unread incoming messages, newest first (personal chats unless asked).
 
         A chat WhatsApp shows as unread whose messages JARVIS never received contributes its last message.
         """
         out: List[InboxMessage] = []
-        for chat in self.unread_chats(include_groups=include_groups, group=group):
+        for chat in self.unread_chats(include_groups=include_groups, group=group, group_only=group_only):
             msgs = chat["messages"] or ([self._preview_message(chat)] if chat["last_text"] else [])
             if not chat["is_group"]:
                 for m in msgs:  # the name the phone shows (saved contact name)
@@ -403,14 +459,16 @@ class WhatsAppInbox:
         out.sort(key=lambda m: m.timestamp, reverse=True)
         return out[:limit]
 
-    def get_recent(self, limit: int = 10, include_groups: bool = True, group: Optional[str] = None) -> List[InboxMessage]:
+    def get_recent(self, limit: int = 10, include_groups: bool = True, group: Optional[str] = None,
+                   group_only: bool = False) -> List[InboxMessage]:
         """Most recent messages regardless of read status (all chats by default: used for indexing)."""
+        scope_sql, scope_args = self._scope_sql(include_groups, group, group_only)
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT * FROM whatsapp_messages ORDER BY timestamp DESC LIMIT ?",
-                (limit if include_groups and not group else max(limit * 10, 200),),
+                f"SELECT * FROM whatsapp_messages WHERE {scope_sql} ORDER BY timestamp DESC LIMIT ?",
+                (*scope_args, limit),
             )
-            return self._scoped(cursor.fetchall(), limit, include_groups, group)
+            return self._scoped(cursor.fetchall(), limit, include_groups, group, group_only)
 
     def get_chat_history(self, chat_id: str, limit: int = 8) -> List[InboxMessage]:
         """Most recent messages of one conversation, oldest first (for reply context)."""
@@ -425,8 +483,11 @@ class WhatsAppInbox:
     def is_direct_chat(chat_id: str) -> bool:
         """One-to-one chat (not a group, broadcast list, status update or channel)."""
         cid = (chat_id or "").lower()
-        return not (cid.endswith("@g.us") or cid.endswith("@broadcast") or cid.endswith("@newsletter")
-                    or cid.startswith("status@") or cid.endswith("@temp"))
+        return cid.endswith("@s.whatsapp.net") or cid.endswith("@lid") or cid.endswith("@c.us")
+
+    @staticmethod
+    def is_group_chat(chat_id: str) -> bool:
+        return (chat_id or "").lower().endswith("@g.us")
 
     def recent_direct_senders(self, since_s: float = 12 * 3600, limit: int = 15,
                               unanswered_only: bool = True, include_groups: bool = False) -> List[InboxMessage]:
@@ -537,18 +598,36 @@ class WhatsAppInbox:
             return cursor.rowcount
 
     # ------------------------------------------------------------------ WhatsApp's own unread badges (from the bridge)
-    def update_chats(self, chats: List[Dict[str, Any]], full: bool = False, synced: bool = False) -> int:
+    def update_chats(self, chats: List[Dict[str, Any]], full: bool = False, synced: bool = False,
+                     generation: str = "", synced_generation: str = "", event_meta: Optional[Dict[str, Any]] = None) -> int:
         """Stores each chat's unread badge as WhatsApp shows it.
 
         The newest ``unread`` incoming messages of a chat stay unread and older ones become read; a chat at 0 is
         read. With ``full`` and ``synced`` the list covers every chat that has unread messages, so any other chat
         is read too. Returns the number of chats stored.
         """
+        synced = bool(synced and (not generation or generation == synced_generation))
         stored: List[str] = []
         with self._get_conn() as conn:
+            if not generation and conn.execute("SELECT 1 FROM whatsapp_meta WHERE key = 'connector_state'").fetchone():
+                synced = False  # an older bridge cannot prove current-session completeness
+            if generation:
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('sync_generation', ?)",
+                             (generation,))
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('synced_generation', ?)",
+                             (synced_generation if synced else "",))
+            for key in ("last_history_event", "last_chat_state_event", "last_message_event", "store_age_seconds"):
+                value = (event_meta or {}).get(key)
+                if value is not None:
+                    conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES (?, ?)",
+                                 (key, str(value)))
+            for key, value in ((event_meta or {}).get("counts") or {}).items():
+                if key in {"chats", "direct", "groups", "unread_direct_chats", "unread_direct_messages"}:
+                    conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES (?, ?)",
+                                 ("bridge_count_" + key, str(int(value))))
             for c in chats or []:
                 cid = str((c or {}).get("chat_id") or "").strip()
-                if not cid:
+                if not (self.is_direct_chat(cid) or self.is_group_chat(cid)):
                     continue
                 try:
                     unread = max(0, int(c.get("unread") or 0))
@@ -568,11 +647,12 @@ class WhatsAppInbox:
                         updated = excluded.updated
                     """,
                     (cid, str(c.get("name") or "").strip(), unread, last_ts,
-                     1 if (c.get("is_group") or not self.is_direct_chat(cid)) else 0,
+                    1 if self.is_group_chat(cid) else 0,
                      str(c.get("last_text") or "")[:300], str(c.get("last_sender") or "").strip(),
                      1 if c.get("last_from_me") else 0, time.time()),
                 )
-                self._sync_read_flags(conn, cid, unread)
+                if synced or not full:
+                    self._sync_read_flags(conn, cid, unread)
                 stored.append(cid)
             if full and synced:
                 listed = set(stored)
@@ -580,9 +660,16 @@ class WhatsAppInbox:
                     if cid not in listed:
                         conn.execute("UPDATE whatsapp_chats SET unread = 0, updated = ? WHERE chat_id = ?", (time.time(), cid))
                         self._sync_read_flags(conn, cid, 0)
+            conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('chats_synced', ?)",
+                         ("1" if synced else "0",))
             if synced:
-                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('chats_synced', '1')")
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('last_successful_sync_at', ?)",
+                             (datetime.now().astimezone().isoformat(),))
             conn.commit()
+        if self.chats_synced():
+            self._sync_event.set()
+        else:
+            self._sync_event.clear()
         return len(stored)
 
     @staticmethod
@@ -602,11 +689,169 @@ class WhatsAppInbox:
     def chats_synced(self) -> bool:
         """WhatsApp's full chat list has been received: chats without a badge are read."""
         with self._get_conn() as conn:
-            row = conn.execute("SELECT value FROM whatsapp_meta WHERE key = 'chats_synced'").fetchone()
-        return bool(row and row[0] == "1")
+            meta = dict(conn.execute("SELECT key, value FROM whatsapp_meta WHERE key IN "
+                                     "('chats_synced', 'sync_generation', 'synced_generation', 'connector_state')").fetchall())
+        return (meta.get("chats_synced") == "1" and
+                (not meta.get("connector_state") or bool(meta.get("sync_generation"))) and
+                (not meta.get("sync_generation") or meta.get("sync_generation") == meta.get("synced_generation")))
+
+    def sync_state(self) -> str:
+        """Whether the current bridge session supplied a complete chat snapshot."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT value FROM whatsapp_meta WHERE key = 'connector_state'").fetchone()
+        state = row[0] if row else ""
+        if state == "AUTH_REQUIRED":
+            return state
+        if state in {"NOT_CONNECTED", "ERROR"}:
+            return state
+        return "READY" if self.chats_synced() else "PARTIAL_SYNC"
+
+    def wait_for_ready(self, timeout: float = 1.5) -> bool:
+        """Brief event-driven wait for a current-session chat snapshot."""
+        if self.sync_state() == "READY":
+            return True
+        if self.sync_state() in {"NOT_CONNECTED", "AUTH_REQUIRED", "ERROR"}:
+            return False
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT value FROM whatsapp_meta WHERE key = 'connector_state'").fetchone()
+        if not row:  # synthetic/offline inbox: no active connector to wait for
+            return False
+        self._sync_event.wait(max(0.0, min(float(timeout), 2.0)))
+        return self.sync_state() == "READY"
+
+    def set_connector_state(self, bridge_state: str) -> None:
+        state = str(bridge_state or "").upper()
+        if state in {"PAIRING_REQUIRED", "AUTH_REQUIRED"}:
+            state = "AUTH_REQUIRED"
+        elif state in {"CONNECTED", "READY"}:
+            state = "READY"
+        elif state in {"CONNECTING", "RECONNECTING", "SYNCING"}:
+            state = "SYNCING"
+        elif state in {"DEGRADED", "ERROR"}:
+            state = "ERROR"
+        else:
+            state = "NOT_CONNECTED"
+        with self._get_conn() as conn:
+            conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('connector_state', ?)", (state,))
+            if state != "READY":
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('chats_synced', '0')")
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('synced_generation', '')")
+                self._sync_event.clear()
+            conn.commit()
+
+    def set_bridge_runtime(self, identity: Dict[str, Any], diagnostics: Dict[str, Any]) -> None:
+        """Persist metadata-only bridge identity for the local diagnostics view."""
+        with self._get_conn() as conn:
+            for key, value in (("bridge_identity", identity), ("bridge_runtime_diagnostics", diagnostics)):
+                conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES (?, ?)",
+                             (key, json.dumps(value)))
+            conn.commit()
+
+    def record_python_event(self) -> None:
+        """Store receipt time only; message IDs and bodies stay in the opt-in trace."""
+        with self._get_conn() as conn:
+            conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('last_python_event_at', ?)",
+                         (datetime.now().astimezone().isoformat(),))
+            conn.commit()
+
+    def record_live_acceptance(self, *, generation: str, phone_received: bool,
+                               message_received: bool, message_id: str = "",
+                               observed_after: float | None = None) -> None:
+        """Record a phone-confirmed probe against an exact persisted incoming ID.
+
+        Aggregate Baileys event counts cannot establish that the particular
+        phone-confirmed test reached this bridge generation.
+        """
+        if not phone_received:
+            return
+        with self._get_conn() as conn:
+            current = conn.execute("SELECT value FROM whatsapp_meta WHERE key='sync_generation'").fetchone()
+            if current and current[0] == generation:
+                if message_received and message_id and observed_after is not None:
+                    matched = conn.execute("SELECT chat_id,timestamp FROM whatsapp_messages WHERE message_id=? AND is_from_me=0",
+                                           (message_id,)).fetchone()
+                    if matched and self.is_direct_chat(matched[0]) and matched[1] >= observed_after:
+                        conn.execute("INSERT OR REPLACE INTO whatsapp_meta VALUES ('acceptance_verified_generation', ?)", (generation,))
+                        conn.execute("DELETE FROM whatsapp_meta WHERE key='acceptance_failed_generation'")
+                elif not message_received:
+                    conn.execute("INSERT OR REPLACE INTO whatsapp_meta VALUES ('acceptance_failed_generation', ?)", (generation,))
+                conn.commit()
+
+    def diagnostics(self) -> Dict[str, Any]:
+        """Aggregate, body-free connector and message-store diagnostics."""
+        with self._get_conn() as conn:
+            meta = dict(conn.execute("SELECT key, value FROM whatsapp_meta").fetchall())
+            chats = conn.execute("SELECT COUNT(*), SUM(CASE WHEN is_group = 0 THEN 1 ELSE 0 END), "
+                                 "SUM(CASE WHEN is_group != 0 THEN 1 ELSE 0 END), "
+                                 "SUM(CASE WHEN is_group = 0 AND unread > 0 THEN 1 ELSE 0 END), "
+                                 "SUM(CASE WHEN is_group = 0 THEN unread ELSE 0 END), MAX(updated) "
+                                 "FROM whatsapp_chats").fetchone()
+            msgs = conn.execute("SELECT COUNT(*), MIN(timestamp), MAX(timestamp), COUNT(DISTINCT chat_id) "
+                                "FROM whatsapp_messages WHERE is_from_me = 0").fetchone()
+            per_chat = conn.execute("SELECT chat_id, COUNT(*) AS n FROM whatsapp_messages WHERE is_from_me = 0 "
+                                    "GROUP BY chat_id ORDER BY n DESC LIMIT 300").fetchall()
+            missing_bodies = conn.execute("SELECT COUNT(*) FROM whatsapp_chats AS c WHERE c.unread > 0 "
+                                          "AND c.unread > (SELECT COUNT(*) FROM whatsapp_messages AS m "
+                                          "WHERE m.chat_id = c.chat_id AND m.is_from_me = 0 AND m.is_read = 0)").fetchone()[0]
+        def bridge_count(key: str, local: int) -> int:
+            try:
+                return int(meta["bridge_count_" + key])
+            except (KeyError, ValueError):
+                return local
+
+        connector = meta.get("connector_state", "UNKNOWN")
+        history_state = self.sync_state()
+        runtime = json.loads(meta.get("bridge_runtime_diagnostics", "{}"))
+        # A current chat/badge snapshot does not establish complete historical message coverage.
+        local_history_available = bool(msgs[0])
+        chat_snapshot_current = history_state == "READY"
+        stream_verified = (connector == "READY" and runtime.get("generation") == meta.get("sync_generation")
+                           and meta.get("acceptance_verified_generation") == meta.get("sync_generation"))
+        stream_failed = (connector == "READY" and not stream_verified and bool(meta.get("sync_generation"))
+                         and meta.get("acceptance_failed_generation") == meta.get("sync_generation"))
+        # A socket can be open while Baileys is still buffering every inbound event.
+        # Live acceptance requires a separately verified test message from the phone.
+        return {"connector_state": connector,
+                "transport_connected": connector == "READY",
+                "event_stream_verified": stream_verified,
+                "event_stream_failed": stream_failed,
+                "authenticated": bool(json.loads(meta.get("bridge_identity", "{}")).get("auth_registered")),
+                "prompt_delivery_verified": stream_verified,
+                "local_history_available": local_history_available,
+                "chat_snapshot_current": chat_snapshot_current,
+                "history_complete": False,
+                "sync_in_progress": connector == "SYNCING" or (connector == "READY" and
+                                     (runtime.get("event_health") or {}).get("received_pending_notifications") is False),
+                "last_raw_event_at": (runtime.get("event_health") or {}).get("last_raw_node_at"),
+                "last_upsert_at": (runtime.get("event_health") or {}).get("last_message_event"),
+                "last_python_event_at": meta.get("last_python_event_at"),
+                "last_sqlite_insert_at": meta.get("last_sqlite_insert_at"),
+                "last_successful_sync_at": meta.get("last_successful_sync_at"),
+                "overall_state": ("EVENT_STREAM_FAILED" if stream_failed else "DEGRADED_LIVE" if connector == "READY" and
+                                  not stream_verified else
+                                  "READY" if connector == "READY" and history_state == "READY" else
+                                  "LIVE_ONLY" if stream_verified else history_state),
+                "history_sync_state": history_state, "chat_count": bridge_count("chats", chats[0]),
+                "direct_chat_count": bridge_count("direct", chats[1] or 0),
+                "group_count": bridge_count("groups", chats[2] or 0),
+                "unread_direct_chat_count": bridge_count("unread_direct_chats", chats[3] or 0),
+                "unread_message_count": bridge_count("unread_direct_messages", chats[4] or 0),
+                "last_chat_state_event": meta.get("last_chat_state_event"),
+                "last_history_event": meta.get("last_history_event"),
+                "last_message_event": meta.get("last_message_event"),
+                "store_age_seconds": meta.get("store_age_seconds"),
+                "sync_generation": meta.get("sync_generation"),
+                "synced_generation": meta.get("synced_generation"),
+                "last_persisted_chat_update": chats[5],
+                "stored_inbound_messages": msgs[0], "oldest_message_timestamp": msgs[1],
+                "newest_message_timestamp": msgs[2], "chats_with_stored_messages": msgs[3],
+                "message_counts_per_chat": [{"chat_id": r[0], "stored_inbound": r[1]} for r in per_chat],
+                "unread_chats_missing_message_bodies": missing_bodies,
+                "bridge_identity": json.loads(meta.get("bridge_identity", "{}")),
+                "bridge_runtime_diagnostics": json.loads(meta.get("bridge_runtime_diagnostics", "{}"))}
 
     def unread_chats(self, include_groups: bool = False, group: Optional[str] = None,
-                     max_messages: int = 10) -> List[Dict[str, Any]]:
+                     max_messages: int = 10, group_only: bool = False) -> List[Dict[str, Any]]:
         """Chats with unread messages, most recent first.
 
         Each entry: chat_id, name, is_group, unread (WhatsApp's badge count), messages (stored unread messages,
@@ -629,8 +874,12 @@ class WhatsAppInbox:
             stored.setdefault(m.chat_id, []).append(m)
 
         def in_scope(chat_id: str, is_group: bool) -> bool:
+            if not (self.is_direct_chat(chat_id) or self.is_group_chat(chat_id)):
+                return False
             if group:
-                return chat_id == group
+                return chat_id == group and self.is_group_chat(chat_id)
+            if group_only:
+                return self.is_group_chat(chat_id)
             return include_groups or not is_group
 
         out: List[Dict[str, Any]] = []
@@ -644,7 +893,7 @@ class WhatsAppInbox:
             newest = max((m[0].timestamp for m in stored.values()), default=0.0)
             for cid, msgs in stored.items():
                 msgs = [m for m in msgs if m.timestamp >= newest - 3 * 24 * 3600]
-                if not msgs or cid in badges or not in_scope(cid, not self.is_direct_chat(cid)):
+                if not msgs or (cid in badges and badges[cid]["unread"] > 0) or not in_scope(cid, not self.is_direct_chat(cid)):
                     continue
                 out.append(self._chat_entry(cid, not self.is_direct_chat(cid), len(msgs), msgs[:max_messages], None))
         out.sort(key=lambda e: max(e["last_ts"], e["messages"][0].timestamp if e["messages"] else 0), reverse=True)
@@ -702,7 +951,8 @@ class WhatsAppInbox:
         return t if len(parts) <= words else " ".join(parts[:words]) + "..."
 
     def summarize_inbox(self, include_groups: bool = False, group: Optional[str] = None,
-                        max_people: int = 5, max_age_hours: Optional[float] = 48.0) -> Dict[str, Any]:
+                        max_people: int = 5, max_age_hours: Optional[float] = 48.0,
+                        group_only: bool = False) -> Dict[str, Any]:
         """What is unread, who sent it and what each person said - one line per person, attributed exactly.
 
         Unread follows WhatsApp's own badges when the bridge reports them. Questions and requests are flagged
@@ -710,9 +960,12 @@ class WhatsAppInbox:
         (``include_groups``) or one group (``group``); otherwise groups are only counted. Deterministic on
         purpose: no model can mix up who said what, and it answers instantly.
         """
+        sync_state = self.sync_state()
         chats = self.unread_chats(include_groups=True)
         if group:
             scoped = [c for c in chats if c["chat_id"] == group]
+        elif group_only:
+            scoped = [c for c in chats if c["is_group"]]
         elif include_groups:
             scoped = chats
         else:
@@ -739,7 +992,7 @@ class WhatsAppInbox:
             e["ts"] = max([m.timestamp for m in e["msgs"]] or [e["chat"]["last_ts"]])
         entries.sort(key=lambda e: (not e["urgent"], not e["asks"], -e["ts"]))
 
-        lines = [self._unread_line(e, show_group=bool(include_groups and not group)) for e in entries[:max_people]]
+        lines = [self._unread_line(e, show_group=bool((include_groups or group_only) and not group)) for e in entries[:max_people]]
         n_msgs = sum(c["unread"] for c in scoped)
         n_people = len(entries)
         label = self._group_label(group) if group else ""
@@ -747,6 +1000,9 @@ class WhatsAppInbox:
             named = next((c["name"] for c in scoped), "") or label
             head = (f"The {named} group has {n_msgs} unread message{'s' if n_msgs != 1 else ''}." if n_msgs
                     else f"No unread messages in the {label} group.")
+        elif group_only:
+            head = (f"You have {n_msgs} unread group message{'s' if n_msgs != 1 else ''} in {len(scoped)} group chats."
+                    if n_msgs else "You have no unread group messages.")
         elif include_groups:
             n_chats = len(scoped)
             head = (f"You have {n_msgs} unread WhatsApp message{'s' if n_msgs != 1 else ''} in {n_chats} "
@@ -755,6 +1011,15 @@ class WhatsAppInbox:
             head = ("No unread messages in your personal chats." if not n_msgs else
                     f"You have {n_msgs} unread message{'s' if n_msgs != 1 else ''}"
                     + (f" from {n_people} people." if n_people > 1 else "."))
+        if sync_state != "READY":
+            if n_msgs == 0:
+                head = ("WhatsApp is not connected, so I can't verify whether you have unread messages."
+                        if sync_state == "NOT_CONNECTED" else
+                        "WhatsApp needs authentication, so I can't verify whether you have unread messages."
+                        if sync_state == "AUTH_REQUIRED" else
+                        "WhatsApp history is not fully synced, so I can't verify whether you have unread messages.")
+            else:
+                head += " WhatsApp history is not fully synced; these counts may be incomplete."
         spoken = head
         if lines:
             spoken += " " + " ".join(ln if re.search(r"[.?!]\"?\)?$", ln) else ln + "." for ln in lines)
@@ -762,7 +1027,7 @@ class WhatsAppInbox:
                 spoken += f" And {n_people - max_people} more {'person' if n_people - max_people == 1 else 'people'}."
 
         # read on the phone but not answered yet (a question from today)
-        if not group:
+        if not group and not group_only:
             unread_ids = {c["chat_id"] for c in chats}
             with self._get_conn() as conn:
                 own_last = dict(conn.execute("SELECT chat_id, MAX(timestamp) FROM whatsapp_messages WHERE is_from_me = 1 "
@@ -800,7 +1065,12 @@ class WhatsAppInbox:
             "urgent_messages": [m.to_dict() for m in urgent],
             "normal_messages": [m.to_dict() for m in normal],
             "unread_count": n_msgs,
-            "unread_chats": [{"chat_id": c["chat_id"], "name": c["name"], "unread": c["unread"], "is_group": c["is_group"]}
+            "unread_messages": n_msgs,
+            "total_direct_chats": self.diagnostics()["direct_chat_count"],
+            "unread_direct_chats": sum(1 for c in chats if not c["is_group"]),
+            "generated_at": datetime.now().astimezone().isoformat(),
+            "sync_state": sync_state,
+            "unread_chats": [{"chat_id": c["chat_id"], "name": c["name"], "unread": c["unread"], "is_group": c["is_group"], "timestamp": c["last_ts"]}
                              for c in scoped],
             "groups_unread": sum(c["unread"] for c in groups_unread),
             "spoken_summary": spoken,
@@ -839,7 +1109,10 @@ class WhatsAppInbox:
     @staticmethod
     def _spoken_name(name: str) -> str:
         """'sushmitaa mahesh' -> 'Sushmitaa Mahesh', 'Scooby!!' -> 'Scooby' (names read out naturally)."""
-        n = re.sub(r"[^\w\s.'-]", "", name or "").strip() or "Someone"
+        from jarvis.core.response.whatsapp import IDENTIFIER
+        if IDENTIFIER.search(name or '') or (name or '').isdigit() or '@' in (name or ''):
+            return 'one contact'
+        n = re.sub(r"[^\w\s.'-]", "", name or "").strip() or "one contact"
         return n.title() if n.islower() else n
 
     def _group_label(self, chat_id: Optional[str]) -> str:

@@ -5,8 +5,8 @@
 enabled = true
 bridge_host = "127.0.0.1"
 bridge_port = 8768
-auth_dir = "data/whatsapp_auth"
-temp_dir = "data/whatsapp_temp"
+auth_dir = "integrations/data/whatsapp_auth_fresh_latency_test"  # registered, live-verified companion
+temp_dir = "integrations/data/whatsapp_temp_fresh_latency_test"
 mode = "DRAFT_ONLY"  # "OFF", "DRAFT_ONLY", "ALLOWLIST_AUTO_REPLY"
 voice_reply_enabled = false
 owner_name = "Boss"              # how JARVIS refers to you when replying to others
@@ -39,6 +39,7 @@ enabled = true
 coalesce_seconds = 1.2                  # messages sent within this window are understood together
 max_auto_reply_hours = 12               # longest auto-reply window a single command can grant
 auto_reply_untrained_contacts = false   # in "everyone" mode, people without a style profile only get suggestions
+generated_auto_reply_enabled = false    # personalized drafts only during verified-style learning
 export_names = []                       # your name as it appears in exported chats, e.g. ["Yogesh"]
 
 [whatsapp.pulse]

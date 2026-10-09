@@ -51,11 +51,15 @@ class OpenWakeWordEngine:
         threshold: float = 0.5,
         cooldown_ms: int = 1500,
         inference_framework: str = "onnx",
+        bare_model_path: str | None = None,
     ):
         self.threshold = threshold
         self.cooldown_ms = cooldown_ms
         self.inference_framework = inference_framework
         self._model_path = model_path
+        self._bare_model_path = bare_model_path
+        self.bare_model_state = 'MISSING'
+        self.last_scores = {}
         self._model = None
         self._last_trigger_ns: int = 0
         self._buffer = np.array([], dtype=np.int16)
@@ -66,6 +70,20 @@ class OpenWakeWordEngine:
         self._prev_score = 0.0
         self.load_error = ""
         self.near_misses = 0
+        self.base_threshold = threshold
+        self.adaptive_threshold = threshold
+        self.noise_floor = 0.0
+        self.recent_false_triggers = 0
+        self.detection_count = 0
+        self.last_inference_ms = None
+
+    def observe_environment(self, rms: float, false_trigger: bool = False):
+        """Noise can conservatively raise, never lower, the configured threshold."""
+        self.noise_floor = .98 * self.noise_floor + .02 * max(0.0, min(1.0, rms))
+        if false_trigger:
+            self.recent_false_triggers = min(10, self.recent_false_triggers + 1)
+        penalty = min(.15, self.noise_floor * .5 + self.recent_false_triggers * .01)
+        self.adaptive_threshold = min(max(.95, self.base_threshold), self.base_threshold + penalty)
 
     def _ensure_loaded(self):
         if self._loaded:
@@ -88,6 +106,24 @@ class OpenWakeWordEngine:
                 if (directory / filename).exists():
                     kwargs[key] = str(directory / filename)
             if path.exists():
+                # Optional dedicated bare classifier shares the existing OWW
+                # feature extractor and CPU engine with Hey-Jarvis fallback.
+                # Missing/unverified artifacts never silently replace it.
+                if self._bare_model_path:
+                    import hashlib, json
+                    bare = Path(self._bare_model_path)
+                    manifest = bare.with_suffix('.manifest.json')
+                    if bare.exists() and manifest.exists():
+                        try:
+                            evidence = json.loads(manifest.read_text(encoding='utf-8'))
+                            if (evidence.get('phrase') == 'Jarvis'
+                                and evidence.get('sha256') == hashlib.sha256(bare.read_bytes()).hexdigest()):
+                                kwargs['wakeword_models'].insert(0, str(bare))
+                                self.bare_model_state = 'HASH_VERIFIED_COMPATIBILITY_PENDING'
+                            else:
+                                self.bare_model_state = 'HASH_OR_PHRASE_MISMATCH'
+                        except Exception:
+                            self.bare_model_state = 'INVALID_MANIFEST'
                 attempts.append(kwargs)
             else:
                 logger.warning("Wake model %s not found; falling back to the built-in model", path)
@@ -112,10 +148,14 @@ class OpenWakeWordEngine:
                 if self._model.models:
                     self._model_name = list(self._model.models.keys())[0]
                 self._loaded = True
+                if self._bare_model_path and str(self._bare_model_path) in kwargs['wakeword_models']:
+                    self.bare_model_state = 'LOADED_OWNER_ACCEPTANCE_REQUIRED'
                 self.load_error = ""
                 logger.info("OpenWakeWord loaded: model=%s, threshold=%.2f", self._model_name, self.threshold)
                 return
             except Exception as exc:
+                if self._bare_model_path and str(self._bare_model_path) in kwargs['wakeword_models']:
+                    self.bare_model_state = 'INCOMPATIBLE_HEY_FALLBACK_ONLY'
                 errors.append(str(exc))
         self.load_error = "; ".join(errors) or "unknown error"
         logger.warning("OpenWakeWord load failed: %s", self.load_error)
@@ -139,7 +179,13 @@ class OpenWakeWordEngine:
             chunk = self._buffer[:OWW_CHUNK_SAMPLES]
             self._buffer = self._buffer[OWW_CHUNK_SAMPLES:]
 
+            inference_start = perf_counter_ns()
             prediction = self._model.predict(chunk)
+            self.last_scores = {key: float(value) for key, value in prediction.items()}
+            self.last_inference_ms = (perf_counter_ns() - inference_start) / 1e6
+            if max(prediction.values(), default=0) < .1:
+                self.observe_environment(float(np.sqrt(np.mean((chunk.astype(np.float32)/32768)**2))))
+            effective_threshold = self.adaptive_threshold
             score = max(prediction.values()) if prediction else 0.0
             self.last_score = float(score)
             self.peak_score = max(self.peak_score * 0.999, self.last_score)
@@ -161,17 +207,19 @@ class OpenWakeWordEngine:
             # A quiet or distant "hey jarvis" often scores just under the threshold on two consecutive 80 ms chunks;
             # two near-threshold chunks in a row count, a single one (a cough, a TV word) never does.
             prev, self._prev_score = self._prev_score, float(score)
-            confirmed = prev >= 0.7 * self.threshold and score >= 0.7 * self.threshold \
-                and (prev + score) / 2 >= 0.85 * self.threshold
+            confirmed = prev >= 0.7 * effective_threshold and score >= 0.7 * effective_threshold \
+                and (prev + score) / 2 >= 0.85 * effective_threshold
             if score < self.threshold and confirmed:
                 self.near_misses += 1
-            if score >= self.threshold or confirmed:
+            if score >= effective_threshold or confirmed:
+                detected_model = max(prediction, key=prediction.get) if prediction else self._model_name
+                self.detection_count += 1
                 self._prev_score = 0.0
                 self._last_trigger_ns = now
                 logger.info("Wake word detected: score=%.3f, model=%s", score, self._model_name)
                 return WakeDetection(
                     detected=True, score=score,
-                    model=self._model_name,
+                    model=detected_model,
                     timestamp_ns=now,
                 )
 

@@ -182,13 +182,52 @@ class Runtime:
                         whatsapp_ai=self.whatsapp_ai,
                         announcer=self._announce,
                     )
-                    await self.whatsapp_service.start()
+                    self.whatsapp_service.media_pipeline.stt_engine = getattr(self.voice, "stt", None)
                     if self.service and hasattr(self.service, "registry"):
                         for tn in ("send_whatsapp_message", "send_whatsapp_bulk", "read_whatsapp_messages", "summarize_whatsapp_messages"):
                             if self.service.registry.contains(tn):
                                 t = self.service.registry.get(tn)
                                 t.transport = self.whatsapp_service.transport
                                 t.confirmation_manager = getattr(self.service.executor, "confirmation_manager", None)
+                        from jarvis.tools.system.whatsapp_intelligence import WhatsAppIntelligenceTool
+                        for t in self.service.registry.list():
+                            if isinstance(t, WhatsAppIntelligenceTool):
+                                t.transport = self.whatsapp_service.transport
+                                t.inbox = self.whatsapp_service.gateway.inbox
+                                t.media_pipeline = self.whatsapp_service.media_pipeline
+                                t.personal_reply = self.whatsapp_service.personal_reply
+                                t.registry = self.service.registry
+                                t.working_memory = self.service.working_memory
+                        async def registered_send(chat_id, text):
+                            sender = self.service.registry.get("send_whatsapp_message")
+                            return await asyncio.to_thread(sender.run, {"recipient": chat_id, "message": text})
+                        self.whatsapp_service.gateway.registered_sender = registered_send
+                        self.whatsapp_service.gateway.outbound_ledger = self.service.executor.ledger
+                        self.whatsapp_service.gateway.outbound_policy = self.service.executor.policy_evaluator
+                        if self.whatsapp_service.personal_reply is not None:
+                            self.whatsapp_service.personal_reply.registered_sender = registered_send
+                    await self.whatsapp_service.start()
+                    intelligence = self.whatsapp_service.intelligence
+                    async def notify_watcher(watcher, mid):
+                        self.bus.emit("whatsapp.watcher", watcher["id"], thread_id=watcher["thread_id"],
+                            message_id=mid, action=watcher.get("action", "NOTIFY"))
+                        await self._announce("Your WhatsApp watcher matched a new message.")
+                    intelligence.notifier = notify_watcher
+                    async def watcher_action(watcher, mid):
+                        from jarvis.core.tasks.scope import get_scope_manager
+                        with get_scope_manager().grant(watcher["id"], {"whatsapp_attachment_download", "whatsapp_attachment_save"}, reason="owner-created attachment watcher"):
+                            args = {"contact": watcher["thread_id"], "resource_id": "attachment:" + mid}
+                            result = await self.service.executor.execute(self.service.registry.get("whatsapp_attachment_download"), args,
+                                graph_id=watcher["id"], node_id="download")
+                            if not result.success: raise RuntimeError(result.error or "Attachment download failed")
+                            raw = intelligence.store.get("attachment:" + mid, watcher["thread_id"])
+                            destination = Path(watcher["destination"]).resolve()
+                            if not destination.suffix:
+                                destination = destination / Path(raw["filename"]).name
+                            result = await self.service.executor.execute(self.service.registry.get("whatsapp_attachment_save"),
+                                {**args, "destination": str(destination)}, graph_id=watcher["id"], node_id="save")
+                            if not result.success: raise RuntimeError(result.error or "Attachment save failed")
+                    intelligence.watcher_action = watcher_action
                 except Exception as exc:
                     logging.getLogger("jarvis.runtime").warning("WhatsApp omnichannel service startup failed: %s", exc)
             else:
@@ -324,7 +363,9 @@ class Runtime:
             _get_hub().registry = self.registry
             _get_hub().router = self.router
             from jarvis.core.operator.automations import get_automations
-            get_automations().start(dispatch, notify=notify)
+            automations = get_automations()
+            automations.start(dispatch, notify=notify)
+            self.automation_subscription = self.bus.subscribe(automations.handle_event)
             from jarvis.core.operator.clip import get_clipboard_history
             get_clipboard_history().start()
             wm.dispatch = dispatch
@@ -366,7 +407,7 @@ class Runtime:
         import tomllib
         from jarvis.core.audio.output.player import AudioOutputManager
         from jarvis.core.response.ack_cache import AckCache
-        from jarvis.core.tts.manager import TTSManager
+        from jarvis.core.tts.speech_service import JarvisSpeechResponseService as TTSManager
         from jarvis.core.tts.piper_engine import PiperEngine
 
         project = ROOT.parent
@@ -394,6 +435,8 @@ class Runtime:
         response.wake_ack_mode = self.config.voice.wake_ack
         if response.enabled:
             await asyncio.to_thread(response.warm_up)
+        speech_loop = asyncio.get_running_loop()
+        response.tts.on_voice_change = lambda: speech_loop.call_soon_threadsafe(response.stop_speaking)
 
         # Initialize PULSE: Parallel User Latency & Status Engine
         from jarvis.core.pulse import PulseEngine
@@ -405,6 +448,8 @@ class Runtime:
             race_timer_ms=250.0,
         )
         self.service.pulse = self.pulse
+        self.pulse.coordinator = response.coordinator
+        self.pulse.final_delivery = response.schedule_final
 
         if not self.config.features.voice:
             return
@@ -422,7 +467,8 @@ class Runtime:
         mic_dev = None if cfg.device in (None, "", "default") else cfg.device
         self.voice = VoicePipeline(
             hub=AudioHub(MicSource(device=mic_dev), on_frame=self._audio_level, enhancer=self._noise_suppressor(cfg)),
-            wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold),
+            wake_engine=OpenWakeWordEngine(model_path=str(project / cfg.model_path), threshold=cfg.threshold,
+                bare_model_path=str(project / 'models/wake/jarvis_bare.onnx')),
             stt_engine=self._stt_engine(cfg, project),
             endpoint_detector=EndpointDetector(default_silence_ms=cfg.endpoint_silence_ms),
             max_utterance_s=cfg.max_utterance_s,
@@ -443,12 +489,13 @@ class Runtime:
         engine = FasterWhisperEngine(model=str(project / cfg.stt_model) if (project / cfg.stt_model).exists() else cfg.stt_model,
                                      device=cfg.stt_device, compute_type=cfg.compute_type,
                                      initial_prompt=self._stt_vocabulary(), beam_size=cfg.stt_beam_size,
-                                     thanglish=getattr(cfg, "language", "english") == "thanglish")
+                                     language=None if cfg.language == 'auto' else ('ta' if cfg.language == 'tamil' else 'en'),
+                                     thanglish=cfg.language == 'thanglish')
         engine.vocabulary = self._name_vocabulary()
         return engine
 
     def _name_vocabulary(self):
-        """Contacts + installed apps: Whisper hotwords and post-transcription name correction."""
+        """Contacts + installed apps: bounded Whisper decoding hints only."""
         from jarvis.core.stt.names import NameVocabulary
         names: list[str] = []
         try:
@@ -465,14 +512,21 @@ class Runtime:
     def _stt_vocabulary(self) -> str:
         """Bias Whisper toward words JARVIS commands use (names, apps, contacts)."""
         try:
-            from jarvis.core.stt.vocabulary import VocabularyBiasProvider
-            terms = ["Jarvis", "WhatsApp", "YouTube", "Spotify", "Chrome", "screenshot", "volume", "brightness", "reminder"]
+            from jarvis.core.stt.vocabulary import JarvisSpeechVocabulary
+            terms = []
             try:
                 from jarvis.integrations.whatsapp.contact_resolver import ContactResolver
                 terms += [c.display_name for c in ContactResolver()._contacts[:25] if c.display_name]
             except Exception:
                 pass
-            return VocabularyBiasProvider(custom_terms=terms, max_tokens=30).generate_prompt()
+            apps = [e.display_name for e in self.resolver.list_installed_entries()[:30]] if self.resolver else []
+            from jarvis.core.capabilities.registry import CAPABILITY_DEFINITIONS
+            capability_terms = [term for cap in CAPABILITY_DEFINITIONS for term in cap.keywords[:2]]
+            # Reuse already discovered project metadata; no filesystem scan on STT startup.
+            catalog = getattr(self, 'project_catalog', None)
+            projects = [p.name for p in getattr(catalog, '_projects', {}).values()]
+            return JarvisSpeechVocabulary.from_metadata(apps=apps[:2], contacts=terms[:3],
+                projects=projects[:2], capabilities=capability_terms).generate_prompt()
         except Exception:
             return ""
 
@@ -517,6 +571,17 @@ class Runtime:
 
     async def close(self):
         self.ready = False
+        if getattr(self, "automation_subscription", None):
+            try:
+                await self.bus.unsubscribe(self.automation_subscription)
+            except Exception:
+                pass
+            self.automation_subscription = None
+        try:
+            from jarvis.core.operator.automations import get_automations
+            get_automations().stop()
+        except Exception:
+            pass
         if hasattr(self, "whatsapp_service") and self.whatsapp_service:
             try:
                 await self.whatsapp_service.stop()

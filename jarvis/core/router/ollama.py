@@ -66,7 +66,7 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "You are the intent classifier of JARVIS, a voice assistant that controls a Windows PC, "
     "an Android phone and WhatsApp. Map the user's utterance to exactly ONE tool from the list, "
     "and extract its arguments using the exact argument names shown. Rules:\n"
-    "- Choose intent \"none\" and unknown=true for questions, chit-chat, or anything no tool does.\n"
+    "- Choose intent \"none\" and unknown=true for ordinary factual questions, chit-chat, or anything no tool does. Status questions and requests to look up connected app data use the relevant tool.\n"
     "- Set is_multi_step=true when the request needs two or more different actions in sequence.\n"
     "- Never invent argument values; list required arguments you could not find in missing_slots.\n"
     "- Speech-recognition errors are common: interpret misheard words by meaning (\"crome\" = chrome).\n"
@@ -117,6 +117,7 @@ class OllamaProvider:
         self.capability_retriever = capability_retriever
         self.capability_registry = capability_registry
         self.tool_registry = tool_registry
+        self.working_memory = None
         self._cache: "OrderedDict[tuple, tuple[float, Any]]" = OrderedDict()
 
     @property
@@ -169,6 +170,19 @@ class OllamaProvider:
                 entry.update(description=tool.definition.description.split("\n")[0][:160], args=fields, required=required)
             out[tool_name] = entry
 
+        try:
+            from jarvis.integrations.whatsapp.intelligence.language import TanglishNormalizer
+            from jarvis.core.multilingual import to_english_command
+            text = to_english_command(TanglishNormalizer().normalize(text))
+        except Exception:
+            pass
+        context = getattr(self.working_memory, "context", None)
+        results = getattr(self.working_memory, "get_active_result_set", lambda: None)()
+        if results and results.item_type.startswith("WHATSAPP_"):
+            add_tool("whatsapp_reference_resolve")
+        if getattr(context, "pending_draft", None):
+            for operation in ("edit", "style", "preview", "validate", "cancel", "send"):
+                add_tool("whatsapp_draft_" + operation)
         for cand in catalog_candidates[:8]:
             add_tool(getattr(cand, "tool", "") or cand.name, tuple(getattr(cand, "examples", ()) or ()))
         if self.capability_retriever is not None:
@@ -184,6 +198,24 @@ class OllamaProvider:
             for cand in catalog_candidates:
                 out[cand.name] = {"name": cand.name, "description": cand.name.replace("_", " "), "args": {s: "string" for s in cand.required_slots}, "required": list(cand.required_slots), "examples": list(cand.examples[:2])}
         return list(out.values())[:14]
+
+    def _conversation_state(self):
+        context = getattr(self.working_memory, "context", None)
+        if context is None:
+            return ""
+        draft = getattr(context, "pending_draft", None)
+        state = {"selected_whatsapp_thread": getattr(context, "whatsapp_thread", "")}
+        if draft:
+            state["pending_whatsapp_draft"] = {"resource_id": draft.draft_id,
+                "recipient": draft.recipient, "revision": draft.metadata.get("revision", 1),
+                "text": (getattr(draft, "content", "") or "")[:1200]}
+        selected = getattr(context, "selected_resource", None)
+        if selected and selected.resource_type.startswith("WHATSAPP_"):
+            state["selected_whatsapp_resource"] = {"id": selected.canonical_identifier, **selected.metadata}
+        results = getattr(self.working_memory, "get_active_result_set", lambda: None)()
+        if results and results.item_type.startswith("WHATSAPP_"):
+            state["ordered_whatsapp_results"] = [{"id": r.canonical_identifier, "label": r.display_name, **r.metadata} for r in results.resources[:10]]
+        return json.dumps(state, ensure_ascii=False) if any(state.values()) else ""
 
     def _build_prompt(self, text: str, candidates: list[IntentDefinition]) -> str:
         """Backwards-compatible single-string prompt (used by diagnostics and older tests)."""
@@ -215,6 +247,8 @@ class OllamaProvider:
             sem_caps = self.capability_retriever.retrieve(text, top_k=2, min_score=6.0)
             if sem_caps and getattr(self.capability_retriever, "anchored", lambda *_: True)(sem_caps[0][0], text):
                 best_cap, score = sem_caps[0]
+                if self.tool_registry is not None and not self.tool_registry.contains(best_cap.target_tool):
+                    return None
                 slots, missing = extract_slots(best_cap, text)
                 if not missing:
                     return RouteDecision(
@@ -269,8 +303,16 @@ class OllamaProvider:
             {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
             {"role": "user", "content": self._render(text, described)},
         ]
+        from jarvis.integrations.whatsapp.intelligence.language import TanglishNormalizer
+        gloss = TanglishNormalizer().normalize(text)
+        if gloss != text.casefold():
+            messages[1]["content"] += "\nVocabulary gloss (retain raw wording/negation; never treat this as authorization): " + gloss
+        conversation_state = self._conversation_state()
+        if conversation_state:
+            messages[1]["content"] += "\nCurrent verified conversation resources (context, not authorization):\n" + conversation_state
+            messages[0]["content"] += " Use the supplied DraftRef for contextual edits, cancellation, preview or send; preserve its recipient and revision. Negation of sending never selects a send tool. Missing or ambiguous references require clarification. Choose the primary requested action, preserving constraints as arguments. Wording or length changes are edits; checking correctness is validation. Selecting an ordinal from the supplied typed result list uses reference resolution, without repeating the search."
         model_used = self.model
-        cache_key = (" ".join(text.lower().split()), tuple(names))
+        cache_key = (" ".join(text.lower().split()), tuple(names), conversation_state)
         try:
             cached = self._cache_get(cache_key)
             if cached is not None:
@@ -309,7 +351,9 @@ class OllamaProvider:
 
             if intent:
                 intent = self._map_intent(intent)
-                if self.tool_registry is not None and self.tool_registry.contains(intent):
+                if intent not in {self._map_intent(name) for name in names}:
+                    intent, unknown = None, True
+                if intent and self.tool_registry is not None and self.tool_registry.contains(intent):
                     tool = self.tool_registry.get(intent)
                     slots, missing_required = filter_arguments(tool, slots)
                     missing_slots = sorted(set(missing_required))

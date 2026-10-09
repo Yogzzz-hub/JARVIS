@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from jarvis.integrations.whatsapp.personal_reply import language as lang
 from jarvis.integrations.whatsapp.personal_reply.models import ContactStyleProfile, QualityReport, ReplyCandidate
+from jarvis.integrations.whatsapp.personal_reply.understand import Answerability, classify_answerability
 
 SENSITIVE_PATTERNS: dict[str, re.Pattern[str]] = {
     "money": re.compile(r"\b(?:pay|paid|payment|money|transfer|send money|amount|rs\.?|rupees?|inr|upi|gpay|g-pay|phonepe|paytm|"
@@ -73,23 +74,83 @@ def _words(text: str) -> list[str]:
     return re.findall(r"[\w']+", (text or "").lower())
 
 
+_QUESTION_STOP = {"are", "is", "do", "did", "you", "your", "the", "a", "an", "what", "when",
+                  "where", "why", "how", "can", "could", "will", "would", "me", "i", "it",
+                  "this", "that", "enna", "epdi", "eppo", "ah", "aa", "bro", "da", "di"}
+_DEFER = re.compile(r"\b(?:wait|check(?:ing)?|not sure|don'?t know|therla|purila|"
+                    r"paathutu|pathutu|solren|solluren)\b", re.I)
+_YES_NO = re.compile(r"^(?:yes|no|yeah|nope|aama|haa|illa|correct|right|confirmed|"
+                     r"sure|varen|varan|varuven|varuvaen)\b", re.I)
+_ASK_BACK = re.compile(r"\b(?:tell|send|give|provide|share|update|sollu|solu|kudu|anuppu)\b", re.I)
+
+
+def validate_semantics(candidate: ReplyCandidate, incoming: str, thread_text: str,
+                       answerability: Answerability | None = None) -> tuple[bool, str, Answerability]:
+    """Check answer direction and evidence without using model confidence or style."""
+    thread = [(line.startswith("You:"), line.split(":", 1)[1].strip())
+              for line in thread_text.splitlines() if line.startswith(("You:", "Them:"))]
+    state = answerability or classify_answerability(incoming, thread)
+    reply = (candidate.text or "").strip()
+    if state.gate != "ANSWERABLE":
+        return False, f"{state.category}: {state.reason}", state
+    if not reply:
+        return False, "empty reply", state
+    asked = "?" in incoming or bool(re.search(r"\b(?:what|when|where|why|how|who|which|enna|epdi|eppo|enga|yen)\b", incoming, re.I))
+    if not asked:
+        return True, "", state
+    if _BARE_ACK.fullmatch(reply):
+        return False, "acknowledgement does not answer the contact's question", state
+    if re.match(r"\s*(?:did|has|have|was|were)\b", incoming, re.I) and not any(mine for mine, _ in thread):
+        return False, "past-event answer lacks owner or verified same-thread evidence", state
+    if state.proposition in ("project_status", "meeting_confirmation"):
+        if _ASK_BACK.search(reply) and "?" in reply:
+            return False, "reply asks the contact to provide the answer they requested", state
+        if state.proposition == "project_status" and _ASK_BACK.search(reply) and not _DEFER.search(reply):
+            return False, "reply reverses the requested update direction", state
+    words = _words(reply)
+    if len(words) <= 1 and not _YES_NO.search(reply) and not _DEFER.search(reply):
+        return False, "short reply supplies no answer or valid clarification", state
+    if state.category == "CONVERSATION_KNOWN":
+        owner_text = " ".join(text for mine, text in thread if mine)
+        unsupported = facts(reply) - (facts(incoming) | facts(owner_text))
+        if unsupported:
+            return False, "reply adds a fact absent from the question and confirmed owner thread", state
+        if state.proposition == "meeting_confirmation":
+            owner_times = set(re.findall(r"\b\d{1,2}(?::\d{2})?\b", owner_text))
+            reply_times = set(re.findall(r"\b\d{1,2}(?::\d{2})?\b", reply))
+            if reply_times - owner_times:
+                return False, "reply changes the owner-confirmed meeting time", state
+        if _YES_NO.search(reply) or _DEFER.search(reply):
+            return True, "", state
+        owner_words = set(_words(owner_text))
+        if not owner_words.intersection(words):
+            return False, "reply does not use the confirmed same-thread evidence", state
+    elif not (_DEFER.search(reply) or _YES_NO.search(reply)):
+        topic = set(_words(incoming)) - _QUESTION_STOP
+        if topic and not topic.intersection(words):
+            return False, "reply does not address the question's subject", state
+    return True, "", state
+
+
 def evaluate(candidate: ReplyCandidate, incoming: str, thread_text: str, example_text: str, profile: ContactStyleProfile,
              target_language: str, owner_uses_ai_phrases: bool = False, thresholds: Thresholds | None = None,
-             copied_example_similarity: float | None = None) -> QualityReport:
+             copied_example_similarity: float | None = None,
+             answerability: Answerability | None = None) -> QualityReport:
     th = thresholds or Thresholds()
     reply = (candidate.text or "").strip()
     reasons: list[str] = []
 
-    # RELEVANCE
-    relevance = candidate.model_confidence if candidate.understood else min(0.3, candidate.model_confidence)
-    if not reply:
-        relevance = 0.0
+    # SEMANTIC / WHAT is independent of the generator's self-confidence.
+    semantic_pass, semantic_reason, state = validate_semantics(candidate, incoming, thread_text, answerability)
+    relevance = 1.0 if semantic_pass else 0.0
     in_q = "?" in incoming or bool(re.search(r"\b(?:enna|epdi|eppo|enga|yen|what|when|where|why|how|who|which)\b", incoming, re.I))
     wh_q = bool(re.search(r"\b(?:what|when|where|why|how|who|which|enna|epdi|eppo|enga|yen|yaaru)\b", incoming, re.I))
     if wh_q and _BARE_ACK.match(reply):
         relevance -= 0.3  # an open question answered with just "ok"
     if copied_example_similarity is not None and copied_example_similarity < PARROT_SIMILARITY and len(_words(reply)) > 2:
-        relevance -= 0.35  # word-for-word reuse of a past reply written for a different situation
+        semantic_pass = False
+        semantic_reason = "copied an owner reply from an unrelated situation"
+        relevance = 0.0
     relevance = max(0.0, min(1.0, relevance))
 
     # STYLE_MATCH
@@ -135,17 +196,21 @@ def evaluate(candidate: ReplyCandidate, incoming: str, thread_text: str, example
     if re.search(r"\b(?:as i said|like i told you|i already sent)\b", reply, re.I) and "you:" not in thread_text.lower():
         consistency -= 0.4
 
-    # HALLUCINATION_RISK: concrete facts not grounded in the conversation or the owner's own examples
-    grounded = facts(incoming) | facts(thread_text) | facts(example_text)
+    # Historical examples are style evidence, never authority for current facts.
+    grounded = facts(incoming) | facts(thread_text)
     new_facts = facts(reply) - grounded
     hallucination = min(1.0, 0.45 * len(new_facts))
+    if new_facts and in_q:
+        semantic_pass = False
+        semantic_reason = "reply introduces a factual value absent from the current thread"
+        relevance = 0.0
 
     # SENSITIVE_ACTION_RISK
     topics = sorted(set(sensitive_topics(incoming)) | set(sensitive_topics(reply)))
     sensitive = 1.0 if topics else 0.0
 
     if relevance < th.relevance:
-        reasons.append("low understanding / relevance")
+        reasons.append(semantic_reason or "low independent semantic relevance")
     if style < th.style:
         reasons.append("does not match your usual style")
     if language < th.language:
@@ -158,4 +223,6 @@ def evaluate(candidate: ReplyCandidate, incoming: str, thread_text: str, example
         reasons.append(f"sensitive topic ({', '.join(topics)}) needs your approval")
     return QualityReport(relevance=round(relevance, 3), style_match=round(style, 3), language_match=round(language, 3),
                          context_consistency=round(consistency, 3), hallucination_risk=round(hallucination, 3),
-                         sensitive_action_risk=sensitive, reasons=reasons, sensitive_topics=topics)
+                         sensitive_action_risk=sensitive, reasons=reasons, sensitive_topics=topics,
+                         semantic_pass=semantic_pass, semantic_reason=semantic_reason,
+                         answerability_category=state.category, answerability_gate=state.gate)
