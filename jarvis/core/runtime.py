@@ -1,4 +1,5 @@
 import asyncio
+import os
 import logging
 import psutil
 from jarvis.config import ROOT, load
@@ -475,7 +476,8 @@ class Runtime:
             command_service=self.service, event_bus=self.bus, response_engine=response,
             barge_in_controller=BargeInController(response.audio_output, cancel_task, enabled=output["barge_in"]),
             wake_enabled=cfg.wake_enabled, ptt_enabled=cfg.ptt_enabled, preroll_ms=cfg.preroll_ms,
-            talk_over=getattr(cfg, "talk_over", True), talk_over_sensitivity=getattr(cfg, "talk_over_sensitivity", "normal"))
+            talk_over=getattr(cfg, "talk_over", True), talk_over_sensitivity=getattr(cfg, "talk_over_sensitivity", "normal"),
+            clap_wake=os.environ.get("JARVIS_CLAP_WAKE") or getattr(cfg, "clap_wake", "off"))
         try:
             await self.voice.start()
         except Exception as exc:

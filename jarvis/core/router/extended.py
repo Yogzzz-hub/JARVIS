@@ -1227,6 +1227,32 @@ def match_type_text(t: str, raw: str, request_id: str) -> Optional[RouteDecision
     return _decision(request_id, t, "dictate_text", {"text": raw_body(raw, body).rstrip(" .!?") or body})
 
 
+_CAMERA_NOT = re.compile(r"\b(?:screen|monitor|display|phone|photo|picture|video|youtube|record|turn|switch|enable|disable|open|"
+                         r"launch|start|close|settings?|driver|privacy|permission|submission|online|website)\b"
+                         r"|\bis (?:my|the) (?:web)?cam(?:era)? (?:on|working)")
+_WATCHED = r"(?:form|posture|technique|movement|moves|swing|stance|grip|squats?|push[- ]?ups?|plank|lifts?|deadlifts?|dance|steps?)"
+
+
+def match_camera(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    """The owner asks JARVIS to look at / watch them through the webcam (never inferred from anything vaguer)."""
+    if _CAMERA_NOT.search(t):
+        return None
+    if re.fullmatch(rf"(?:watch|observe)\s+(?:me|my\s+(?:\w+\s+)?{_WATCHED})"
+                    r"(?:\s+(?:for\s+a\s+(?:bit|moment|few\s+seconds)|and\s+tell\s+me\s+.+|while\s+i\s+.+|doing\s+.+|now))*"
+                    r"|am\s+i\s+doing\s+(?:this|it|that)\s+(?:right|correctly|properly)(?:\s+(?:now|jarvis))?"
+                    rf"|(?:check|judge|rate|look\s+at)\s+my\s+(?:\w+\s+)?{_WATCHED}(?:\s+(?:on|in|while|when|for|now)\b.*)?", t):
+        return _decision(request_id, t, "camera_watch", {"question": raw})
+    if re.fullmatch(r"(?:(?:can|could)\s+you\s+)?(?:look\s+at|see)\s+me(?:\s+(?:now|for\s+a\s+second))?"
+                    r"|what\s+am\s+i\s+(?:holding|wearing|showing\s+you|holding\s+up)(?:\s+.+)?"
+                    r"|what(?:'s|\s+is)\s+in\s+my\s+hands?|how\s+do\s+i\s+look(?:\s+(?:today|now|in\s+this\s+.+))?"
+                    r"|(?:is\s+)?(?:any\s*one|some\s*one)\s+(?:standing\s+)?behind\s+me"
+                    r"|(?:look|check)\s+(?:through|with|using)\s+(?:the\s+|my\s+)?(?:web)?cam(?:era)?(?:\s+.+)?"
+                    r"|(?:use|using)\s+(?:the\s+|my\s+)?(?:web)?cam(?:era)?\s+(?:and|to)\s+.+"
+                    r"|read\s+(?:this|the)\s+(?:label|text|note|card)\s+i(?:'m|\s+am)\s+holding(?:\s+up)?", t):
+        return _decision(request_id, t, "camera_look", {"question": raw})
+    return None
+
+
 def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     """Return a routing decision for the extended domains, or None to continue normal routing."""
     raw = text.strip()
@@ -1240,6 +1266,9 @@ def match_extended(text: str, request_id: str) -> Optional[RouteDecision]:
     t = re.sub(r"^(?:please|kindly)\s+", "", t)
     if not t:
         return None
+    camera = match_camera(t, raw, request_id)
+    if camera:
+        return camera
     from jarvis.core.router.operator_intents import _NESTED, match_operator
     wa_read = match_whatsapp_read(t, raw, request_id)
     if wa_read:

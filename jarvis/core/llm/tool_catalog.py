@@ -24,6 +24,8 @@ logger = logging.getLogger("jarvis.llm.tools")
 # Tools that an AI-originated call (agent / planner) may only run after the
 # user confirms, even when the static policy would allow a direct command.
 AI_CONFIRM_TOOLS = frozenset({
+    "camera_look",            # a camera pointed at the owner's face: an AI never switches it on by itself
+    "camera_watch",
     "powershell_command",
     "install_software",
     "delete_file",

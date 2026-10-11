@@ -326,6 +326,8 @@ class AgentRunner:
         user_approved: bool = False,
     ) -> AgentOutcome | None:
         tool = self.registry.get(tool_name)
+        from jarvis.core.response.fillers import announce_tool
+        announce_tool(tool_name)
         steps: list[AgentStep] = state["steps"]
         messages: list[dict[str, str]] = state["messages"]
         state["calls"].append((tool_name, json.dumps(args, sort_keys=True, default=str)))

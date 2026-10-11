@@ -728,7 +728,8 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     whatsapp_tools.append(ContactInfoTool())
     from jarvis.tools.system.whatsapp_intelligence import create_intelligence_tools
     whatsapp_tools.extend(create_intelligence_tools())
-    web_tools = [WebSearchTool()]
+    from jarvis.tools.system.reader import ReadWebpageTool
+    web_tools = [WebSearchTool(), ReadWebpageTool()]
     from jarvis.tools.system.connector_tools import create_connector_tools
     conn_tools = create_connector_tools(working_memory=working_memory)
     from jarvis.tools.system.app_tools import create_app_discovery_tools
@@ -742,6 +743,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     from jarvis.tools.system.assistant_tools import create_assistant_tools
     from jarvis.tools.system.phone_tools import create_phone_tools
     from jarvis.tools.system.vision_tools import create_vision_tools
+    from jarvis.tools.system.camera_tools import create_camera_tools
     from jarvis.tools.system.computer_use import create_computer_use_tools
     from jarvis.tools.system.everyday_tools import create_everyday_tools
     from jarvis.tools.system.quick_actions import create_quick_action_tools
@@ -749,7 +751,7 @@ def create_tools(resolver, hardware, launcher=launch, search_engine=None, workin
     from jarvis.tools.system.action_recall import create_action_recall_tools
     from jarvis.tools.system.google_tools import create_google_tools
     from jarvis.tools.system.exam_solver_tool import create_assessment_tools
-    extra_tools = (create_assistant_tools() + create_phone_tools() + create_vision_tools() + create_computer_use_tools()
+    extra_tools = (create_assistant_tools() + create_phone_tools() + create_vision_tools() + create_camera_tools() + create_computer_use_tools()
                    + create_everyday_tools() + create_quick_action_tools() + create_language_tools()
                    + create_action_recall_tools() + create_google_tools()
                    + create_assessment_tools())

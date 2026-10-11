@@ -79,3 +79,4 @@ max_utterance_s = 45       # longest single request
 talk_over = true           # speak over JARVIS to interrupt it (no wake word); it carries on if it only heard itself
 talk_over_sensitivity = "normal"  # "high" = quieter speech interrupts, "low" = for loud speakers close to the mic
 wake_ack = "chime"         # "chime" | "voice" | "none" - response to "Hey Jarvis"
+clap_wake = "off"          # "double" = clap twice to wake JARVIS, "single" = once (more false wakes), "off"

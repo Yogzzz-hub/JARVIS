@@ -241,6 +241,9 @@ class ClaudeCodeBrain:
     async def _gate(tool_name: str, tool_input: dict[str, Any], context: Any):
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         if decide_tool(tool_name):
+            if not tool_name.startswith("mcp__jarvis__"):     # JARVIS's own tools announce in the runner
+                from jarvis.core.response.fillers import announce_tool
+                announce_tool(tool_name)
             return PermissionResultAllow()
         logger.info("Claude Code tool %s denied by the JARVIS gate", tool_name)
         return PermissionResultDeny(message="Blocked: JARVIS does not let this tool change anything on the machine. "
