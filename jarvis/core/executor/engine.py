@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import inspect
 import json
@@ -60,6 +61,9 @@ class ExecutionEngine:
         stats_tracker: MethodStatsTracker | None = None,
     ) -> None:
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-exec")
+        # Ledger / audit / stats writes get their own threads: a busy shared asyncio pool (dashboard reads, model
+        # calls) must never hold a command's bookkeeping back.
+        self.io_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-exec-io")
         # One writer thread for post-action records: serialises SQLite writes and never starves the shared pool.
         self._records = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-records")
         self._pending_records: set[asyncio.Future] = set()
@@ -71,6 +75,9 @@ class ExecutionEngine:
         self.undo_manager = undo_manager or UndoManager()
         self.stats_tracker = stats_tracker or MethodStatsTracker()
         self.method_selector = MethodSelector(self.stats_tracker)
+
+    async def _io(self, fn, /, *args, **kwargs):
+        return await asyncio.get_running_loop().run_in_executor(self.io_pool, functools.partial(fn, *args, **kwargs))
 
     async def execute(
         self,
@@ -183,7 +190,7 @@ class ExecutionEngine:
         # Handle Policy Denials and Pauses
         if policy_decision.is_denied:
             dur_ms = (time.perf_counter_ns() - t0) / 1e6
-            await asyncio.to_thread(self.audit_logger.log,
+            await self._io(self.audit_logger.log,
                 request_id=request_id,
                 graph_id=graph_id,
                 node_id=node_id,
@@ -248,7 +255,7 @@ class ExecutionEngine:
             valid, reason = self.confirmation_manager.consume_ticket(ticket_id, fp)
             if not valid:
                 dur_ms = (time.perf_counter_ns() - t0) / 1e6
-                await asyncio.to_thread(self.audit_logger.log,
+                await self._io(self.audit_logger.log,
                     request_id=request_id,
                     graph_id=graph_id,
                     node_id=node_id,
@@ -347,7 +354,7 @@ class ExecutionEngine:
                 self.ledger.start_action(action_id, fp, definition.risk)
                 return method_used, action_id, toctou_snap
 
-        admission = await asyncio.to_thread(admit_action)
+        admission = await self._io(admit_action)
         if isinstance(admission, ToolResult):
             return admission
         method_used, action_id, toctou_snap = admission
@@ -529,3 +536,4 @@ class ExecutionEngine:
             await asyncio.wait(set(self._pending_records), timeout=10)
         await asyncio.to_thread(self._records.shutdown, wait=True)
         await asyncio.to_thread(self.pool.shutdown, wait=True, cancel_futures=True)
+        self.io_pool.shutdown(wait=False, cancel_futures=True)

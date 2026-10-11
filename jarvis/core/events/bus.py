@@ -17,10 +17,12 @@ class EventBus:
         self.dropped = 0
         self.errors = 0
         self.closed = False
+        self._loop = None
 
     def subscribe(self, callback: Callable[[Event], Awaitable[None]]):
         if self.closed:
             raise RuntimeError("event bus closed")
+        self._loop = asyncio.get_running_loop()
         queue = asyncio.Queue(self.size)
         worker = asyncio.create_task(self._consume(queue, callback))
         self.subscribers.append((queue, worker))
@@ -47,6 +49,22 @@ class EventBus:
         if self.closed:
             return
         event = Event(name, request_id, data)
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            if running is not loop:
+                # from a worker thread (background builds, dashboard requests): hand over to the bus's own loop
+                try:
+                    loop.call_soon_threadsafe(self._deliver, event)
+                except RuntimeError:
+                    pass
+                return
+        self._deliver(event)
+
+    def _deliver(self, event: Event):
         for queue, _ in self.subscribers:
             try:
                 queue.put_nowait(event)

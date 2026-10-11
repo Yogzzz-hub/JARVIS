@@ -317,11 +317,41 @@ _GROUP_WORD = re.compile(r"\b(?:groups?|grps?)\b", re.I)
 _COUNT_WORDS = re.compile(r"\b(?:total|how many|count|number of)\b")
 
 
+_TOPIC_SEARCH = re.compile(
+    r"^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:find|search(?:\s+for)?|look\s+(?:for|up)|show(?:\s+me)?|get(?:\s+me)?|pull\s+up|"
+    r"what(?:'s|\s+is|\s+was))\s+(?:me\s+)?(?:the\s+|any\s+|a\s+)?(?:(?:latest|last|most\s+recent|recent|newest)\s+)?"
+    r"(?:whats\s*app\s+)?(?:messages?|msgs?|texts?|chats?)\s+(?:about|regarding|mentioning|related\s+to|on\s+the\s+topic\s+of)\s+"
+    r"(?P<topic>[\w' -]{2,80}?)"
+    r"(?:\s+(?:across|in|from|on|among)\s+(?:all\s+)?(?:of\s+)?(?:my\s+|the\s+)?(?:whats\s*app\s+)?"
+    r"(?:chats?|messages?|whats\s*app|conversations?|contacts?)(?:\s+on\s+whats\s*app)?)?"
+    r"(?:\s*(?:,|\band\b|\bthen\b).*)?$")
+
+
+def match_whatsapp_topic_search(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
+    """'find the latest message about my project deadline across my chats, who sent it ...' -> one cross-chat search."""
+    if re.search(r"\b(?:gmail|e-?mails?|sms|telegram|slack|inbox\s+folder|files?|documents?|folders?)\b", t):
+        return None
+    m = _TOPIC_SEARCH.match(t)
+    if not m:
+        return None
+    topic = re.sub(r"^(?:my|our|the|a|an)\s+", "", m.group("topic").strip())
+    if not topic or re.fullmatch(r"(?:it|this|that|them|something|anything|stuff)", topic):
+        return None
+    latest = bool(re.search(r"\b(?:latest|last|most\s+recent|newest)\b", t))
+    return _decision(request_id, t, "read_whatsapp_messages",
+                     {"filter": "all", "topic": topic, "limit": 3 if latest else 5})
+
+
 def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDecision]:
     """Instant deterministic routing for reading/counting/summarising WhatsApp messages."""
+    topic_search = match_whatsapp_topic_search(t, raw, request_id)
+    if topic_search:
+        return topic_search
     # Scope words identify WhatsApp chat classes, not Gmail folders or contact names.
     # Require a message object and a read/summarize predicate; a bare statement is not a command.
-    scope_terms = re.search(r"\b(?:individual|personal|direct|groups?|grps?)\b", t)
+    from jarvis.tools.system.whatsapp_tools import mask_group_verbs
+    masked = mask_group_verbs(t)
+    scope_terms = re.search(r"\b(?:individual|personal|direct|groups?|grps?)\b", masked)
     message_object = re.search(r"\b(?:messages?|msgs?|chats?)\b", t)
     read_predicate = re.search(r"\b(?:read|show|check|list|kaatu|katu|paaru|paru|sollu|summari[sz]e|summary)\b", t)
     if (scope_terms and message_object and read_predicate
@@ -334,7 +364,7 @@ def match_whatsapp_read(t: str, raw: str, request_id: str) -> Optional[RouteDeci
         if intent == "read_whatsapp_messages":
             slots["filter"] = "unread" if re.search(r"\b(?:unread|new)\b", t) else "all"
         return _decision(request_id, t, intent, slots)
-    if _GROUP_WORD.search(t):
+    if _GROUP_WORD.search(masked):
         return None
 
     if re.fullmatch(r"read my chats", t):

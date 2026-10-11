@@ -2,7 +2,10 @@
 by the gateway middleware). All mutating calls act only on the owner's own configuration."""
 from __future__ import annotations
 
-from typing import Any, Optional
+import asyncio
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -97,6 +100,35 @@ def _agent(runtime: Any):
     return agent
 
 
+# Dashboard polls get their own two threads: when the database is busy they wait here, never in the shared asyncio
+# pool that command execution, verification and model calls use.
+_DASHBOARD_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="wa-dashboard")
+_inflight: dict[str, asyncio.Future] = {}
+_last_good: dict[str, dict[str, Any]] = {}
+
+
+async def _dashboard_read(key: str, fn: Callable[[], dict[str, Any]], timeout_s: float) -> dict[str, Any]:
+    """One read per key in flight; a slow or locked read answers with the last good result (or a clean 503)."""
+    loop = asyncio.get_running_loop()
+    fut = _inflight.get(key)
+    if fut is None or fut.done() or fut.get_loop() is not loop:
+        fut = loop.run_in_executor(_DASHBOARD_POOL, fn)
+        _inflight[key] = fut
+
+        def _done(f: asyncio.Future, key: str = key) -> None:
+            if _inflight.get(key) is f:
+                _inflight.pop(key, None)
+            if not f.cancelled() and f.exception() is None:
+                _last_good[key] = f.result()
+        fut.add_done_callback(_done)
+    try:
+        return await asyncio.wait_for(asyncio.shield(fut), timeout_s)
+    except (TimeoutError, sqlite3.OperationalError) as exc:
+        if key in _last_good:
+            return {**_last_good[key], "stale": True}
+        raise HTTPException(503, "WhatsApp data is busy; it will refresh in a moment.") from exc
+
+
 def _cid(contact_id: str) -> str:
     if is_group_chat(contact_id):
         raise HTTPException(400, "Group chats are not supported by personal replies.")
@@ -112,19 +144,12 @@ def register(app: FastAPI, runtime: Any) -> None:
             a = _agent(runtime)
             return {"contacts": a.contacts_overview(), "grants": a.policy.status(), "activity": a.store.recent_activity(60),
                     "encryption": a.store.box.status, "status_text": a.status_text()}
-        try:
-            return await __import__('asyncio').wait_for(__import__('asyncio').to_thread(read), 20)
-        except (TimeoutError, __import__('asyncio').TimeoutError, __import__('sqlite3').OperationalError) as exc:
-            # A busy database is a state to show, not a crash: the page retries on its next refresh.
-            raise HTTPException(503, f"WhatsApp contacts are busy right now ({type(exc).__name__}); try again in a moment.") from exc
+        return await _dashboard_read("contacts", read, timeout_s=5)
 
     @app.get(base + '/intelligence/overview')
     async def brain_overview() -> dict[str, Any]:
-        try:
-            a = await __import__('asyncio').to_thread(_agent, runtime)
-        except __import__('sqlite3').OperationalError as exc:
-            raise HTTPException(503, f"The WhatsApp intelligence store is busy ({exc}); try again in a moment.") from exc
         def read() -> dict[str, Any]:
+            a = _agent(runtime)
             with a.inbox._get_conn() as con:
                 messages = con.execute('SELECT count(*) FROM whatsapp_messages').fetchone()[0]
                 direct = con.execute("SELECT count(DISTINCT chat_id) FROM whatsapp_messages WHERE "
@@ -157,10 +182,10 @@ def register(app: FastAPI, runtime: Any) -> None:
                     'generated_auto_reply_enabled': False,
                     'language_layer': {'source': 'Unified JARVIS NLP', 'shadow': get_language_service().enabled(),
                                        'controls_tools': False, 'personal_style_source': 'Personal Reply Brain'}}
-        return await __import__('asyncio').to_thread(read)
+        return await _dashboard_read("overview", read, timeout_s=8)
 
     @app.post(base + '/intelligence/jobs')
-    async def start_brain_job(body: BrainBuildBody) -> dict[str, Any]:
+    def start_brain_job(body: BrainBuildBody) -> dict[str, Any]:
         a = _agent(runtime)
         try:
             return a.brain_jobs.start(body.scope.upper(), _cid(body.contact_id) if body.contact_id else '')
@@ -168,26 +193,26 @@ def register(app: FastAPI, runtime: Any) -> None:
             raise HTTPException(400, str(exc)) from exc
 
     @app.get(base + '/intelligence/jobs/{job_id}')
-    async def brain_job(job_id: str) -> dict[str, Any]:
+    def brain_job(job_id: str) -> dict[str, Any]:
         try:
             return _agent(runtime).brain_jobs.get(job_id)
         except KeyError as exc:
             raise HTTPException(404, 'Unknown intelligence job') from exc
 
     @app.post(base + '/intelligence/jobs/{job_id}/cancel')
-    async def cancel_brain_job(job_id: str) -> dict[str, Any]:
+    def cancel_brain_job(job_id: str) -> dict[str, Any]:
         try:
             return _agent(runtime).brain_jobs.cancel(job_id)
         except KeyError as exc:
             raise HTTPException(404, 'Unknown intelligence job') from exc
 
     @app.get(base + '/intelligence/contacts/{contact_id}')
-    async def brain_contact(contact_id: str) -> dict[str, Any]:
+    def brain_contact(contact_id: str) -> dict[str, Any]:
         cid = _cid(contact_id)
         return _agent(runtime).store.brain_state(cid)
 
     @app.post(f"{base}/contacts")
-    async def add_contact(body: ContactBody) -> dict[str, Any]:
+    def add_contact(body: ContactBody) -> dict[str, Any]:
         a = _agent(runtime)
         raw = body.contact.strip()
         if "@" in raw:
@@ -204,7 +229,7 @@ def register(app: FastAPI, runtime: Any) -> None:
         return {"contact_id": cid, "display_name": name or cid.split("@")[0]}
 
     @app.get(base + "/contacts/{contact_id}")
-    async def detail(contact_id: str) -> dict[str, Any]:
+    def detail(contact_id: str) -> dict[str, Any]:
         a = _agent(runtime)
         row = next((c for c in a.contacts_overview() if c["contact_id"] == contact_id), None)
         prof = a.store.load_profile(_cid(contact_id))
@@ -213,7 +238,7 @@ def register(app: FastAPI, runtime: Any) -> None:
                 "sources": a.store.source_count(contact_id)}
 
     @app.post(base + "/contacts/{contact_id}/import")
-    async def import_chat(contact_id: str, body: ImportBody) -> dict[str, Any]:
+    def import_chat(contact_id: str, body: ImportBody) -> dict[str, Any]:
         try:
             return _agent(runtime).import_chat(_cid(contact_id), body.display_name, export_text=body.export_text,
                                                from_inbox=body.from_inbox, owner_name=body.owner_name)
@@ -221,7 +246,7 @@ def register(app: FastAPI, runtime: Any) -> None:
             raise HTTPException(422, str(exc)) from exc
 
     @app.post(base + "/import-file")
-    async def import_file(body: FileBody) -> dict[str, Any]:
+    def import_file(body: FileBody) -> dict[str, Any]:
         import base64
         try:
             data: bytes | str = base64.b64decode(body.content_base64) if body.content_base64 else body.text
@@ -236,19 +261,19 @@ def register(app: FastAPI, runtime: Any) -> None:
             raise HTTPException(422, str(exc)) from exc
 
     @app.post(base + "/feed/import")
-    async def import_feed() -> dict[str, Any]:
+    def import_feed() -> dict[str, Any]:
         return _agent(runtime).import_feed_folder()
 
     @app.post(base + "/contacts/{contact_id}/rebuild")
-    async def rebuild(contact_id: str) -> dict[str, Any]:
+    def rebuild(contact_id: str) -> dict[str, Any]:
         return _agent(runtime).rebuild_profile(_cid(contact_id))
 
     @app.post(base + "/refresh-all")
-    async def refresh_all() -> dict[str, Any]:
+    def refresh_all() -> dict[str, Any]:
         return _agent(runtime).refresh_all()
 
     @app.get(base + "/contacts/{contact_id}/style/explain")
-    async def explain_style(contact_id: str) -> dict[str, Any]:
+    def explain_style(contact_id: str) -> dict[str, Any]:
         return _agent(runtime).explain_style(_cid(contact_id))
 
     @app.post(base + "/contacts/{contact_id}/style/evaluate")
@@ -256,16 +281,16 @@ def register(app: FastAPI, runtime: Any) -> None:
         return await _agent(runtime).evaluate_contact(_cid(contact_id))
 
     @app.post(base + "/contacts/{contact_id}/style/approve-evaluation")
-    async def approve_evaluation(contact_id: str) -> dict[str, Any]:
+    def approve_evaluation(contact_id: str) -> dict[str, Any]:
         return _agent(runtime).approve_offline_evaluation(_cid(contact_id))
 
     @app.get(base + "/contacts/{contact_id}/style/holdout-review")
-    async def holdout_review(contact_id: str) -> dict[str, Any]:
+    def holdout_review(contact_id: str) -> dict[str, Any]:
         cid = _cid(contact_id)
         return {'contact_id': cid, 'cases': _agent(runtime).store.holdout_review_cases(cid)}
 
     @app.post(base + "/contacts/{contact_id}/style/holdout-review/{case_id}")
-    async def rate_holdout(contact_id: str, case_id: str, body: HoldoutRatingBody) -> dict[str, Any]:
+    def rate_holdout(contact_id: str, case_id: str, body: HoldoutRatingBody) -> dict[str, Any]:
         try:
             dimensions = body.model_dump(exclude={'rating'}, exclude_none=True)
             saved = _agent(runtime).store.rate_holdout_review_case(_cid(contact_id), case_id, body.rating,
@@ -275,29 +300,29 @@ def register(app: FastAPI, runtime: Any) -> None:
         return {'status': 'SAVED' if saved else 'NOT_FOUND', 'case_id': case_id}
 
     @app.get(base + "/contacts/{contact_id}/maturity")
-    async def maturity(contact_id: str) -> dict[str, Any]:
+    def maturity(contact_id: str) -> dict[str, Any]:
         a = _agent(runtime)
         return {'contact_id': contact_id, 'state': a.maturity(_cid(contact_id))}
 
     @app.get(base + "/contacts/{contact_id}/legacy-review")
-    async def legacy_review_batch(contact_id: str, limit: int = 35) -> dict[str, Any]:
+    def legacy_review_batch(contact_id: str, limit: int = 35) -> dict[str, Any]:
         return _agent(runtime).legacy_review_batch(_cid(contact_id), limit=min(40, max(1, limit)))
 
     @app.post(base + "/contacts/{contact_id}/legacy-review")
-    async def legacy_review(contact_id: str, body: LegacyReviewBody) -> dict[str, Any]:
+    def legacy_review(contact_id: str, body: LegacyReviewBody) -> dict[str, Any]:
         return _agent(runtime).review_legacy(_cid(contact_id), body.decisions)
 
     @app.post(base + "/contacts/{contact_id}/legacy-review/action")
-    async def legacy_review_action(contact_id: str, body: LegacyBatchActionBody) -> dict[str, Any]:
+    def legacy_review_action(contact_id: str, body: LegacyBatchActionBody) -> dict[str, Any]:
         return _agent(runtime).review_legacy_batch(
             _cid(contact_id), body.action, body.selected_ids, body.limit)
 
     @app.post(base + "/contacts/{contact_id}/manual-send/{message_id}/verify")
-    async def verify_manual(contact_id: str, message_id: str) -> dict[str, Any]:
+    def verify_manual(contact_id: str, message_id: str) -> dict[str, Any]:
         return _agent(runtime).verify_manual_owner_send(_cid(contact_id), message_id)
 
     @app.post(base + "/manual-send/verify-last")
-    async def verify_last_manual(body: ManualConfirmationBody) -> dict[str, Any]:
+    def verify_last_manual(body: ManualConfirmationBody) -> dict[str, Any]:
         return _agent(runtime).verify_last_manual_owner_send(
             body.confirmation, _cid(body.contact_id) if body.contact_id else '')
 
@@ -314,7 +339,7 @@ def register(app: FastAPI, runtime: Any) -> None:
         return await _agent(runtime).test_reply(_cid(contact_id), body.text)
 
     @app.post(base + "/contacts/{contact_id}/mode")
-    async def set_mode(contact_id: str, body: ModeBody) -> dict[str, Any]:
+    def set_mode(contact_id: str, body: ModeBody) -> dict[str, Any]:
         a = _agent(runtime)
         cid = _cid(contact_id)
         try:
@@ -327,11 +352,11 @@ def register(app: FastAPI, runtime: Any) -> None:
             raise HTTPException(400, str(exc)) from exc
 
     @app.post(base + "/contacts/{contact_id}/stop")
-    async def stop(contact_id: str) -> dict[str, Any]:
+    def stop(contact_id: str) -> dict[str, Any]:
         return _agent(runtime).stop(_cid(contact_id))
 
     @app.post(f"{base}/everyone")
-    async def everyone(body: MinutesBody) -> dict[str, Any]:
+    def everyone(body: MinutesBody) -> dict[str, Any]:
         a = _agent(runtime)
         try:
             return a.enable([], a.clock() + body.minutes * 60, everyone=True, note=body.note)
@@ -339,19 +364,19 @@ def register(app: FastAPI, runtime: Any) -> None:
             raise HTTPException(400, str(exc)) from exc
 
     @app.post(f"{base}/stop_all")
-    async def stop_all() -> dict[str, Any]:
+    def stop_all() -> dict[str, Any]:
         return _agent(runtime).stop_all()
 
     @app.delete(base + "/contacts/{contact_id}/profile")
-    async def clear(contact_id: str) -> dict[str, Any]:
+    def clear(contact_id: str) -> dict[str, Any]:
         return _agent(runtime).clear_profile(_cid(contact_id))
 
     @app.get(base + "/contacts/{contact_id}/history")
-    async def history(contact_id: str) -> dict[str, Any]:
+    def history(contact_id: str) -> dict[str, Any]:
         return {"history": _agent(runtime).history(_cid(contact_id))}
 
     @app.post(base + "/contacts/{contact_id}/feedback")
-    async def feedback(contact_id: str, body: FeedbackBody) -> dict[str, Any]:
+    def feedback(contact_id: str, body: FeedbackBody) -> dict[str, Any]:
         try:
             return _agent(runtime).feedback(_cid(contact_id), body.kind)
         except ValueError as exc:
@@ -362,7 +387,7 @@ def register(app: FastAPI, runtime: Any) -> None:
         return await _agent(runtime).approve_reply(reply_id, edited_text=body.text, mark_good=body.mark_good)
 
     @app.post(base + "/replies/{reply_id}/reject")
-    async def reject(reply_id: int) -> dict[str, Any]:
+    def reject(reply_id: int) -> dict[str, Any]:
         return _agent(runtime).reject_reply(reply_id)
 
     @app.post(base + "/replies/{reply_id}/feedback")

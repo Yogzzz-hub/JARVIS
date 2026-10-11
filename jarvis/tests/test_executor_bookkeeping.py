@@ -15,6 +15,7 @@ def test_slow_records_do_not_hold_the_reply(tmp_path):
     engine._records = ThreadPoolExecutor(max_workers=1)
     engine._pending_records = set()
     engine.pool = ThreadPoolExecutor(max_workers=1)
+    engine.io_pool = ThreadPoolExecutor(max_workers=1)
     engine.BOOKKEEP_WAIT_S = 0.2
     finished = threading.Event()
 
@@ -39,6 +40,7 @@ def test_fast_records_complete_before_returning():
     engine._records = ThreadPoolExecutor(max_workers=1)
     engine._pending_records = set()
     engine.pool = ThreadPoolExecutor(max_workers=1)
+    engine.io_pool = ThreadPoolExecutor(max_workers=1)
     done = []
 
     async def run():

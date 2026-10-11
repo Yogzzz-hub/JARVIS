@@ -470,6 +470,32 @@ class WhatsAppInbox:
             )
             return self._scoped(cursor.fetchall(), limit, include_groups, group, group_only)
 
+    _TOPIC_STOP = frozenset("""a an the my our your his her their this that these those about regarding on in of for to
+        from with and or any some message messages msg msgs chat chats whatsapp latest last recent new""".split())
+
+    def search(self, topic: str, limit: int = 10, include_groups: bool = True, group: Optional[str] = None,
+               group_only: bool = False) -> List[InboxMessage]:
+        """Newest messages mentioning a topic across chats: every topic word first, then any of them."""
+        words = [w for w in re.findall(r"[\w']+", (topic or "").lower()) if len(w) > 1 and w not in self._TOPIC_STOP]
+        if not words:
+            return []
+        scope_sql, scope_args = self._scope_sql(include_groups, group, group_only)
+
+        def like(w: str) -> str:
+            return "%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+        found: List[InboxMessage] = []
+        with self._get_conn() as conn:
+            for joiner in (" AND ", " OR ") if len(words) > 1 else (" AND ",):
+                cond = joiner.join("lower(text) LIKE ? ESCAPE '\\'" for _ in words)
+                rows = conn.execute(
+                    f"SELECT * FROM whatsapp_messages WHERE {scope_sql} AND ({cond}) ORDER BY timestamp DESC LIMIT ?",
+                    (*scope_args, *(like(w) for w in words), limit * 4)).fetchall()
+                found = self._scoped(rows, limit, include_groups, group, group_only)
+                if found:
+                    break
+        return found
+
     def get_chat_history(self, chat_id: str, limit: int = 8) -> List[InboxMessage]:
         """Most recent messages of one conversation, oldest first (for reply context)."""
         with self._get_conn() as conn:

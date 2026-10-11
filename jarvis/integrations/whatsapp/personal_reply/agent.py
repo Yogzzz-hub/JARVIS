@@ -21,6 +21,7 @@ import difflib
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -1495,6 +1496,7 @@ class PersonalReplyAgent:
 
 
 _agent: Optional[PersonalReplyAgent] = None
+_agent_lock = threading.Lock()
 
 
 _agent_lock = threading.Lock()
@@ -1505,7 +1507,7 @@ def get_personal_reply_agent() -> PersonalReplyAgent:
     moment, and two agents built in parallel used to migrate the same database at once ("database is locked")."""
     global _agent
     if _agent is None:
-        with _agent_lock:
+        with _agent_lock:  # concurrent dashboard requests share one agent (and one schema setup)
             if _agent is None:
                 _agent = PersonalReplyAgent()
     return _agent

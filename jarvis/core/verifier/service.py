@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import psutil
 from jarvis.core.metrics.clock import now_ns
@@ -19,6 +20,14 @@ def process_evidence(data):
         if (proc.info["name"] or "").casefold() in names:
             return {"pid": proc.info["pid"], "process": proc.info["name"], "criterion": "matching process exists"}
     return None
+
+# Probes run on their own threads, so a saturated shared asyncio pool cannot turn a launched app into a timeout.
+_PROBE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-verify")
+
+
+async def _probe(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(_PROBE_POOL, fn, *args)
+
 
 class Verifier:
     def __init__(self, poll_ms=50, timeout_ms=3000, probe=process_evidence):
@@ -45,7 +54,7 @@ class Verifier:
                         while not evidence:
                             if cancellation.is_set():
                                 raise asyncio.CancelledError
-                            evidence = await asyncio.to_thread(self.probe, result.data)
+                            evidence = await _probe(self.probe, result.data)
                             if not evidence:
                                 try:
                                     await asyncio.wait_for(cancellation.wait(), self.poll_s)
@@ -60,7 +69,7 @@ class Verifier:
                 error = f"PowerShell command failed with exit code {result.data.get('exit_code')}: {result.data.get('stderr', '')[:200]}"
         elif tool_name == "volume_set":
             from jarvis.tools.system.native import volume
-            actual = await asyncio.to_thread(volume)
+            actual = await _probe(volume)
             if abs(actual - arguments.percent) <= 1:
                 evidence = {"readback_percent": actual}
             else:
@@ -73,7 +82,7 @@ class Verifier:
                 with path.open("rb") as file:
                     signature = file.read(8)
                 return path.stat().st_size, signature
-            size, signature = await asyncio.to_thread(inspect)
+            size, signature = await _probe(inspect)
             if signature == b"\x89PNG\r\n\x1a\n" and size == result.data["bytes"]:
                 evidence = {"path": result.data["path"], "bytes": size, "png_signature": True}
             else:
