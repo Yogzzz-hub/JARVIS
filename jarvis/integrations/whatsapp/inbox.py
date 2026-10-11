@@ -677,18 +677,18 @@ class WhatsAppInbox:
                      str(c.get("last_text") or "")[:300], str(c.get("last_sender") or "").strip(),
                      1 if c.get("last_from_me") else 0, time.time()),
                 )
-                if synced or not full:
+                if synced or not full or unread == 0:
                     self._sync_read_flags(conn, cid, unread)
                 stored.append(cid)
-            if full and synced:
+            if full:
                 listed = set(stored)
                 for (cid,) in conn.execute("SELECT chat_id FROM whatsapp_chats WHERE unread > 0").fetchall():
                     if cid not in listed:
                         conn.execute("UPDATE whatsapp_chats SET unread = 0, updated = ? WHERE chat_id = ?", (time.time(), cid))
                         self._sync_read_flags(conn, cid, 0)
             conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('chats_synced', ?)",
-                         ("1" if synced else "0",))
-            if synced:
+                         ("1" if (synced or full) else "0",))
+            if synced or full:
                 conn.execute("INSERT OR REPLACE INTO whatsapp_meta (key, value) VALUES ('last_successful_sync_at', ?)",
                              (datetime.now().astimezone().isoformat(),))
             conn.commit()
@@ -718,8 +718,7 @@ class WhatsAppInbox:
             meta = dict(conn.execute("SELECT key, value FROM whatsapp_meta WHERE key IN "
                                      "('chats_synced', 'sync_generation', 'synced_generation', 'connector_state')").fetchall())
         return (meta.get("chats_synced") == "1" and
-                (not meta.get("connector_state") or bool(meta.get("sync_generation"))) and
-                (not meta.get("sync_generation") or meta.get("sync_generation") == meta.get("synced_generation")))
+                (not meta.get("connector_state") or meta.get("connector_state") == "READY" or bool(meta.get("sync_generation"))))
 
     def sync_state(self) -> str:
         """Whether the current bridge session supplied a complete chat snapshot."""
@@ -914,7 +913,7 @@ class WhatsAppInbox:
                 continue
             msgs = stored.get(cid, [])[:min(b["unread"], max_messages)]
             out.append(self._chat_entry(cid, bool(b["is_group"]), b["unread"], msgs, b))
-        if not synced:
+        if not synced and not badges:
             # without WhatsApp's badges nothing ever says a chat was read on the phone: only the last few days count
             newest = max((m[0].timestamp for m in stored.values()), default=0.0)
             for cid, msgs in stored.items():
@@ -987,6 +986,24 @@ class WhatsAppInbox:
         purpose: no model can mix up who said what, and it answers instantly.
         """
         sync_state = self.sync_state()
+        if sync_state in {"NOT_CONNECTED", "DISCONNECTED"}:
+            return {
+                "status": "NOT_CONNECTED",
+                "sync_state": "NOT_CONNECTED",
+                "total_pending": 0,
+                "urgent_count": 0,
+                "normal_count": 0,
+                "spoken_summary": "WhatsApp is not connected to your device.",
+                "urgent_messages": [],
+                "normal_messages": [],
+                "unread_chats": [],
+                "unread_count": 0,
+                "total_direct_chats": 0,
+                "unread_direct_chats": 0,
+                "unread_messages": 0,
+                "groups_unread": 0,
+                "generated_at": datetime.now().isoformat(),
+            }
         chats = self.unread_chats(include_groups=True)
         if group:
             scoped = [c for c in chats if c["chat_id"] == group]
