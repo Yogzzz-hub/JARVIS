@@ -321,6 +321,18 @@ jarvis hey ok can could would will pending and""".split())
 def group_scope_from_text(text: str) -> dict[str, Any]:
     """Resolve requested chat scope before a read; sending still uses only the named group."""
     t = " ".join((text or "").lower().split())
+    if re.search(r"\b(?:personal|individual|direct)(?:\s+(?:messages?|msgs?|chats?))?\s+(?:and|&)\s+(?:groups?|grps?)\b", t):
+        return {"scope": "DIRECT_AND_GROUP"}
+    # "group" as a verb is about arranging the answer, not a WhatsApp group: "group related messages", "grouped by person"
+    t = re.sub(r"\bgroup(?:ed|ing)?\s+(?:them|these|those|it|related|similar|together|by|all)\b|"
+               r"(?:\b(?:and|then|also|please|to)\s+|,\s*)group(?:ed|ing)?\s+(?:the\s+)?(?:messages?|chats?|replies|senders?|"
+               r"topics?|people|contacts?)\b", " ", t)
+    # a group's name never crosses a clause: "summarise my unread chats, prioritise personal ones, ..."
+    clauses = [c for c in re.split(r"[,;.!?]", t) if c.strip()]
+    hit = next((c for c in clauses if _GROUP_WORD.search(c)), None)
+    if hit is not None and len(clauses) > 1:
+        t = hit.strip() if re.search(r"\b(?:summar|read|check|show|reply|respond|send|what|any|catch)", hit) else \
+            (clauses[0].strip() + " " + hit.strip())
     both = bool(re.search(r"\b(?:personal|individual|direct)(?:\s+(?:messages?|msgs?|chats?))?\s+(?:and|&)\s+"
                           r"(?:groups?|grps?)\b", t)
                 or (re.search(r"\b(?:both|all)\b", t)

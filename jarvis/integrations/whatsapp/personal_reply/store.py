@@ -144,6 +144,10 @@ def default_db_path() -> Path:
     return _p()
 
 
+_MIGRATE_LOCK = threading.Lock()
+_MIGRATED: set[str] = set()
+
+
 class PersonalReplyStore:
     def __init__(self, path: Optional[Path] = None, box: Optional[DataBox] = None) -> None:
         self.path = Path(path) if path else default_db_path()
@@ -151,6 +155,24 @@ class PersonalReplyStore:
         self._lock = threading.RLock()
         self._profile_cache: dict[str, tuple[float, ContactStyleProfile | None]] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        key = str(self.path.resolve())
+        with _MIGRATE_LOCK:
+            if key in _MIGRATED:
+                return
+            for attempt in range(6):
+                try:
+                    self._migrate()
+                    _MIGRATED.add(key)
+                    break
+                except sqlite3.OperationalError as exc:
+                    # jarvis.db is shared with the ledger, the inbox and the audit log; a long write elsewhere can
+                    # hold it for a moment at startup. Wait it out instead of failing the whole agent.
+                    if "locked" not in str(exc).lower() or attempt == 5:
+                        raise
+                    time.sleep(0.5 * (attempt + 1))
+
+    def _migrate(self) -> None:
+        """Create / upgrade the tables. Runs once per database file per process."""
         with self._conn() as con:
             con.executescript(SCHEMA)
             if "note" not in {r[1] for r in con.execute("PRAGMA table_info(wa_pr_grants)").fetchall()}:
@@ -195,8 +217,8 @@ class PersonalReplyStore:
                 con.execute("ALTER TABLE wa_pr_evaluations ADD COLUMN approved_at REAL")
 
     def _conn(self) -> sqlite3.Connection:
-        con = sqlite3.connect(self.path, timeout=10)
-        con.execute("PRAGMA busy_timeout=10000")
+        con = sqlite3.connect(self.path, timeout=30)
+        con.execute("PRAGMA busy_timeout=30000")
         con.row_factory = sqlite3.Row
         return con
 

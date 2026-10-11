@@ -89,6 +89,8 @@ class BrainBuildBody(BaseModel):
 def _agent(runtime: Any):
     service = getattr(runtime, "whatsapp_service", None)
     agent = getattr(service, "personal_reply", None) if service is not None else None
+    if agent is None and service is not None:
+        agent = getattr(service, "draft_only_agent", None)   # read-only mode: the service already built one
     if agent is None:
         from jarvis.integrations.whatsapp.personal_reply.agent import get_personal_reply_agent
         agent = get_personal_reply_agent()
@@ -110,11 +112,18 @@ def register(app: FastAPI, runtime: Any) -> None:
             a = _agent(runtime)
             return {"contacts": a.contacts_overview(), "grants": a.policy.status(), "activity": a.store.recent_activity(60),
                     "encryption": a.store.box.status, "status_text": a.status_text()}
-        return await __import__('asyncio').wait_for(__import__('asyncio').to_thread(read), 5)
+        try:
+            return await __import__('asyncio').wait_for(__import__('asyncio').to_thread(read), 20)
+        except (TimeoutError, __import__('asyncio').TimeoutError, __import__('sqlite3').OperationalError) as exc:
+            # A busy database is a state to show, not a crash: the page retries on its next refresh.
+            raise HTTPException(503, f"WhatsApp contacts are busy right now ({type(exc).__name__}); try again in a moment.") from exc
 
     @app.get(base + '/intelligence/overview')
     async def brain_overview() -> dict[str, Any]:
-        a = await __import__('asyncio').to_thread(_agent, runtime)
+        try:
+            a = await __import__('asyncio').to_thread(_agent, runtime)
+        except __import__('sqlite3').OperationalError as exc:
+            raise HTTPException(503, f"The WhatsApp intelligence store is busy ({exc}); try again in a moment.") from exc
         def read() -> dict[str, Any]:
             with a.inbox._get_conn() as con:
                 messages = con.execute('SELECT count(*) FROM whatsapp_messages').fetchone()[0]

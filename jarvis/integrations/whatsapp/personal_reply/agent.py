@@ -14,6 +14,8 @@ same direct chat it came from.
 """
 from __future__ import annotations
 
+import threading
+
 import asyncio
 import difflib
 import json
@@ -1495,10 +1497,17 @@ class PersonalReplyAgent:
 _agent: Optional[PersonalReplyAgent] = None
 
 
+_agent_lock = threading.Lock()
+
+
 def get_personal_reply_agent() -> PersonalReplyAgent:
+    """The one shared agent. Built under a lock: the dashboard asks for contacts and the overview at the same
+    moment, and two agents built in parallel used to migrate the same database at once ("database is locked")."""
     global _agent
     if _agent is None:
-        _agent = PersonalReplyAgent()
+        with _agent_lock:
+            if _agent is None:
+                _agent = PersonalReplyAgent()
     return _agent
 
 
