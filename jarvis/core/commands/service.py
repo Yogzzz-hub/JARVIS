@@ -1703,7 +1703,20 @@ class CommandService:
         clock.tool_started_ns = now_ns()
         memory = self._conversation()
         history = memory.history(self._channel(request)) if memory is not None and state is None else None
-        outcome = await self.agent.run(goal, task=task, history=history, state=state, confirmed=confirmed)
+        from jarvis.core.response.fillers import Announcer, current_announcer
+        announcer_token = None
+        if is_voice and self.pulse is not None and hasattr(self.pulse, "_dispatch_micro_ack"):
+            request_id = task.request_id
+
+            def say(line: str) -> None:   # one short line when a tool fires after a silent stretch
+                self.pulse._dispatch_micro_ack(request_id, line)
+                self.bus.emit("assistant.progress", request_id, text=line)
+            announcer_token = current_announcer.set(Announcer(say))
+        try:
+            outcome = await self.agent.run(goal, task=task, history=history, state=state, confirmed=confirmed)
+        finally:
+            if announcer_token is not None:
+                current_announcer.reset(announcer_token)
         clock.tool_returned_ns = now_ns()
         if self.pulse:
             self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "agent")

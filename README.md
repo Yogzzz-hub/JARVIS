@@ -701,10 +701,11 @@ set in `[models]`:
 | Normal planning, agent, web agent | planner | `planner` | `qwen3.5:4b, llama3.2:latest` |
 | Answers, document Q&A, WhatsApp text | chat | `chat` | `qwen3.5:4b, llama3.2:latest` |
 | Hard planning / reasoning | deep fallback only | `deep` | `qwen3.6:35b-a3b` (optional) |
-| Screen understanding | multimodal, on demand | `vision` | `qwen3.5:4b, qwen2.5vl:3b` |
+| Screen and camera understanding | multimodal, on demand | `vision` | `qwen3.5:4b, qwen2.5vl:3b` |
 | Knowledge-base embeddings | embed (optional) | `embed` | `nomic-embed-text` |
 | Speech to text | faster-whisper | `[voice] stt_model` | `auto` (large-v3-turbo on GPU, small.en on CPU) |
-| Text to speech | Piper | `config/response.toml` | local Piper voice |
+| Text to speech | Piper (optional ElevenLabs first) | `config/response.toml`, `JARVIS_TTS_ENGINE` | local Piper voice |
+| Open-ended reasoning (optional) | Claude Code via the Agent SDK | `JARVIS_BRAIN` | `auto`: only when Ollama is down |
 
 - **Speed tuning.** The fast (intent) model runs with a 2k context and temperature 0 (quicker and consistent),
   planning is capped at temperature 0.2, and when JARVIS starts Ollama itself it enables flash attention and a
@@ -729,6 +730,60 @@ How the client behaves:
 - **Circuit breaker.** "Ollama is down" becomes an immediate fallback instead of a timeout.
 - **Thinking models.** Their `<think>` output is stripped.
 - **Structured output.** Structured calls use JSON-schema output restricted to real tool names.
+
+### Claude Code as the brain (optional)
+
+JARVIS can think with **Claude Code** (headless, through the Claude Agent SDK) instead of, or as a back-up to, the
+local models. It uses your existing Claude Code sign-in; no API key is stored in JARVIS.
+
+- **Install.** `pip install ".[claude]"` (the installer `setup_jarvis.ps1` already does, along with the `camera` extra), then sign in once by
+  running `claude` in a terminal and following `/login`.
+- **Choose the brain** with `JARVIS_BRAIN` (or `[models] brain` in `jarvis.toml`):
+  - `auto` (default): local Ollama first; Claude Code answers and runs the agent only when the local model is down.
+  - `claude`: Claude Code leads for open-ended requests and chat; the local model is the fall-back.
+  - `ollama`: never use Claude Code.
+- **Other settings.** `JARVIS_CLAUDE_MODEL` (default `claude-opus-5-5`), `JARVIS_CLAUDE_EFFORT` (`low`/`medium`/`high`),
+  `JARVIS_CLAUDE_MCP=0` to ignore the MCP servers in `~/.claude.json`, `JARVIS_ALLOW_WRITES=1` to let Claude's own
+  file/shell tools change things (off by default).
+- **Safety.** Exact commands never reach Claude: the deterministic router and the JDE still handle them. JARVIS's
+  tools are given to Claude as an in-process MCP server and every call runs through JARVIS's own executor - the
+  policy engine, ledger and confirmation tickets apply exactly as for direct commands, and anything that sends,
+  deletes, installs, pays or changes power state pauses for your spoken "yes". Claude's built-in tools pass a
+  default-deny gate: reading and web search are allowed, writing and shell are blocked, and other MCP tools are
+  allowed only when their name is a read verb (`list_`, `get_`, `search_` ...) and not an effect (`send_`,
+  `delete_`, `install_` ...). Repeated sign-in or CLI failures trip a 10-minute breaker so requests never stall.
+- **Status.** `GET /api/brain/status` shows the mode, whether the SDK is installed, the model and the last error;
+  `GET /api/diagnostics` adds voice, clap-wake and pending-record counters.
+
+### Voice extras: clap to wake, spoken fillers, persona, cloud voice
+
+- **Clap to wake.** `clap_wake = "double"` in `[voice]` (or `JARVIS_CLAP_WAKE=double`): two sharp claps 0.15-0.9 s
+  apart wake JARVIS like "Hey Jarvis". The detector checks the shape of a clap - quiet just before, a near-instant
+  rise far above the room's noise floor, and a collapse within 130 ms - so speech, music, a door or a dropped book
+  do not count. `"single"` wakes on one clap (more false wakes); it never listens for claps while JARVIS speaks.
+- **Spoken fillers.** When a multi-step task (local agent or Claude) starts a tool after 2.5 s of silence, JARVIS
+  says one short line that names the work - "Checking your mail.", "Going through your chats.", "Searching." - then
+  stays quiet until the answer. One line per task, never progress chatter.
+- **Persona.** `JARVIS_PERSONA=butler` gives the local model the film character's register ("sir" fronted when
+  urgent, final when routine; failure fronted with "I'm afraid"; never gushing). The Claude Code brain always uses it.
+- **ElevenLabs voice (cloud, opt-in).** `JARVIS_TTS_ENGINE=elevenlabs` plus `ELEVENLABS_API_KEY` (optional
+  `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL`, default `eleven_flash_v2_5`). Audio arrives as raw 22 kHz PCM and plays
+  through the normal speaker path; on any failure the local Piper voice speaks instead and the cloud voice rests for
+  two minutes. This sends spoken replies to ElevenLabs, so it is off unless you set both variables.
+
+### Camera and reader mode
+
+- **Look / watch.** "look at me", "what am I holding", "how do I look", "read the label I'm holding up" take one
+  webcam frame (`camera_look`); "watch my squat form", "am I doing this right" take about six seconds as a
+  time-stamped grid of frames (`camera_watch`) so the vision model can judge movement. Frames stay in memory for
+  that one call and are never saved; the camera is released straight after. Needs `opencv-python` and a vision
+  model (`ollama pull qwen2.5vl:3b`); `JARVIS_CAMERA_INDEX` picks another camera. The AI agent or Claude can only
+  use the camera after you confirm.
+- **Reader mode.** `read_webpage` (and `GET /api/reader?url=...` for a clean, script-free reading view) fetches a
+  public page without opening a browser and pulls out the article by how much of each block is real prose, dropping
+  navigation, sidebars and footers. Only public http(s) addresses are fetched: local, private, link-local and
+  cloud-metadata addresses are refused, and every redirect is checked again. Page text is treated as data, never as
+  instructions.
 
 ### Knowledge base (RAG): `jarvis/db/knowledge.db`
 

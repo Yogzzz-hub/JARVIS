@@ -97,6 +97,8 @@ def create_app(runtime=None):
     register_dashboard(app, runtime)
     from jarvis.core.gateway.phone_voice import register as register_phone_voice
     register_phone_voice(app, runtime)
+    from jarvis.core.gateway.extras_api import register as register_extras
+    register_extras(app, runtime)
 
     @app.get("/tasks/{request_id}", response_model=TaskSnapshot)
     async def task(request_id: str):

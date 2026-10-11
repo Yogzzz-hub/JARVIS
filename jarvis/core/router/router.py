@@ -767,10 +767,20 @@ class SmartRouter:
                 return False  # Generic draft/search/cancel words do not identify WhatsApp.
         if self._DEFINITION_Q.match(text or ""):
             return False
+        if not self._whatsapp_ok(tool, text):
+            return False
         if self._QUESTION.match(text or "") and not (self._is_read_only(tool) or tool in self._INFO_TOOLS
                                                        or re.match(r"(?:get|list|read|check|find|search|show|recall|recent|command)_", tool)):
             return False
         return True
+
+    _WA_MENTION = re.compile(r"\b(?:whats\s?app|wa|chats?|messages?|msgs?|texts?|groups?|contacts?|drafts?|replies|reply|"
+                             r"watchers?)\b", re.I)
+
+    def _whatsapp_ok(self, tool: str, text: str) -> bool:
+        """WhatsApp tools are reached by retrieval only when the request is about WhatsApp: "watch the cricket match"
+        shares the word "watch" with whatsapp_watch_cancel and must never cancel a message watcher."""
+        return not tool.startswith("whatsapp_") or bool(self._WA_MENTION.search(text or ""))
 
     _INFO_TOOLS = frozenset({"recent_actions", "command_history", "battery_status", "system_info", "network_info", "get_time",
                              "calendar_list_events", "gmail_list_recent", "read_whatsapp_messages", "list_reminders",
@@ -3341,7 +3351,8 @@ class SmartRouter:
         # 10.5. LANE 0.75: SEMANTIC CAPABILITY RETRIEVAL & SLOT EXTRACTION (< 1 ms)
         t_cap_0 = perf_counter_ns()
         from jarvis.core.capabilities.slot_extractor import extract_slots
-        top_caps = self.capability_retriever.retrieve(routing_text, top_k=3, min_score=6.0)
+        top_caps = [(c, sc) for c, sc in self.capability_retriever.retrieve(routing_text, top_k=5, min_score=6.0)
+                    if self._whatsapp_ok(c.target_tool, routing_text)][:3]
         breakdown["capability_retrieval_ms"] = (perf_counter_ns() - t_cap_0) / 1e6
         if top_caps:
             best_cap, score = top_caps[0]

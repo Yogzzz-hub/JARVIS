@@ -48,8 +48,13 @@ class TTSManager:
         sapi_engine: Optional[SAPIEngine] = None,
         keep_warm: bool = True,
         cache_capacity: int = 32,
+        cloud_engine=None,
     ) -> None:
         self.piper = piper_engine or PiperEngine()
+        if cloud_engine is None:
+            from jarvis.core.tts import elevenlabs_engine
+            cloud_engine = elevenlabs_engine.ElevenLabsEngine() if elevenlabs_engine.enabled() else None
+        self.cloud = cloud_engine            # optional cloud voice tried first; the local engines always remain
         self.sapi = sapi_engine or SAPIEngine()
         self.keep_warm = keep_warm
 
@@ -73,7 +78,7 @@ class TTSManager:
                 self.piper.load()
                 self.active_backend = "piper"
                 logger.info("Piper TTS engine pre-warmed successfully")
-                for p in ("Done.", "Task completed.", "Opening Chrome.", "Stopped."):
+                for p in (() if self.cloud is not None else ("Done.", "Task completed.", "Opening Chrome.", "Stopped.")):
                     if p not in self._generic_phrase_cache:
                         try:
                             pcm = self.piper.synthesize(p)
@@ -103,6 +108,18 @@ class TTSManager:
         # Check generic phrase cache
         if clean_text in self._generic_phrase_cache:
             return self._generic_phrase_cache[clean_text], "cache"
+
+        # 0. Optional cloud voice (opt-in); any failure falls through to the local voice
+        if self.cloud is not None and getattr(self.cloud, "available", False):
+            try:
+                pcm = self.cloud.synthesize(clean_text)
+                if pcm:
+                    self.sample_rate = getattr(self.cloud, "sample_rate", 22050)
+                    self.active_backend = self.cloud.backend_name
+                    self._maybe_cache_generic(clean_text, pcm)
+                    return pcm, self.cloud.backend_name
+            except Exception as c_err:
+                logger.info("Cloud voice unavailable (%s); using the local voice", c_err)
 
         # 1. Try Piper
         try:
@@ -146,6 +163,15 @@ class TTSManager:
         if not clean_text:
             return
 
+        if self.cloud is not None and getattr(self.cloud, "available", False):
+            try:
+                async for chunk in self.cloud.stream(clean_text):
+                    self.active_backend = self.cloud.backend_name
+                    yield chunk, self.cloud.backend_name
+                return
+            except Exception as c_err:
+                logger.info("Cloud voice stream unavailable (%s); using the local voice", c_err)
+
         # 1. Try Piper streaming
         stream_success = False
         try:
@@ -182,11 +208,15 @@ class TTSManager:
         """Cancel ongoing synthesis across engines."""
         self.piper.cancel()
         self.sapi.cancel()
+        if self.cloud is not None:
+            self.cloud.cancel()
 
     def unload(self) -> None:
         """Unload models and release memory."""
         self.piper.unload()
         self.sapi.unload()
+        if self.cloud is not None:
+            self.cloud.unload()
         self._generic_phrase_cache.clear()
 
     speech_rate = 1.0
@@ -199,6 +229,8 @@ class TTSManager:
             self.piper.length_scale = 1.0 / factor
         except Exception:
             pass
+        if self.cloud is not None:
+            self.cloud.length_scale = 1.0 / factor
         try:
             self.sapi.rate = int(190 * factor)
         except Exception:

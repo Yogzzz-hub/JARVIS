@@ -46,6 +46,8 @@ CHAT = frozenset({None, "", "chat", "general_chat", "ollama_chat", "quick_answer
 # writing something down about a topic never performs it
 NOTE_LIKE = frozenset({"set_reminder", "calendar_create_event", "todo", "quick_note", "capture_note", "memos_create",
                        "list_reminders", "standing_rule"})
+# looking is how these answer a question ("how do I look", "am I doing this right"): never demoted to chat
+PERCEIVE = frozenset({"camera_look", "camera_watch"})
 
 # ------------------------------------------------------------------------------------------------------- vocabulary
 _MONEY_AMOUNT = r"(?:(?:rs\.?|inr|usd|\$|₹)\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*(?:rs\.?|rupees?|rupaye|inr|dollars?|usd|bucks|k\b)|" \
@@ -385,6 +387,8 @@ def check(tools: Iterable[Optional[str]], text: str, consequential: Iterable[str
     if s.advice_question and not s.payment_ui and not s.scam_ui:
         # "should I run del /s /q", "does android let you schedule wifi", "what's the strongest password, in theory":
         # answered - never an action, and never left as a "which one?" clarification
+        if acting and all(t in PERCEIVE for t in acting):
+            return None
         if acting or None in tools:
             return {"kind": "chat", "reason": "question", "question": ""}
         return None

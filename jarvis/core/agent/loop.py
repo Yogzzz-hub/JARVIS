@@ -194,6 +194,15 @@ class AgentRunner:
         confirmed: bool = False,
     ) -> AgentOutcome:
         """Run (or resume) the loop. ``confirmed`` means the user approved ``state['pending']``."""
+        from jarvis.core.brain.claude_code import ClaudeBrainUnavailable, get_claude_brain
+        brain = get_claude_brain()
+        if (state is not None and state.get("brain") == "claude") or (state is None and brain.should_lead()):
+            try:
+                return await brain.run_agent(self, goal, task, history, context, state, confirmed)
+            except ClaudeBrainUnavailable as exc:
+                logger.info("Claude Code brain unavailable (%s); using the local model", exc)
+                if state is not None and state.get("brain") == "claude":
+                    state = None
         state = state or self._initial_state(goal, history, context)
         steps: list[AgentStep] = state["steps"]
         messages: list[dict[str, str]] = state["messages"]
@@ -224,6 +233,11 @@ class AgentRunner:
                 model_used = decision.pop("_model", model_used)
                 state["model"] = model_used
             except LLMUnavailable:
+                if not steps and brain.can_fallback():
+                    try:  # the local model is down: Claude Code takes the whole request instead
+                        return await brain.run_agent(self, goal, task, history, context, None, False)
+                    except ClaudeBrainUnavailable as exc:
+                        logger.info("Claude Code fallback unavailable: %s", exc)
                 return AgentOutcome("unavailable", "I can't reach my local AI (Ollama) right now. I'm starting it - ask me again in a few seconds.", steps, state=state)
             except LLMError as exc:
                 logger.warning("Agent decision failed: %s", exc)
@@ -312,6 +326,8 @@ class AgentRunner:
         user_approved: bool = False,
     ) -> AgentOutcome | None:
         tool = self.registry.get(tool_name)
+        from jarvis.core.response.fillers import announce_tool
+        announce_tool(tool_name)
         steps: list[AgentStep] = state["steps"]
         messages: list[dict[str, str]] = state["messages"]
         state["calls"].append((tool_name, json.dumps(args, sort_keys=True, default=str)))

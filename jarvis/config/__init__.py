@@ -110,6 +110,8 @@ class VoiceConfig(Frozen):
     noise_suppression: Literal["off", "low", "medium", "high"] = "medium"
     # Lift a quiet or distant voice (up to 4x) so it is recognised; silence is never amplified.
     auto_gain: bool = True
+    # Clap to wake: "double" = two sharp claps (safe default when on), "single" = one clap, "off" = disabled.
+    clap_wake: Literal["off", "single", "double"] = "off"
 
 class DecisionConfig(Frozen):
     # JARVIS Decision Engine rollout stage: "off", "shadow" (log only) or "read_only" (stage B).

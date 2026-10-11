@@ -92,6 +92,8 @@ class BrainBuildBody(BaseModel):
 def _agent(runtime: Any):
     service = getattr(runtime, "whatsapp_service", None)
     agent = getattr(service, "personal_reply", None) if service is not None else None
+    if agent is None and service is not None:
+        agent = getattr(service, "draft_only_agent", None)   # read-only mode: the service already built one
     if agent is None:
         from jarvis.integrations.whatsapp.personal_reply.agent import get_personal_reply_agent
         agent = get_personal_reply_agent()

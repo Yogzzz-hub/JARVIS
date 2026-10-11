@@ -184,6 +184,10 @@ class PersonalReplyStore:
 
     def _migrate(self) -> None:
         with self._conn() as con:
+            try:   # readers (the dashboard, summaries) never wait on a writer, and a writer never waits on readers
+                con.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                pass
             con.executescript(SCHEMA)
             if "note" not in {r[1] for r in con.execute("PRAGMA table_info(wa_pr_grants)").fetchall()}:
                 con.execute("ALTER TABLE wa_pr_grants ADD COLUMN note TEXT NOT NULL DEFAULT ''")
@@ -227,8 +231,8 @@ class PersonalReplyStore:
                 con.execute("ALTER TABLE wa_pr_evaluations ADD COLUMN approved_at REAL")
 
     def _conn(self) -> sqlite3.Connection:
-        con = sqlite3.connect(self.path, timeout=10)
-        con.execute("PRAGMA busy_timeout=10000")
+        con = sqlite3.connect(self.path, timeout=30)
+        con.execute("PRAGMA busy_timeout=30000")
         con.row_factory = sqlite3.Row
         return con
 

@@ -5,6 +5,7 @@ import functools
 import hashlib
 import inspect
 import json
+import logging
 import time
 import uuid
 import threading
@@ -63,6 +64,9 @@ class ExecutionEngine:
         # Ledger / audit / stats writes get their own threads: a busy shared asyncio pool (dashboard reads, model
         # calls) must never hold a command's bookkeeping back.
         self.io_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jarvis-exec-io")
+        # One writer thread for post-action records: serialises SQLite writes and never starves the shared pool.
+        self._records = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-records")
+        self._pending_records: set[asyncio.Future] = set()
         self.policy_evaluator = policy_evaluator or PolicyEvaluator()
         self.confirmation_manager = confirmation_manager or ConfirmationManager()
         self._ledger_admission_lock = threading.RLock()
@@ -436,53 +440,52 @@ class ExecutionEngine:
                   else LedgerState.FAILED_SAFE_TO_RETRY)
         )
 
-        await self._io(self.ledger.record_outcome,
-            action_id=action_id,
-            fingerprint=fp,
-            risk=definition.risk,
-            status=final_ledger_status,
-            verification_json=json.dumps(verification.model_dump(), default=str),
-            error_class=verification.error,
-            output_json=json.dumps(exec_output, default=str) if exec_output else None,
-        )
-
-        # Update stats
-        await self._io(self.stats_tracker.record_attempt,
-            capability=definition.name,
-            method=method_used.value,
-            success=(exec_err is None),
-            verified=verification.verified,
-            duration_ms=dur_ms,
-            uncertain=(verification.status == VerificationStatus.UNCERTAIN),
-        )
-
-        # Audit log
-        await self._io(self.audit_logger.log,
-            request_id=request_id,
-            graph_id=graph_id,
-            node_id=node_id,
-            tool=definition.name,
-            method=method_used.value,
-            risk=definition.risk,
-            decision=policy_decision.decision.value,
-            action_fingerprint=fp,
-            result_status=final_ledger_status.value,
-            confirmation_ticket_id=ticket_id,
-            verification_summary=json.dumps(verification.evidence) if verification.evidence else verification.error,
-            duration_ms=dur_ms,
-        )
-
-        # Create ActionReceipt for Undo
-        if verification.verified and definition.risk != RiskLevel.READ_ONLY:
-            await self._io(self.undo_manager.create_receipt,
+        def bookkeep():
+            self.ledger.record_outcome(
                 action_id=action_id,
-                tool_name=definition.name,
-                args=arg_dict,
-                summary=f"Executed {definition.name}",
-                status="VERIFIED",
-                verification=verification.evidence,
-                rollback_supported=definition.rollback_supported,
+                fingerprint=fp,
+                risk=definition.risk,
+                status=final_ledger_status,
+                verification_json=json.dumps(verification.model_dump(), default=str),
+                error_class=verification.error,
+                output_json=json.dumps(exec_output, default=str) if exec_output else None,
             )
+            self.stats_tracker.record_attempt(
+                capability=definition.name,
+                method=method_used.value,
+                success=(exec_err is None),
+                verified=verification.verified,
+                duration_ms=dur_ms,
+                uncertain=(verification.status == VerificationStatus.UNCERTAIN),
+            )
+            self.audit_logger.log(
+                request_id=request_id,
+                graph_id=graph_id,
+                node_id=node_id,
+                tool=definition.name,
+                method=method_used.value,
+                risk=definition.risk,
+                decision=policy_decision.decision.value,
+                action_fingerprint=fp,
+                result_status=final_ledger_status.value,
+                confirmation_ticket_id=ticket_id,
+                verification_summary=json.dumps(verification.evidence) if verification.evidence else verification.error,
+                duration_ms=dur_ms,
+            )
+            if verification.verified and definition.risk != RiskLevel.READ_ONLY:
+                self.undo_manager.create_receipt(
+                    action_id=action_id,
+                    tool_name=definition.name,
+                    args=arg_dict,
+                    summary=f"Executed {definition.name}",
+                    status="VERIFIED",
+                    verification=verification.evidence,
+                    rollback_supported=definition.rollback_supported,
+                )
+
+        # 11. Record the outcome (ledger, stats, audit, undo receipt). The action has already happened, so a busy
+        # database (another writer holding jarvis.db) must not hold the reply: wait briefly, then let it finish behind.
+        await self._bookkeep(bookkeep, definition.name)
 
         if verification.status == VerificationStatus.UNCERTAIN:
             return ToolResult(
@@ -514,6 +517,23 @@ class ExecutionEngine:
             method_used=method_used,
         )
 
+    BOOKKEEP_WAIT_S = 1.5
+
+    async def _bookkeep(self, fn, tool_name: str) -> None:
+        future = asyncio.get_running_loop().run_in_executor(self._records, fn)
+        self._pending_records.add(future)
+
+        def done(f: asyncio.Future) -> None:
+            self._pending_records.discard(f)
+            if not f.cancelled() and f.exception() is not None:
+                logging.getLogger("jarvis.executor").warning("recording %s failed: %s", tool_name, f.exception())
+
+        future.add_done_callback(done)
+        await asyncio.wait({future}, timeout=self.BOOKKEEP_WAIT_S)
+
     async def close(self) -> None:
+        if self._pending_records:
+            await asyncio.wait(set(self._pending_records), timeout=10)
+        await asyncio.to_thread(self._records.shutdown, wait=True)
         await asyncio.to_thread(self.pool.shutdown, wait=True, cancel_futures=True)
         self.io_pool.shutdown(wait=False, cancel_futures=True)

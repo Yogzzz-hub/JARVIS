@@ -439,7 +439,7 @@ class OllamaProvider:
             rescued = self._semantic_rescue(request_id, text, total_ms, breakdown)
             if rescued:
                 return rescued
-            if isinstance(exc, LLMUnavailable):
+            if isinstance(exc, LLMUnavailable) and not _claude_can_help():
                 # Ollama really is down (or has no model): say so plainly, and what happens next.
                 no_model = "No installed Ollama model" in str(exc)
                 message = (
@@ -488,6 +488,16 @@ class OllamaProvider:
     async def close(self):
         if self._client is not None:
             await self._client.aclose()
+
+
+def _claude_can_help() -> bool:
+    """Claude Code (headless, through the Agent SDK) can stand in for the local model: the request goes on to the
+    assistant / tool agent instead of being refused."""
+    try:
+        from jarvis.core.brain.claude_code import get_claude_brain
+        return get_claude_brain().can_fallback()
+    except Exception:
+        return False
 
 
 class DisabledProvider:

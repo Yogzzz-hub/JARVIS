@@ -76,6 +76,7 @@ class VoicePipeline:
         max_utterance_s: float = 45.0,
         talk_over: bool = True,
         talk_over_sensitivity: str = "normal",
+        clap_wake: str = "off",
     ):
         self.max_utterance_s = max_utterance_s
         self.hub = hub
@@ -134,6 +135,11 @@ class VoicePipeline:
         self.talk_over = TalkOverDetector(sensitivity=talk_over_sensitivity)
         self._talk_over_held = False
         self._was_speaking = False
+        from jarvis.core.audio.clap import ClapDetector
+        mode = str(clap_wake or "off").strip().lower()
+        mode = {"1": "double", "true": "double", "on": "double", "yes": "double", "0": "off", "false": "off"}.get(mode, mode)
+        self.clap = ClapDetector(claps_needed=1 if mode == "single" else 2) if mode in ("single", "double") else None
+        self.total_clap_triggers = 0
 
     @property
     def is_running(self) -> bool:
@@ -353,6 +359,14 @@ class VoicePipeline:
                     logger.info("Wake word detected: score=%.3f", detection.score)
                     self._emit("voice.wake_detected", source="wake_word", score=detection.score)
                     return ("wake_word", None)
+                # Clap to wake - never while JARVIS talks (its own audio has sharp edges too).
+                if self.clap is not None and not speaking and self.clap.feed(chunk.pcm):
+                    self.total_clap_triggers += 1
+                    if followup:
+                        self.response_engine.close_followup_window()
+                    logger.info("Clap wake detected")
+                    self._emit("voice.wake_detected", source="clap", score=1.0)
+                    return ("clap", None)
             else:
                 if self._vad_consumer:
                     self._drain(self._vad_consumer)
@@ -453,7 +467,7 @@ class VoicePipeline:
 
         # Concurrently dispatch cached wake ACK ("Yes?" or "I'm listening.")
         # Only dispatch wake ACK for wake_word or ptt, NEVER during conversational follow-up!
-        if trigger_source in ("wake_word", "ptt") and self.response_engine and hasattr(self.response_engine, "play_wake_ack"):
+        if trigger_source in ("wake_word", "ptt", "clap") and self.response_engine and hasattr(self.response_engine, "play_wake_ack"):
             session.transition(VoiceState.WAKE_ACK)
             trace.mark("wake_ack_requested", perf_counter_ns())
             ack_res = self.response_engine.play_wake_ack(session.session_id)
@@ -1015,5 +1029,9 @@ class VoicePipeline:
             "total_sessions": self.total_sessions,
             "total_wake_triggers": self.total_wake_triggers,
             "total_ptt_triggers": self.total_ptt_triggers,
+            "clap_wake": (("single" if self.clap.claps_needed == 1 else "double") if self.clap else "off"),
+            "total_clap_triggers": self.total_clap_triggers,
+            "clap": ({"claps": self.clap.diag.claps, "last_peak": round(self.clap.diag.last_peak, 4),
+                      "rejected": self.clap.diag.rejected, "floor": round(self.clap.diag.floor, 4)} if self.clap else {}),
             "hub_metrics": self.hub.metrics if self.hub else {},
         }
