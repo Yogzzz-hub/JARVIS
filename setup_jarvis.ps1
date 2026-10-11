@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0) { throw 'This repository requires Python 3.12. Existing
 
 # Core + voice (wake word, speech recognition, VAD, TTS, hotkey) + Windows automation.
 # Without the voice extras the wake word can never start, so they are installed by default.
-$extras = if ($CoreOnly) { '.' } else { '.[voice,windows,claude]' }
+$extras = if ($CoreOnly) { '.' } else { '.[voice,windows,claude,camera]' }
 & $jarvisPython -m pip install -e $extras
 if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed ($extras)." }
 
