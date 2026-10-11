@@ -13,3 +13,7 @@ Browser manager startup now recognizes its persistent context, tracks unique tab
 Initial automated acceptance: nine local real-Chromium fixture tests passed, including twelve successive Next/Continue transitions, duplicate-label pause, CAPTCHA/graded/payment pause, missing scope, stop, credential masking/fill refusal, injected instruction isolation and stale observation rejection. These are SYNTHETIC fixtures executed in a real browser. Added checks cover noop clicks and purchase controls; final results are recorded below.
 
 Not accepted: arbitrary websites, iframe/shadow/virtualized controls, full upload/form/download workflows, vision fallback, universal language goal planning, real portal tasks, authentication challenges or external submissions. No 95% action or 90% universal task-success claim is made from the limited fixture set.
+
+## Final fixture result
+
+The combined suite passed all **13** workflow fixtures; the final focused run passed them again. This includes exact-state resume, denied out-of-scope URLs, noop-click uncertainty and purchase-control pause. No real-owner website completion or universal success-rate claim follows from these synthetic fixtures.

@@ -59,3 +59,83 @@ Each ID is a hash of the existing test identity. Parameter text and private payl
 | 28c29248e3 | `jarvis.tests.test_whatsapp_unread_state::test_stale_zero_badge_does_not_hide_newer_stored_message_during_partial_sync` | REAL_SYNC_DEFECT: partial fallback or generation completeness; repaired, focused tests passed |
 | 8f35cb5f2a | `jarvis.tests.test_whatsapp_unread_state::test_ready_requires_snapshot_from_current_generation` | REAL_SYNC_DEFECT: partial fallback or generation completeness; repaired, focused tests passed |
 | 409304036b | `jarvis.tests.test_whatsapp_unread_state::test_legacy_bridge_snapshot_cannot_claim_ready_after_connection` | REAL_SYNC_DEFECT: partial fallback or generation completeness; repaired, focused tests passed |
+
+## Post-repair development run (before remote merge completed)
+
+3,615 passed, 31 failed, 4 skipped; no collection errors. Duration 488.12 seconds. This run overlapped the remote merge and is not final combined-code evidence. All failures follow without private parameter payloads.
+
+| ID | Test | Disposition |
+|---|---|---|
+| e628915eb0 | `tests.test_all_jarvis_actions::test_router_lane0_coverage` | STALE_ROUTE_NAME_EXPECTATION: existing typed action replaces legacy route name; semantic owner acceptance pending |
+| eaf19dff0a | `jarvis.tests.test_agi_capabilities::test_capability_routes` | STALE_ROUTE_NAME_EXPECTATION: existing typed action replaces legacy route name; semantic owner acceptance pending |
+| de6c00c380 | `jarvis.tests.test_ai_integration::test_offline_model_falls_back_to_web_answer` | REAL_DEFECT: web grounding check ran before offline fallback; order repaired for combined run |
+| e77c56fc54 | `jarvis.tests.test_away_message_and_install::test_rambled_meeting_request_turns_on_auto_reply_with_the_message` | STALE_EXPECTATION: preserves dictated wording instead of adding an invented future promise |
+| 4dbd7cb48c | `jarvis.tests.test_away_message_and_install::test_away_message_is_sent_once_per_person_without_the_model` | STALE_EXPECTATION: preserves dictated wording instead of adding an invented future promise |
+| cf055c7728 | `jarvis.tests.test_computer_agent.TestPlaywrightBrowser::test_semantic_locator_immunity_to_coordinate_shift` | STALE_SAFETY_EXPECTATION: checkout control now pauses for owner interaction |
+| 6708a0b030 | `jarvis.tests.test_computer_use::test_screen_click_scales_vision_coordinates_to_the_real_screen` | UNRESOLVED_ENVIRONMENT_OR_FIXTURE: real UI-point validation disagrees with synthetic screenshot/backend; no bypass added |
+| 953692aa5a | `jarvis.tests.test_phase_suite_fixes::test_dictation_tool_stops_on_pause` | STALE_CONTROLLER_EXPECTATION: modern controller pause differs from legacy stop fixture; owner behavior pending |
+| b59ecd73f3 | `jarvis.tests.test_phase_suite_fixes::test_google_tools_are_registered_actions` | STALE_EXPECTATION: expanded registry is larger than the historical three-tool exact set |
+| c6119c8d06 | `jarvis.tests.test_whatsapp_ai::test_planner_capability_gap_uses_the_whole_registry` | STALE_CAPABILITY_EXPECTATION: email tools now registered |
+| 9d444feb03 | `jarvis.tests.test_whatsapp_bulk_reply::test_plain_reply_never_lands_in_a_group` | UNRESOLVED: safe contextual-draft guidance/status or short response presentation; no synthetic send to satisfy assertion |
+| 9008253c13 | `jarvis.tests.test_whatsapp_bulk_reply::test_nobody_waiting_is_reported_plainly` | UNRESOLVED: safe contextual-draft guidance/status or short response presentation; no synthetic send to satisfy assertion |
+| 1dd572f307 | `jarvis.tests.test_whatsapp_feed_and_style::test_greetings_get_the_owners_own_reply_instantly` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| be53c1e72e | `jarvis.tests.test_whatsapp_intelligence_capabilities::test_capability_metadata_registers_after_late_tool_injection` | STALE_ISOLATION_EXPECTATION: runtime metadata no longer mutates global default catalog |
+| a470748e5e | `jarvis.tests.test_whatsapp_personal_reply::test_auto_reply_sends_verifies_and_records_ledger` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| f8f9212045 | `jarvis.tests.test_whatsapp_personal_reply::test_stop_contact_and_emergency_stop` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 620a33fd0f | `jarvis.tests.test_whatsapp_personal_reply::test_stop_during_drafting_prevents_the_send` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 97aee7f2ad | `jarvis.tests.test_whatsapp_personal_reply::test_everyone_mode_uses_default_style_for_untrained_contacts_as_suggestions_only` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 075b5cfe90 | `jarvis.tests.test_whatsapp_personal_reply::test_duplicate_events_create_one_reply_even_across_restart` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 5f96dac35a | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_is_never_answered_and_real_body_is_answered_once` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 1afef5edc9 | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_is_never_answered_and_real_body_is_answered_once` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| f8cec76672 | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_is_never_answered_and_real_body_is_answered_once` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 4e365e26e4 | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_retry_uses_transport_fetch` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 7437cc3875 | `jarvis.tests.test_whatsapp_personal_reply::test_uncertain_send_is_never_resent` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| f6538dee00 | `jarvis.tests.test_whatsapp_personal_reply::test_disconnected_transport_is_a_clean_failure` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 0caa24fe07 | `jarvis.tests.test_whatsapp_personal_reply::test_copying_an_unrelated_past_reply_is_held` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 0ee6f2e398 | `jarvis.tests.test_whatsapp_personal_reply::test_owner_code_switching_decides_whether_tanglish_fits_an_english_turn` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 07906ef8ea | `jarvis.tests.test_whatsapp_personal_reply::test_autonomous_replies_are_not_training_data_but_owner_edits_are` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 39e534c04f | `jarvis.tests.test_whatsapp_personal_reply::test_coalescing_answers_a_burst_once` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 1359120e9f | `jarvis.tests.test_whatsapp_personal_reply::test_gateway_routes_direct_chats_to_the_agent_and_never_auto_replies_in_groups` | STALE_SAFETY_EXPECTATION: generated autonomous replies intentionally OFF; no enablement to satisfy assertions |
+| 5e5954c781 | `jarvis.tests.test_whatsapp_send_evidence::test_commandservice_contact_policy_and_confirmation` | SAFE_SEMANTIC_DIFFERENCE: explicit prohibition returns CANCELLED; nothing sent |
+
+## Combined-code automated result
+
+After merging remote `58ecaa3`, the broad suite completed with **3,682 passed, 31 failed, 5 skipped**, no collection errors, in **312.85 seconds**. This includes 13/13 real-Chromium workflow fixtures and the optional-brain permission gate tests. The optional Claude SDK integration suite is skipped because that package is absent; it is not cloud acceptance. Bridge tests passed **24/24** again. All 868 tracked Python sources parsed.
+
+After this run, inspection repaired loss of tool diagnostic data on failed verification. This also allows the offline web fallback to run and exposes NEEDS_GUIDANCE as WAITING_FOR_USER. Empty-recipient results preserve their useful group count without claiming a send. A focused final run covering these paths, consolidation/privacy, optional permissions, browser workflows and bookkeeping completed with **57 passed, 1 failed** in 47.95 seconds. The remaining assertion expects a generated whereabouts message to reach send confirmation; the implementation requests owner guidance instead. No fabricated whereabouts or send was allowed. The offline-fallback and empty-recipient regressions passed. This focused run does not replace a new full-suite run, and no all-green release claim is made.
+
+Broad-run failure identities (parameters omitted) follow. Classification from the preceding table remains applicable; the offline-fallback and empty-recipient defects were repaired afterward, while contextual reply now safely waits for guidance.
+
+| ID | Test |
+|---|---|
+| e628915eb0 | `tests.test_all_jarvis_actions::test_router_lane0_coverage` |
+| eaf19dff0a | `jarvis.tests.test_agi_capabilities::test_capability_routes` |
+| de6c00c380 | `jarvis.tests.test_ai_integration::test_offline_model_falls_back_to_web_answer` |
+| e77c56fc54 | `jarvis.tests.test_away_message_and_install::test_rambled_meeting_request_turns_on_auto_reply_with_the_message` |
+| 4dbd7cb48c | `jarvis.tests.test_away_message_and_install::test_away_message_is_sent_once_per_person_without_the_model` |
+| cf055c7728 | `jarvis.tests.test_computer_agent.TestPlaywrightBrowser::test_semantic_locator_immunity_to_coordinate_shift` |
+| 6708a0b030 | `jarvis.tests.test_computer_use::test_screen_click_scales_vision_coordinates_to_the_real_screen` |
+| 953692aa5a | `jarvis.tests.test_phase_suite_fixes::test_dictation_tool_stops_on_pause` |
+| b59ecd73f3 | `jarvis.tests.test_phase_suite_fixes::test_google_tools_are_registered_actions` |
+| c6119c8d06 | `jarvis.tests.test_whatsapp_ai::test_planner_capability_gap_uses_the_whole_registry` |
+| 9d444feb03 | `jarvis.tests.test_whatsapp_bulk_reply::test_plain_reply_never_lands_in_a_group` |
+| 9008253c13 | `jarvis.tests.test_whatsapp_bulk_reply::test_nobody_waiting_is_reported_plainly` |
+| 1dd572f307 | `jarvis.tests.test_whatsapp_feed_and_style::test_greetings_get_the_owners_own_reply_instantly` |
+| be53c1e72e | `jarvis.tests.test_whatsapp_intelligence_capabilities::test_capability_metadata_registers_after_late_tool_injection` |
+| a470748e5e | `jarvis.tests.test_whatsapp_personal_reply::test_auto_reply_sends_verifies_and_records_ledger` |
+| f8f9212045 | `jarvis.tests.test_whatsapp_personal_reply::test_stop_contact_and_emergency_stop` |
+| 620a33fd0f | `jarvis.tests.test_whatsapp_personal_reply::test_stop_during_drafting_prevents_the_send` |
+| 97aee7f2ad | `jarvis.tests.test_whatsapp_personal_reply::test_everyone_mode_uses_default_style_for_untrained_contacts_as_suggestions_only` |
+| 075b5cfe90 | `jarvis.tests.test_whatsapp_personal_reply::test_duplicate_events_create_one_reply_even_across_restart` |
+| 5f96dac35a | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_is_never_answered_and_real_body_is_answered_once` |
+| 1afef5edc9 | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_is_never_answered_and_real_body_is_answered_once` |
+| f8cec76672 | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_is_never_answered_and_real_body_is_answered_once` |
+| 4e365e26e4 | `jarvis.tests.test_whatsapp_personal_reply::test_pending_decryption_retry_uses_transport_fetch` |
+| 7437cc3875 | `jarvis.tests.test_whatsapp_personal_reply::test_uncertain_send_is_never_resent` |
+| f6538dee00 | `jarvis.tests.test_whatsapp_personal_reply::test_disconnected_transport_is_a_clean_failure` |
+| 0caa24fe07 | `jarvis.tests.test_whatsapp_personal_reply::test_copying_an_unrelated_past_reply_is_held` |
+| 0ee6f2e398 | `jarvis.tests.test_whatsapp_personal_reply::test_owner_code_switching_decides_whether_tanglish_fits_an_english_turn` |
+| 07906ef8ea | `jarvis.tests.test_whatsapp_personal_reply::test_autonomous_replies_are_not_training_data_but_owner_edits_are` |
+| 39e534c04f | `jarvis.tests.test_whatsapp_personal_reply::test_coalescing_answers_a_burst_once` |
+| 1359120e9f | `jarvis.tests.test_whatsapp_personal_reply::test_gateway_routes_direct_chats_to_the_agent_and_never_auto_replies_in_groups` |
+| 5e5954c781 | `jarvis.tests.test_whatsapp_send_evidence::test_commandservice_contact_policy_and_confirmation` |

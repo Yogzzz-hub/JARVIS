@@ -738,20 +738,19 @@ local models. It uses your existing Claude Code sign-in; no API key is stored in
 
 - **Install.** `pip install ".[claude]"` (the installer `setup_jarvis.ps1` already does, along with the `camera` extra), then sign in once by
   running `claude` in a terminal and following `/login`.
-- **Choose the brain** with `JARVIS_BRAIN` (or `[models] brain` in `jarvis.toml`):
-  - `auto` (default): local Ollama first; Claude Code answers and runs the agent only when the local model is down.
+- **Choose the brain** with `JARVIS_BRAIN`:
+  - `auto` (explicit opt-in): local Ollama first; Claude Code answers and runs the agent only when the local model is down.
   - `claude`: Claude Code leads for open-ended requests and chat; the local model is the fall-back.
-  - `ollama`: never use Claude Code.
+  - `ollama` (default): never use Claude Code.
 - **Other settings.** `JARVIS_CLAUDE_MODEL` (default `claude-opus-5-5`), `JARVIS_CLAUDE_EFFORT` (`low`/`medium`/`high`),
-  `JARVIS_CLAUDE_MCP=0` to ignore the MCP servers in `~/.claude.json`, `JARVIS_ALLOW_WRITES=1` to let Claude's own
-  file/shell tools change things (off by default).
+  `JARVIS_CLAUDE_MCP=0` (default) ignores servers in `~/.claude.json`. Built-in file writes,
+  shell execution and subagents remain blocked even if `JARVIS_ALLOW_WRITES=1` is set.
 - **Safety.** Exact commands never reach Claude: the deterministic router and the JDE still handle them. JARVIS's
   tools are given to Claude as an in-process MCP server and every call runs through JARVIS's own executor - the
   policy engine, ledger and confirmation tickets apply exactly as for direct commands, and anything that sends,
   deletes, installs, pays or changes power state pauses for your spoken "yes". Claude's built-in tools pass a
   default-deny gate: reading and web search are allowed, writing and shell are blocked, and other MCP tools are
-  allowed only when their name is a read verb (`list_`, `get_`, `search_` ...) and not an effect (`send_`,
-  `delete_`, `install_` ...). Repeated sign-in or CLI failures trip a 10-minute breaker so requests never stall.
+  denied: names and advertised schemas do not establish permission. Repeated sign-in or CLI failures trip a 10-minute breaker so requests never stall.
 - **Status.** `GET /api/brain/status` shows the mode, whether the SDK is installed, the model and the last error;
   `GET /api/diagnostics` adds voice, clap-wake and pending-record counters.
 

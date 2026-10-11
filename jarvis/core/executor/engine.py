@@ -483,9 +483,12 @@ class ExecutionEngine:
                     rollback_supported=definition.rollback_supported,
                 )
 
-        # 11. Record the outcome (ledger, stats, audit, undo receipt). The action has already happened, so a busy
-        # database (another writer holding jarvis.db) must not hold the reply: wait briefly, then let it finish behind.
-        await self._bookkeep(bookkeep, definition.name)
+        # Effectful actions must persist their final outcome before returning.
+        # Read-only statistics may finish in the background without replay risk.
+        if definition.risk != RiskLevel.READ_ONLY:
+            await self._io(bookkeep)
+        else:
+            await self._bookkeep(bookkeep, definition.name)
 
         if verification.status == VerificationStatus.UNCERTAIN:
             return ToolResult(
@@ -501,6 +504,7 @@ class ExecutionEngine:
         if not verification.verified:
             return ToolResult(
                 success=False,
+                data=exec_output or {},
                 error=verification.error or "Verification failed",
                 evidence=verification.evidence,
                 duration_ms=dur_ms,

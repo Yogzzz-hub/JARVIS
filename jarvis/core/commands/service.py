@@ -1344,6 +1344,9 @@ class CommandService:
                 state = State.WAITING_FOR_USER
                 message = data.get("message") or "Browser task paused: " + str(data.get("failure") or "owner input required")
 
+        if (tool_result is not None and tool_result.tool_name == "reply_whatsapp_all"
+                and (tool_result.data or {}).get("status") == "NOT_FOUND"):
+            message = tool_result.data.get("message") or message
         spoken_message = ((tool_result.data or {}).get('spoken_response') if tool_result else None) or message
         private_whatsapp = bool(re.search(r'\bwhatsapp\b', task.raw_text, re.I)) and not bool(
             re.search(r'\b(?:debug|technical|jids?|internal ids?)\b', task.raw_text, re.I))
@@ -1645,7 +1648,7 @@ class CommandService:
         if self.pulse:
             self.pulse.on_execution_finished(task.request_id, (clock.tool_returned_ns - clock.tool_started_ns) / 1e6, "ollama_chat")
         self.tasks.transition(task, State.VERIFYING)
-        if not res.success:
+        if not res.success and res.data.get("status") != "error":
             message = ResponseFormatter.sanitize_error(res.error or "Chat failed", tool_name="ollama_chat")
             return self._finalize(task, State.FAILED, message, res, None, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)
         message = res.data.get("response") or "I processed your request."
@@ -1653,12 +1656,6 @@ class CommandService:
             self.conversational_topics.answered(self._channel(request), conversational['topic'])
             if self.working_memory and hasattr(self.working_memory, 'context'):
                 self.working_memory.context.conversational_topics[self._channel(request)] = self.conversational_topics.snapshot(self._channel(request))
-        if conversational.get('use_web') and not res.data.get('used_web'):
-            verification = VerificationResult(verified=False, confidence=0,
-                evidence={'requested_web': True, 'grounding': 'unavailable'},
-                error='Requested web answer lacks relevant fetched evidence')
-            return self._finalize(task, State.FAILED, message, res, verification, clock, current,
-                is_voice=is_voice, predicted_ms=predicted_ms)
         if res.data.get("status") == "error":
             # Model offline: fall back to live web results for information questions.
             from jarvis.core.llm.assistant import needs_live_data
@@ -1672,6 +1669,12 @@ class CommandService:
         if res.data.get("status") == "error":
             verification = VerificationResult(verified=False, confidence=0,
                 evidence={"model_available": False}, error="The model did not produce an answer")
+            return self._finalize(task, State.FAILED, message, res, verification, clock, current,
+                is_voice=is_voice, predicted_ms=predicted_ms)
+        if conversational.get('use_web') and not (res.data.get('used_web') or res.tool_name == 'search_web'):
+            verification = VerificationResult(verified=False, confidence=0,
+                evidence={'requested_web': True, 'grounding': 'unavailable'},
+                error='Requested web answer lacks relevant fetched evidence')
             return self._finalize(task, State.FAILED, message, res, verification, clock, current,
                 is_voice=is_voice, predicted_ms=predicted_ms)
         verification = VerificationResult(verified=True, confidence=0.9, evidence={

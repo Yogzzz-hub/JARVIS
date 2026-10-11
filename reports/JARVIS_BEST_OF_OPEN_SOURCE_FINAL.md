@@ -49,9 +49,21 @@ Baseline is local preservation commit `7d305bd`; SHA-256 is of working-tree byte
 | `jarvis/core/tasks/scope.py` | `131383ceab813329a9d0b42d1bc7a838d06b9862e1a32678cb3766e0e2d48b6d` | `131383ceab813329a9d0b42d1bc7a838d06b9862e1a32678cb3766e0e2d48b6d` | Unchanged |
 | `jarvis/security/confirmation/manager.py` | `ef5c028152f4b21fabb76acde0652aaa97fdd37772bf80c9866d51b7cc191e88` | `ef5c028152f4b21fabb76acde0652aaa97fdd37772bf80c9866d51b7cc191e88` | Unchanged |
 | `jarvis/security/ledger/ledger.py` | `95266d85b8a84c20a87d97e018c9343939b959d8260549fc0eeed2608f0e8580` | `95266d85b8a84c20a87d97e018c9343939b959d8260549fc0eeed2608f0e8580` | Unchanged |
-| `jarvis/core/router/router.py` | `237a67dc298ef1e32eae5ebca63b19dba5cba72bcc3a93314605b78bef2e6997` | `cb4d75e14102fd2a1b93eeb27930a82b8c39e7485d38423aa078fd58d3e120fd` | Runtime-local read-only cache, WhatsApp domain guard and multilingual typo isolation |
+| `jarvis/core/router/router.py` | `237a67dc298ef1e32eae5ebca63b19dba5cba72bcc3a93314605b78bef2e6997` | `8e45883a5bc35feed9c606a6a037b8454891b73740ae0c9e76291b80d918e7d0` | Reviewed consolidation repairs and merged remote changes; authority gates retained |
 | `jarvis/core/commands/provenance.py` | `223be88367c672ffff93cfa3a4d504566fbd7b954525a601f35e348628243d04` | `223be88367c672ffff93cfa3a4d504566fbd7b954525a601f35e348628243d04` | Unchanged |
 | `jarvis/integrations/whatsapp/service.py` | `dbe0ca25a3133d3263f4dfe9e67c9a647b95edb18521da93beccc31244b492ed` | `dbe0ca25a3133d3263f4dfe9e67c9a647b95edb18521da93beccc31244b492ed` | Unchanged |
 | `jarvis/integrations/whatsapp/gateway.py` | `6a69bf2f98905e04cc1d1f46f37d6b02be65681d64390cc5d6f1c3ef59e3cf7e` | `6a69bf2f98905e04cc1d1f46f37d6b02be65681d64390cc5d6f1c3ef59e3cf7e` | Unchanged |
 
 Static verification: 851 visible Python files parsed successfully with AST; no syntax errors.
+
+## Remote consolidation checkpoint
+
+Preserved owner edits in `7d305bd`, implemented the consolidation checkpoint in `4104c1f`, then merged the newly fetched remote branch through `58ecaa3` using merge `3557b6f`. Both local and remote histories are retained. The only merge conflict was voice/config placement; clap wake remains off. The incoming optional Claude adapter was hardened to local defaults and no foreign write authority. Effectful executor outcomes remain durably awaited; only read-only bookkeeping can finish asynchronously.
+
+A development run begun before that merge completed with **3,615 passed, 31 failed, 4 skipped**, no collection errors, in 488.12 seconds. Because files changed while that run was active, it is not combined-code release evidence. A separate frozen combined-code run follows in the stabilization report.
+
+## Final evidence checkpoint
+
+Combined-code broad tests: **3,682 passed, 31 failed, 5 skipped** (312.85 s). Final focused regressions after error-path repairs: **57 passed, 1 failed** (47.95 s; remaining assertion expects a contextual send confirmation where owner guidance is required). Bridge: **24/24 passed**. Browser workflow fixtures: **13/13 passed**. No claim of a green full suite or completion of all six specifications is made.
+
+The actual Windows backend is ready with 237 tools and a 20.2-second startup. All 14 automated read-only commands returned runtime success; this does not establish factual correctness or owner acceptance. WhatsApp is DEGRADED_LIVE/PARTIAL_SYNC, Google authorization is absent, phone pairing is unverified and external MCP is disabled. Owner voice and 50 natural owner commands remain pending. See `WINDOWS_REAL_ACCEPTANCE.md` for measured latency/resource/model evidence.

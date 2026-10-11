@@ -17,16 +17,16 @@ from jarvis.tests.ai_harness import AIHarness
 
 # ------------------------------------------------------------------------------------------------- permission gate
 @pytest.mark.parametrize("name,allowed", [
-    ("Read", True), ("WebSearch", True), ("Grep", True), ("Agent", True),
+    ("Read", True), ("WebSearch", True), ("Grep", True), ("Agent", False),
     ("Bash", False), ("Write", False), ("Edit", False), ("KillShell", False),
     ("mcp__jarvis__send_whatsapp_message", True),          # JARVIS's own server gates itself (confirmation flow)
-    ("mcp__exa__web_search_exa", True),                     # read-only server
-    ("mcp__higgsfield__generate_image", True),              # generation runs
+    ("mcp__exa__web_search_exa", False),                     # read-only server
+    ("mcp__higgsfield__generate_image", False),              # generation runs
     ("mcp__higgsfield__delete_character", False),          # ...acting on the world does not
-    ("mcp__android__list_devices", True),                   # read verb
+    ("mcp__android__list_devices", False),                   # read verb
     ("mcp__android__install_apk", False),
     ("mcp__twilio__make_outbound_call", False),             # verb hidden in the middle
-    ("mcp__openrouter__send-message", True),                # explicit exemption: asking another model
+    ("mcp__openrouter__send-message", False),                # explicit exemption: asking another model
     ("SomethingNew", False),                                # unknown -> default deny
 ])
 def test_tool_gate_is_default_deny_for_effects(name, allowed, monkeypatch):
@@ -34,13 +34,13 @@ def test_tool_gate_is_default_deny_for_effects(name, allowed, monkeypatch):
     assert decide_tool(name) is allowed
 
 
-def test_writes_flag_opens_the_write_tools(monkeypatch):
+def test_writes_flag_cannot_bypass_confirmation(monkeypatch):
     monkeypatch.setenv("JARVIS_ALLOW_WRITES", "1")
-    assert decide_tool("Bash") and decide_tool("mcp__android__install_apk")
+    assert not decide_tool("Bash") and not decide_tool("mcp__android__install_apk")
 
 
 @pytest.mark.parametrize("value,mode", [("", "auto"), ("claude", "claude"), ("claude-code", "claude"),
-                                        ("OLLAMA", "ollama"), ("nonsense", "auto")])
+                                        ("OLLAMA", "ollama"), ("nonsense", "ollama")])
 def test_brain_mode(value, mode, monkeypatch):
     monkeypatch.setenv("JARVIS_BRAIN", value or "auto")
     assert cc.brain_mode() == mode

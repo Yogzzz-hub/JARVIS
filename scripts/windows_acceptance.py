@@ -151,7 +151,7 @@ def run(include_web=False):
             'reason':'No fresh in-process access credentials available to collector; no OAuth refresh attempted'}
         summary['phone'] = 'PHONE_NOT_READY; authenticated pairing not verified'
         summary['mcp'] = 'MCP_NOT_TESTED; disabled'
-        summary['code_agent'] = 'NOT_IMPLEMENTED; existing registered project tools retained'
+        summary['code_agent'] = 'OPTIONAL_CLAUDE_ADAPTER_NOT_TESTED; local default, cloud disabled'
         summary['research_agent'] = 'Existing bounded web path; no new autonomous agent'
         try:
             with httpx.Client(base_url='http://127.0.0.1:11434', timeout=5) as ollama:
