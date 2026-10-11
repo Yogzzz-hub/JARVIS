@@ -43,6 +43,26 @@ async def verify_postconditions(
             error=None if verified else str(data.get("message") or "WhatsApp submission was not verified"),
             method="whatsapp_transport_ack_probe", retry_safe=False)
 
+    data = execution_result or {}
+    reported = str(data.get("status", "")).upper()
+    if tn in {"browser_click", "browser_type", "browser_workflow"}:
+        verdict = str(data.get("verification_status", "")).upper()
+        verified = (reported == "COMPLETE" and bool(data.get("last_verified_hash"))) if tn == "browser_workflow" else (
+            verdict == "VERIFIED" and data.get("success") is True)
+        uncertain = verdict == "UNCERTAIN"
+        return VerificationResult(verified=verified, confidence=1 if verified else 0,
+            status=VerificationStatus.VERIFIED if verified else VerificationStatus.UNCERTAIN if uncertain else VerificationStatus.FAILED,
+            evidence={"observed_state_verified": True} if verified else {},
+            error=None if verified else str(data.get("message") or data.get("failure") or "Browser outcome not verified"),
+            method="browser_observation", retry_safe=False)
+    if data.get("success") is False or reported in {"FAILED", "ERROR", "NOT_FOUND", "NEEDS_GUIDANCE", "POLICY_DENIED", "DENIED", "UNAVAILABLE"}:
+        return VerificationResult(verified=False, confidence=0, status=VerificationStatus.FAILED,
+            error=str(data.get("message") or data.get("error") or "Tool reported an incomplete operation"),
+            method="reported_failure", retry_safe=False)
+    if reported == "UNCERTAIN":
+        return VerificationResult(verified=False, confidence=0, status=VerificationStatus.UNCERTAIN,
+            error="Tool reported an uncertain outcome; automatic retry forbidden", method="reported_uncertainty", retry_safe=False)
+
     if tn in ("move_file", "move"):
         dst = args.get("destination") or args.get("dest")
         src = args.get("source") or args.get("path")

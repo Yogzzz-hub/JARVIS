@@ -110,6 +110,11 @@ from jarvis.integrations.google.gmail.verifier import GmailVerifier
 class TestAuthAndTokenStore:
     """Test OAuth security, token store encryption, and account lifecycle."""
 
+    @pytest.fixture(autouse=True)
+    def isolated_accounts(self, tmp_path, monkeypatch):
+        # Registration tests must never rewrite the owner's configured accounts.
+        monkeypatch.setattr('jarvis.integrations.google.auth.manager.ACCOUNTS_METADATA_FILE', tmp_path / 'google_accounts.json')
+
     def test_secure_token_store_in_memory_vault(self):
         store = SecureTokenStore(use_keyring=False)
         account_id = "acc_test_001"

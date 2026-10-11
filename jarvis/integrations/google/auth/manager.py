@@ -123,13 +123,12 @@ class GoogleAuthManager:
         acc_id = account_id or f"google_{email.replace('@', '_').replace('.', '_')}"
 
         if creds.refresh_token:
-            self.token_store.store_refresh_token(
-                account_id=acc_id,
-                refresh_token=creds.refresh_token,
-                client_id=client_info.get("client_id"),
-                client_secret=client_info.get("client_secret"),
-                token_uri=client_info.get("token_uri", "https://oauth2.googleapis.com/token"),
-            )
+            self.token_store.save_refresh_token(acc_id, {
+                "refresh_token": creds.refresh_token,
+                "client_id": client_info.get("client_id"),
+                "client_secret": client_info.get("client_secret"),
+                "token_uri": client_info.get("token_uri", "https://oauth2.googleapis.com/token"),
+            })
 
         enabled_services = set()
         for cap in capabilities:
@@ -283,6 +282,7 @@ class GoogleAuthManager:
         account.status = AccountStatus.DISCONNECTED
         self.token_store.delete_refresh_token(account.account_id)
         self._credentials_cache.pop(account.account_id, None)
+        self._save_accounts_metadata()
         logger.info("Disconnected Google account %s and purged token", account.email)
         return True
 

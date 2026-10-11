@@ -382,7 +382,14 @@ class CommandService:
                 from jarvis.core.language_layer import repair
                 safety = repair({'raw_text': shadow_raw, 'action': 'UNKNOWN', 'domain': 'GENERAL',
                     'speech_act': 'COMMAND', 'slots': [], 'values': {}})
-                if safety['speech_act'] == 'NEGATED_COMMAND':
+                from jarvis.core.router.guards import check_negation
+                from jarvis.core.router.introspection import match_introspection
+                from jarvis.core.router import discourse
+                english_negated, constraints = check_negation(shadow_raw)
+                policy_request = (match_introspection(shadow_raw, request.request_id) is not None
+                                  or discourse.standing_rule(shadow_raw) is not None)
+                tamil_prohibition = bool(re.search(r"[a-z]+(?:adha|atha)\b|\b(?:venam|vendam|venda)\b|பண்ணாத|வேண்டாம்|அனுப்பாத", shadow_raw, re.I))
+                if safety['speech_act'] == 'NEGATED_COMMAND' and not policy_request and (english_negated or (tamil_prohibition and not constraints)):
                     message = "I won't execute that request. Please clarify any action you still want."
                     if self._speaks(request) and getattr(self.response, 'enabled', False):
                         self.response.schedule_final(request.request_id, message)
@@ -1330,6 +1337,12 @@ class CommandService:
             state = State.UNCERTAIN
         if state in (State.SUCCESS, State.COMPLETED) and verification is not None and not verification.verified:
             state = State.UNCERTAIN if getattr(verification, "confidence", 1.0) > 0.3 else State.FAILED
+        if tool_result is not None and state in (State.SUCCESS, State.FAILED):
+            data = tool_result.data or {}
+            if ((tool_result.tool_name == "reply_whatsapp_message" and data.get("status") == "NEEDS_GUIDANCE")
+                    or (tool_result.tool_name == "browser_workflow" and data.get("status") == "PAUSED")):
+                state = State.WAITING_FOR_USER
+                message = data.get("message") or "Browser task paused: " + str(data.get("failure") or "owner input required")
 
         spoken_message = ((tool_result.data or {}).get('spoken_response') if tool_result else None) or message
         private_whatsapp = bool(re.search(r'\bwhatsapp\b', task.raw_text, re.I)) and not bool(
@@ -1423,6 +1436,22 @@ class CommandService:
             else:
                 task.state = State.RESPONDING
             self.bus.emit("response.ready", task.request_id, result=result.model_dump(mode="json"), source=task.source)
+            # Allowlisted operational metadata only. Never copy slots, content,
+            # identifiers, exception messages or model reasoning into this event.
+            try:
+                from jarvis.core.response.coordinator import RESPONSE_LANGUAGE
+                route = getattr(getattr(decided, "lane", None), "value", "UNKNOWN")
+                trace_tool = tool_result.tool_name if tool_result else ""
+                self.bus.emit("trace.completed", "", source=task.source,
+                    provenance="SYNTHETIC" if task.source in {"test", "benchmark"} else "REAL_SHADOW",
+                    language=RESPONSE_LANGUAGE.get() or "UNKNOWN", route=route,
+                    tool=trace_tool, outcome=state.value,
+                    verified=verification.verified if verification is not None else None,
+                    duration_ms=float(result.metrics.get("total_ms") or 0),
+                    policy="CONFIRM" if state == State.WAITING_CONFIRMATION else
+                        "BLOCK" if route == "REJECT" else "NOT_OBSERVED")
+            except Exception:
+                logging.getLogger(__name__).debug("Optional trace event unavailable", exc_info=True)
             logging.getLogger("jarvis.commands").info(message, extra={"request_id": task.request_id,
                 "event": "response.ready", "duration_ms": result.metrics["total_ms"]})
 
@@ -1640,6 +1669,11 @@ class CommandService:
                 if web_res.success and web_res.data.get("summary"):
                     message = web_res.data["summary"]
                     res = web_res
+        if res.data.get("status") == "error":
+            verification = VerificationResult(verified=False, confidence=0,
+                evidence={"model_available": False}, error="The model did not produce an answer")
+            return self._finalize(task, State.FAILED, message, res, verification, clock, current,
+                is_voice=is_voice, predicted_ms=predicted_ms)
         verification = VerificationResult(verified=True, confidence=0.9, evidence={
             "model": res.data.get("model", ""), "sources": len(res.data.get("sources", []) or []), "used_web": bool(res.data.get("used_web"))})
         return self._finalize(task, State.SUCCESS, message, res, verification, clock, current, is_voice=is_voice, predicted_ms=predicted_ms)

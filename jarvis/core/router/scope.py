@@ -167,7 +167,7 @@ def check_interaction(intent: str, slots: dict, text: str) -> Optional[dict]:
     if intent in ("android_key", "phone_op", "android_input", "android_quick_action", "android_tap_text", "system_power_control") \
             and _LOCK_BYPASS.search(low):
         return _refuse("I can wake the phone, but I never unlock it or get past its lock - unlock it yourself.", "lock_screen")
-    if intent in ("android_notifications", "gmail_list_recent", "read_whatsapp_messages", "phone_op", "describe_screen") \
+    if intent in ("android_notifications", "gmail_list_recent", "read_whatsapp_messages", "whatsapp_message_read", "phone_op", "describe_screen") \
             and re.search(r"\b(?:read|tell|show|get|check|copy|send)\b.*\b(?:otp|one[\s-]time\s+(?:password|code)|verification\s+code)\b", low):
         return _refuse("I don't read out or pass on one-time codes - check it yourself on the phone.", "otp")
     return None

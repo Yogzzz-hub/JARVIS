@@ -2,6 +2,7 @@
 import argparse
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 from pathlib import Path
 import platform
@@ -34,8 +35,9 @@ def collect():
     for module in ('sounddevice', 'faster_whisper', 'openwakeword', 'silero_vad_lite', 'piper', 'keyboard', 'scipy',
                    'playwright', 'uiautomation', 'win32gui', 'PIL'):
         try:
-            importlib.import_module(module)
-            add(module, 'PASS', 'Installed; feature integration must be checked separately')
+            installed = importlib.util.find_spec(module) is not None
+            add(module, 'PASS' if installed else 'WARN',
+                'Package located without loading; feature health not probed' if installed else 'Optional package missing')
         except Exception as exc:
             add(module, 'WARN', f'Optional dependency unavailable: {type(exc).__name__}')
     for name, enabled in config.features.model_dump().items():
@@ -50,8 +52,9 @@ def collect():
     if db.exists():
         try:
             with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=3) as connection:
-                result = connection.execute('PRAGMA quick_check').fetchone()[0]
-            add('Database', 'PASS' if result == 'ok' else 'FAIL', result)
+                result = connection.execute('SELECT 1').fetchone()[0]
+            add('Database', 'PASS' if result == 1 else 'FAIL',
+                'Read-only connection/query succeeded; full integrity scan not run by status checks')
         except sqlite3.Error as exc:
             add('Database', 'FAIL', str(exc))
     else:
@@ -75,7 +78,7 @@ def collect():
         accs = GoogleAuthManager().list_accounts()
         ready = [a for a in accs if getattr(a.status, 'value', str(a.status)) == 'READY']
         if ready:
-            add('Google', 'PASS', f'{len(ready)} account(s) ready ({", ".join(a.email for a in ready)})')
+            add('Google', 'WARN', f'{len(ready)} configured account(s); live token/API readiness not verified')
         else:
             add('Google', 'WARN', 'DISCONNECTED; optional')
     except Exception as exc:
@@ -92,7 +95,7 @@ def _voice_model_checks(config, add):
         add('Speech model (Whisper)', 'PASS' if ok else 'WARN',
             str(stt) if ok else f'{stt} has no model.bin (downloads on first use; {fix})')
     else:
-        add('Speech model (Whisper)', 'PASS', f'{config.voice.stt_model} (downloaded by faster-whisper on first use)')
+        add('Speech model (Whisper)', 'WARN', f'{config.voice.stt_model} residency not verified; no model loaded by this check')
     wake = project / config.voice.model_path
     add('Wake word model', 'PASS' if wake.exists() else 'WARN', str(wake) if wake.exists() else f'missing: {wake} (built-in "hey_jarvis" is used)')
     try:
@@ -118,16 +121,10 @@ def _ollama_checks(config, add):
     add('Ollama', 'PASS', f'{settings.base_url}: {", ".join(models) or "no models installed"}')
     from jarvis.core.llm.client import model_candidates
     for role in ('fast', 'planner', 'chat', 'vision', 'deep', 'embed'):
-        if role == 'vision' and models:
-            # the model that will really read the screen: the first one Ollama says can see images
-            from jarvis.core.llm.client import OllamaClient, LLMUnavailable
-            try:
-                seer = OllamaClient(settings).resolve_sync('vision')
-                add('AI role: vision', 'PASS', f'{seer} (reads the screen and your WhatsApp photos)')
-            except LLMUnavailable:
-                add('AI role: vision', 'WARN', 'no installed model can see images; run: ollama pull qwen2.5vl:3b')
-            except Exception as exc:
-                add('AI role: vision', 'WARN', f'could not check ({type(exc).__name__})')
+        if role == 'vision':
+            # Inventory is bounded. Capability probing across every installed
+            # model can exceed the tool budget and must not run on a status query.
+            add('AI role: vision', 'WARN', 'Capability not probed by lightweight diagnostics; no model loaded')
             continue
         options = model_candidates(settings.model_for(role))
         wanted = options[0] if options else ''

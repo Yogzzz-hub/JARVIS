@@ -106,7 +106,7 @@ class UIObservation(BaseModel):
             self.window_title,
             self.url or "",
             str(len(self.elements)),
-            ";".join(f"{e.element_id}:{e.role}:{e.name}:{e.value_summary}" for e in self.elements[:50]),
+            ";".join(f"{e.element_id}:{e.role}:{e.name}:{e.value_summary}:{e.enabled}:{e.checked}:{e.selected}" for e in self.elements),
         ]
         raw = "|".join(components).encode("utf-8")
         h = hashlib.sha256(raw).hexdigest()[:16]

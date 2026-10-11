@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from uuid import uuid4
 from typing import Any, Dict, List, Optional
 from playwright.async_api import Page
 from jarvis.core.computer.models import UIBackend, UIElement, UIObservation
@@ -32,14 +33,20 @@ class BrowserSnapshotBuilder:
             }
 
             const tag = el.tagName.toLowerCase();
-            let role = el.getAttribute('role') || tag;
-            let name = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.title || el.value || '').trim();
+            const inputType = (el.getAttribute('type') || '').toLowerCase();
+            let role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'input' ?
+                (['checkbox','radio'].includes(inputType) ? inputType : ['submit','button'].includes(inputType) ? 'button' : 'textbox') :
+                tag === 'textarea' ? 'textbox' : tag === 'select' ? 'combobox' : tag);
+            const sensitive = inputType === 'password' || /password|passwd|otp|secret|cvv|card.?number|security.?code/i.test(
+                [el.name, el.id, el.autocomplete, el.getAttribute('aria-label')].join(' '));
+            let name = (el.getAttribute('aria-label') || [...(el.labels || [])].map(l => l.innerText).join(' ') ||
+                el.innerText || el.getAttribute('placeholder') || el.title || '').trim();
             // Truncate overly long names
             if (name.length > 100) name = name.substring(0, 97) + '...';
 
             let type = el.getAttribute('type') || '';
             let autoId = el.id || el.getAttribute('data-testid') || '';
-            let value = (tag === 'input' || tag === 'textarea' || tag === 'select') ? el.value : '';
+            let value = !sensitive && (tag === 'input' || tag === 'textarea' || tag === 'select') ? el.value.slice(0, 200) : '';
 
             let checked = null;
             if (type === 'checkbox' || type === 'radio' || role === 'checkbox') {
@@ -54,7 +61,7 @@ class BrowserSnapshotBuilder:
                 tag: tag,
                 role: role,
                 name: name,
-                control_type: tag,
+                control_type: sensitive ? 'CredentialControl' : tag,
                 automation_id: autoId,
                 value_summary: value,
                 enabled: !el.disabled,
@@ -118,7 +125,7 @@ class BrowserSnapshotBuilder:
             pass
 
         obs = UIObservation(
-            observation_id=f"web_snap_{int(time.time()*1000)}",
+            observation_id=f"web_snap_{uuid4().hex}",
             backend=UIBackend.BROWSER,
             application="Browser",
             window_title=title,

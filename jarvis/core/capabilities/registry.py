@@ -1795,7 +1795,7 @@ class CapabilityRegistry:
 
         # Index master definitions
         for cap in CAPABILITY_DEFINITIONS + EXTENDED_CAPABILITY_DEFINITIONS:
-            self.register(cap)
+            self.register(cap.model_copy(deep=True))
         self.register_tool_metadata()
 
     def register_tool_metadata(self) -> None:
@@ -1921,9 +1921,10 @@ _GLOBAL_CAPABILITY_REGISTRY: Optional[CapabilityRegistry] = None
 
 def get_default_capability_registry(tool_registry: Optional[ToolRegistry] = None) -> CapabilityRegistry:
     global _GLOBAL_CAPABILITY_REGISTRY
+    # Runtime metadata belongs to that runtime's tools, not to unrelated router
+    # instances or subsequent tests in the same Python process.
+    if tool_registry is not None:
+        return CapabilityRegistry(tool_registry=tool_registry)
     if _GLOBAL_CAPABILITY_REGISTRY is None:
         _GLOBAL_CAPABILITY_REGISTRY = CapabilityRegistry(tool_registry=tool_registry)
-    elif tool_registry and _GLOBAL_CAPABILITY_REGISTRY.tool_registry is None:
-        _GLOBAL_CAPABILITY_REGISTRY.tool_registry = tool_registry
-        _GLOBAL_CAPABILITY_REGISTRY.register_tool_metadata()
     return _GLOBAL_CAPABILITY_REGISTRY

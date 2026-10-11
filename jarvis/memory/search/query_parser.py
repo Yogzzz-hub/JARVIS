@@ -178,6 +178,11 @@ def parse_search_query(query_text: str) -> SearchQuery:
     temporal_hint = None
     if temp_c:
         temporal_hint = temp_c.label
+        # Preserve whether the time refers to opening/using a file, rather
+        # than silently losing that activity when the date resolver strips it.
+        activity = re.search(r"\b(opened|used)\s+" + re.escape(temp_c.label) + r"\b", lowered, re.I)
+        if activity:
+            temporal_hint = activity.group(0)
         lowered = query_without_temp
         if isinstance(temp_c, DatePoint):
             time_start_iso = datetime.combine(temp_c.resolved_date, dt_time.min).isoformat()

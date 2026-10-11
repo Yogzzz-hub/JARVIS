@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, Optional
 from playwright.async_api import Page
 from jarvis.core.computer.models import BrowserFailureReason, InteractionOutcome, TargetConfidence
@@ -46,12 +47,21 @@ class BrowserActionRunner:
             )
 
         try:
+            target_name = (await loc.inner_text(timeout=2000)).strip()
+            if re.search(r"\b(?:captcha|buy|purchase|pay|checkout|transfer|donate|delete all|submit order|confirm payment)\b", target_name, re.I):
+                return InteractionOutcome(success=False, action="browser_click", verification_status="PAUSE_FOR_USER",
+                    message="This control requires the owner's direct interaction.")
+            from jarvis.core.computer.browser.snapshot import BrowserSnapshotBuilder
+            before = await BrowserSnapshotBuilder.capture(page)
             await loc.click(timeout=10000)
+            after = await BrowserSnapshotBuilder.capture(page)
+            changed = before.state_hash != after.state_hash
             return InteractionOutcome(
-                success=True,
+                success=changed,
                 action="browser_click",
-                verification_status="VERIFIED",
-                evidence={"role": role, "name": name or text},
+                verification_status="VERIFIED" if changed else "UNCERTAIN",
+                evidence={"state_changed": changed, "business_effect_verified": False},
+                message="Observed page state changed." if changed else "Click dispatched; no resulting state change verified. Do not retry automatically.",
             )
         except Exception as e:
             logger.warning(f"browser_click failed: {e}")
@@ -106,6 +116,12 @@ class BrowserActionRunner:
             )
 
         try:
+            # Labels alone cannot identify credential fields: inspect the
+            # resolved DOM input before any fill (including innocuous labels).
+            attrs = [await loc.get_attribute(k) or "" for k in ("type", "autocomplete", "name", "id")]
+            if any(p in " ".join(attrs).lower() for p in ("password", "passwd", "one-time-code", "otp", "cvv", "cc-number", "cc-csc")):
+                return InteractionOutcome(success=False, action="browser_fill", verification_status="PAUSE_FOR_USER",
+                    message="Authentication or payment input requires owner interaction.")
             await loc.fill(value, timeout=10000)
             actual_val = await loc.input_value()
             matched = (actual_val == value)
