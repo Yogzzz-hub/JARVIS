@@ -60,7 +60,14 @@ class BrowserDownloadHandler:
             )
 
         size_bytes = destination.stat().st_size
-        sha256 = hashlib.sha256(destination.read_bytes()).hexdigest()
+        if size_bytes <= 0:
+            return InteractionOutcome(success=False, action="browser_download", verification_status="FAILED",
+                message="The download is empty.")
+        digest = hashlib.sha256()
+        with destination.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        sha256 = digest.hexdigest()
 
         evidence = {
             "path": str(destination),

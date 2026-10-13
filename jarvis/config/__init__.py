@@ -117,6 +117,12 @@ class DecisionConfig(Frozen):
     # JARVIS Decision Engine rollout stage: "off", "shadow" (log only) or "read_only" (stage B).
     stage: Literal["off", "shadow", "read_only"] = "shadow"
 
+class ConsolidationConfig(Frozen):
+    traces_enabled: bool = False
+    router_advisor: Literal["off", "shadow"] = "off"
+    smart_turn: Literal["off"] = "off"
+    trace_max_rows: int = Field(default=10000, ge=1, le=100000)
+
 class Config(Frozen):
     server: Server = Server()
     performance: Performance = Performance()
@@ -127,6 +133,7 @@ class Config(Frozen):
     search: SearchConfig = SearchConfig()
     voice: VoiceConfig = VoiceConfig()
     decision: DecisionConfig = DecisionConfig()
+    consolidation: ConsolidationConfig = ConsolidationConfig()
     aliases: tuple[tuple[str, str], ...] = ()
 
 def load(path: Path | None = None) -> Config:

@@ -885,8 +885,8 @@ class WhatsAppInbox:
         Chats the bridge has not reported (an older bridge, or messages from before tracking started) use the
         inbox's own flags, where a later message from the owner in the chat means read.
         """
+        synced = self.chats_synced()
         with self._get_conn() as conn:
-            synced = bool((conn.execute("SELECT value FROM whatsapp_meta WHERE key = 'chats_synced'").fetchone() or ["0"])[0] == "1")
             badges = {r["chat_id"]: r for r in conn.execute("SELECT * FROM whatsapp_chats").fetchall()}
             rows = conn.execute("SELECT * FROM whatsapp_messages WHERE is_from_me = 0 AND is_read = 0 "
                                 "ORDER BY timestamp DESC LIMIT 3000").fetchall()
@@ -987,6 +987,24 @@ class WhatsAppInbox:
         purpose: no model can mix up who said what, and it answers instantly.
         """
         sync_state = self.sync_state()
+        if sync_state in {"NOT_CONNECTED", "DISCONNECTED"}:
+            return {
+                "status": "NOT_CONNECTED",
+                "sync_state": "NOT_CONNECTED",
+                "total_pending": 0,
+                "urgent_count": 0,
+                "normal_count": 0,
+                "spoken_summary": "WhatsApp is not connected to your device.",
+                "urgent_messages": [],
+                "normal_messages": [],
+                "unread_chats": [],
+                "unread_count": 0,
+                "total_direct_chats": 0,
+                "unread_direct_chats": 0,
+                "unread_messages": 0,
+                "groups_unread": 0,
+                "generated_at": datetime.now().isoformat(),
+            }
         chats = self.unread_chats(include_groups=True)
         if group:
             scoped = [c for c in chats if c["chat_id"] == group]

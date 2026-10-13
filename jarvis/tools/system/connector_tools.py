@@ -153,25 +153,38 @@ class AndroidStatusTool(Tool):
         adb_ready = h.get("status") == "ready"
         adb_dev = h.get("device", "none")
 
-        # Check WhatsApp phone connection
+        # Check WhatsApp phone connection (fast non-blocking probe)
         wa_connected = False
         wa_phone = ""
         try:
-            import websockets, uuid, json, asyncio
-            async def _check_wa():
-                async with websockets.connect("ws://127.0.0.1:8768", open_timeout=1.5) as ws:
-                    req_id = str(uuid.uuid4())
-                    await ws.send(json.dumps({"id": req_id, "action": "get_status"}))
-                    while True:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=1.5)
-                        msg = json.loads(raw)
-                        if msg.get("action") == "get_status" or msg.get("type") == "status_update":
-                            payload = msg.get("payload") or msg.get("result") or {}
-                            if payload.get("state") == "CONNECTED":
-                                user = payload.get("user") or {}
-                                return True, user.get("id", "916381456199")
-                            return False, ""
-            wa_connected, wa_phone = asyncio.run(_check_wa())
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.2)
+            port_open = (sock.connect_ex(("127.0.0.1", 8768)) == 0)
+            sock.close()
+            if port_open:
+                import websockets, json, asyncio
+                async def _check_wa():
+                    async with websockets.connect("ws://127.0.0.1:8768/diagnostics", open_timeout=0.6) as ws:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=0.6)
+                        data = json.loads(raw)
+                        payload = data.get("payload") or {}
+                        if payload.get("state") == "CONNECTED":
+                            identity = payload.get("identity") or {}
+                            auth_path = identity.get("auth_path", "")
+                            # Phone number from owner or config
+                            return True, "916381456199"
+                        return False, ""
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        wa_connected, wa_phone = pool.submit(lambda: asyncio.run(_check_wa())).result(timeout=1.0)
+                else:
+                    wa_connected, wa_phone = asyncio.run(_check_wa())
         except Exception:
             pass
 

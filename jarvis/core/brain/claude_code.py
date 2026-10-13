@@ -1,35 +1,15 @@
-"""Claude Code as JARVIS's brain, run headless through the Claude Agent SDK.
+"""Optional Claude Agent SDK adapter, disabled by default.
 
-Ported from the bridge of github.com/adewaskar/jarvis. The idea there is simple and worth having here: the
-``claude-agent-sdk`` package ships the ``claude`` CLI and drives it as a library, so the brain authenticates off
-the owner's existing Claude Code login (``claude`` run once and logged in) - no API key, nothing to install
-beyond the Python package - and it is far stronger than the small local models at open-ended work.
-
-How it is used:
-
-* ``auto`` (default): the local Ollama models stay the brain. Claude Code takes over only when Ollama is not
-  reachable, so open-ended requests and conversation keep working instead of answering "I can't reach my local
-  AI".
-* ``claude``: Claude Code is the brain for the agent loop and for conversation; deterministic commands still run
-  through the router without any model, exactly as before.
-* ``ollama``: never use Claude Code.
-
-Chosen with the ``JARVIS_BRAIN`` environment variable or ``models.brain`` in the config.
-
-Safety is the same as for the local agent and is not delegated to the model. JARVIS's own tools are handed to
-Claude as an in-process MCP server whose handlers execute through the ExecutionEngine - policy checks, the
-action ledger and confirmation tickets all apply - and any risky call (messages, deletes, installs, power,
-PowerShell) is not executed at all: the turn pauses and the owner is asked, through the normal confirmation
-flow. Claude Code's own built-in tools are gated by ``decide_tool``: reading and searching run, anything that
-writes, runs a shell or edits files needs ``JARVIS_ALLOW_WRITES=1``. Filesystem settings are not loaded
-(``setting_sources=[]``), so no ``bypassPermissions`` default or allow-rule from the coding setup can override
-that gate.
+The incoming GitHub branch attributes this adapter to github.com/adewaskar/jarvis.
+Explicit JARVIS_BRAIN=claude or auto enables cloud requests. Local Ollama is
+otherwise retained. Registered JARVIS tools use the existing executor, ledger,
+policy and confirmation flow. Built-in writes, subagents and foreign MCP tools
+are denied; environment variables cannot substitute for confirmation tickets.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import warnings
 import logging
 import os
 import re
@@ -38,10 +18,6 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger("jarvis.brain.claude")
-# allowed_tools entries auto-approve before can_use_tool is asked; ours are read-only or gate themselves, so the
-# SDK's reminder about it is noise in the console.
-warnings.filterwarnings("ignore", message=r".*can_use_tool will not be invoked.*")
-
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "medium"
 MAX_TURNS = 24
@@ -50,50 +26,23 @@ MAX_TURNS = 24
 # Both spellings of every renamed built-in are listed on purpose: the CLI presents some tools under newer names
 # (Task is Agent, BashOutput is TaskOutput, KillShell is TaskStop) and a set holding only one form would let the
 # other fall to the wrong branch.
-READ_ONLY_BUILTINS = frozenset({
-    "Read", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite", "Task", "Agent", "ToolSearch",
-    "ListMcpResources", "ListMcpResourcesTool", "ReadMcpResource", "ReadMcpResourceTool", "BashOutput", "TaskOutput",
-})
 VOICE_BUILTINS = ("WebSearch", "WebFetch")
 WRITE_BUILTINS = frozenset({"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "KillShell", "TaskStop", "PowerShell"})
 
-# Servers whose whole surface is lookups and generation.
-READ_ONLY_MCP = frozenset({"exa", "exa-code", "serper", "serpapi", "lottie-search", "mcp-registry", "openrouter",
-                           "openrouter-image", "higgsfield", "heygen", "elevenlabs"})
-READ_VERB = re.compile(r"^(?:get|list|read|search|find|query|fetch|check|describe|inspect|show|view|explain|screenshot)", re.I)
-# Unanchored on purpose: make_outbound_call and Bulk-Edit-Events hide their verb in the middle.
-EFFECTFUL_VERB = re.compile(r"(?:send|call|post|create|delete|remove|update|edit|write|install|launch|tap|swipe|press|type|"
-                            r"buy|pay|charge|publish|deploy|outbound|download)", re.I)
-VETO_EXEMPT = frozenset({"openrouter__send-message", "openrouter__send-feedback"})
-
-
 def _allow_writes() -> bool:
-    return os.environ.get("JARVIS_ALLOW_WRITES", "").strip() in ("1", "true", "yes", "on")
+    # An environment variable is not a task-scoped confirmation ticket.
+    return False
 
 
 def decide_tool(name: str, allow_writes: bool | None = None) -> bool:
-    """May Claude Code run this tool without asking? Default-deny for anything that changes the world.
+    """Only offered read-only built-ins and the gated JARVIS adapter may run.
 
-    JARVIS's own server (``mcp__jarvis__*``) is always allowed here because its handlers apply JARVIS's own
-    policy, ledger and confirmation flow to every call - deciding it twice from a tool name would only get it
-    wrong."""
-    writes = _allow_writes() if allow_writes is None else allow_writes
-    if name in READ_ONLY_BUILTINS:
+    Foreign MCP schemas/name verbs cannot establish risk or authority. Writes
+    must use registered JARVIS tools and exact existing confirmation tickets.
+    """
+    if name.startswith("mcp__jarvis__"):
         return True
-    if name in WRITE_BUILTINS:
-        return writes
-    if name.startswith("mcp__"):
-        parts = name.split("__")
-        server = parts[1] if len(parts) > 1 else ""
-        tool = "__".join(parts[2:])
-        if server == "jarvis":
-            return True
-        if EFFECTFUL_VERB.search(tool) and f"{server}__{tool}" not in VETO_EXEMPT:
-            return writes
-        if server in READ_ONLY_MCP:
-            return True
-        return True if READ_VERB.match(tool) else writes
-    return writes
+    return name in {"WebSearch", "WebFetch", "Read", "Glob", "Grep", "BashOutput", "TaskOutput"}
 
 
 # ------------------------------------------------------------------------------------------------------------ persona
@@ -132,7 +81,7 @@ def brain_mode() -> str:
             mode = ""
     aliases = {"claude_code": "claude", "claude-code": "claude", "anthropic": "claude", "local": "ollama"}
     mode = aliases.get(mode, mode)
-    return mode if mode in ("auto", "claude", "ollama") else "auto"
+    return mode if mode in ("auto", "claude", "ollama") else "ollama"
 
 
 def _model() -> str:
@@ -148,9 +97,9 @@ def configured_mcp_servers() -> dict[str, Any]:
     """The MCP servers Claude Code has configured (global block plus the home-directory project scope).
 
     Filesystem settings are off, so the SDK would not discover them itself; handing them over keeps the owner's
-    own servers (search, image generation, phone, ...) in play behind ``decide_tool``. Disable with
-    ``JARVIS_CLAUDE_MCP=0``."""
-    if os.environ.get("JARVIS_CLAUDE_MCP", "1").strip() in ("0", "false", "no", "off"):
+    server configurations visible only after explicit JARVIS_CLAUDE_MCP opt-in.
+    Foreign tools remain denied by ``decide_tool``. Disabled by default."""
+    if os.environ.get("JARVIS_CLAUDE_MCP", "0").strip() in ("0", "false", "no", "off"):
         return {}
     try:
         cfg = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
@@ -212,10 +161,10 @@ class ClaudeCodeBrain:
     # ------------------------------------------------------------------ plumbing
     def _options(self, system_prompt: str, mcp_servers: dict[str, Any], allowed: list[str], can_use_tool=None):
         from claude_agent_sdk import ClaudeAgentOptions
-        disallowed = [] if _allow_writes() else sorted(WRITE_BUILTINS)
+        disallowed = sorted(WRITE_BUILTINS | {"Task", "Agent", "ToolSearch"})
         # Only the built-ins a voice assistant uses are loaded at all: every other tool definition is input tokens
-        # (cost and latency) on every turn. The owner can widen it with JARVIS_ALLOW_WRITES for shell/file work.
-        builtins = list(VOICE_BUILTINS) + (["Read", "Glob", "Grep", "Bash", "Write", "Edit"] if _allow_writes() else [])
+        # (cost and latency) on every turn. Writes remain behind registered JARVIS tools.
+        builtins = list(VOICE_BUILTINS)
         return ClaudeAgentOptions(
             tools=builtins,
             system_prompt=system_prompt,

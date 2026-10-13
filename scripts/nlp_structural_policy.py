@@ -1,8 +1,7 @@
 """Candidate boundary policy. Partial encoder inputs never recommend execution."""
 import time
 import re
-from scripts.nlp_structural_model import Candidate,MAX_LENGTH,recommend as model_recommend
-from scripts.nlp_provisional_model import input_text
+from scripts.nlp_candidate_recommendation import recommend as model_recommend
 from scripts.nlp_structural_slots import canonical_value
 from scripts.nlp_structural_frame import complete
 from scripts.nlp_structural_capabilities import CONTRACTS
@@ -15,6 +14,8 @@ def recommend(frame,calibration):
     return decision
 
 def truncated(tokenizer,row):
+    from scripts.nlp_structural_model import MAX_LENGTH
+    from scripts.nlp_provisional_model import input_text
     return len(tokenizer(input_text(row),truncation=False)['input_ids'])>MAX_LENGTH
 
 def ambiguous_time(frame,context=None):
@@ -28,13 +29,21 @@ def ambiguous_time(frame,context=None):
             if isinstance(value,dict) and value.get('requires_clarification'):return True
     return False
 
-class GuardedCandidate(Candidate):
-    def infer(self,row):
-        started=time.perf_counter()
-        frame=super().infer(row)
-        frame['input_truncated']=truncated(self.tokenizer,row)
-        frame['ambiguous_time_evidence']=ambiguous_time(frame,row.get('working_context'))
-        frame['recommendation']=recommend(frame,self.calibration)
-        frame=complete(frame)
-        frame['latency_ms']=(time.perf_counter()-started)*1000
-        return frame
+def __getattr__(name):
+    # Pure frame validation must work without loading PyTorch/Transformers.
+    # The optional candidate runtime imports them only when requested.
+    if name != 'GuardedCandidate':
+        raise AttributeError(name)
+    from scripts.nlp_structural_model import Candidate
+    class GuardedCandidate(Candidate):
+        def infer(self,row):
+            started=time.perf_counter()
+            frame=super().infer(row)
+            frame['input_truncated']=truncated(self.tokenizer,row)
+            frame['ambiguous_time_evidence']=ambiguous_time(frame,row.get('working_context'))
+            frame['recommendation']=recommend(frame,self.calibration)
+            frame=complete(frame)
+            frame['latency_ms']=(time.perf_counter()-started)*1000
+            return frame
+    globals()['GuardedCandidate'] = GuardedCandidate
+    return GuardedCandidate

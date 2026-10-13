@@ -42,6 +42,13 @@ def local_time(value):
 
 def render(tool, data, language='ENGLISH', resolver=None):
     if tool not in {'read_whatsapp_messages', 'summarize_whatsapp_messages'}: return None
+    if data.get('sync_state') in {'NOT_CONNECTED', 'DISCONNECTED'} or data.get('status') in {'NOT_CONNECTED', 'DISCONNECTED'}:
+        msg = 'WhatsApp is not connected to your device.'
+        if language in {'TANGLISH', 'MIXED'}:
+            msg = 'WhatsApp unga phone kooda connect aagala.'
+        elif language in {'TAMIL', 'MIXED_TAMIL_ENGLISH'}:
+            msg = 'WhatsApp உங்கள் தொலைபேசியுடன் இணைக்கப்படவில்லை.'
+        return dict(visual=msg, spoken=msg)
     messages = data.get('messages') or [*data.get('urgent_messages', []), *data.get('normal_messages', [])]
     messages = sorted(messages, key=lambda m: float(m.get('timestamp') or 0), reverse=True)
     sync = data.get('sync_state') not in {None, 'READY'} or data.get('status') == 'PARTIAL_SYNC'

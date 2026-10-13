@@ -415,7 +415,8 @@ def _memory(t: str) -> str | None:
         return f"remember my {k} is {m.group('v')}"
     if _has(t, r"\b(?:wipe|erase|drop|remove|delete)\b.*\b(?:fact|memory|remembered)\b.*\b(?:about|of)\b|\bforget\s+(?:the\s+)?fact\b"):
         x = re.sub(r"^.*?\b(?:about|of)\s+", "", t)
-        return f"forget {re.sub(r'\s*from\s+memory$', '', x)}"
+        cleaned_x = re.sub(r"\s*from\s+memory$", "", x)
+        return f"forget {cleaned_x}"
     if _has(t, r"^(?:wer|where|wher)\s+did\s+i\s+(?:keep|put|leave|store)\b"):
         return re.sub(r"^(?:wer|wher)\b", "where", t)
     return None

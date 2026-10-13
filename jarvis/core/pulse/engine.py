@@ -115,7 +115,7 @@ class PulseEngine:
             chunk_index=index,
             is_last_chunk=last,
         )
-        if not self.audio_output.play(response):
+        if self.audio_output.play(response) is False:
             raise RuntimeError('Audio queue rejected streamed response')
         return response
 
@@ -390,13 +390,13 @@ class PulseEngine:
                 async def finish_stream():
                     if stream.task is not None:
                         await stream.task
-                    if not stream.spoke:
+                    if not stream.spoke and getattr(self.audio_output, "_cancel_ns", 0) <= stream.started_ns:
                         self.final_delivery(request_id, result_message)
                     self.scheduler.cleanup(request_id)
                     self._active_interactions.discard(request_id)
                 asyncio.create_task(finish_stream())
                 return
-            if stream.spoke and not is_waiting_confirmation:
+            if not is_waiting_confirmation:
                 def _done(_task, rid=request_id):
                     self.scheduler.cleanup(rid)
                     self._active_interactions.discard(rid)

@@ -22,6 +22,8 @@ class Runtime:
         self.config = config or load()
         self.root, self.tools_factory = root, tools_factory
         self.ready = False
+        from jarvis.core.extensions import JarvisKernel
+        self.kernel = JarvisKernel(self)
         self.voice = None
         self.voice_error = ""
         self._level_history = [0.0] * 24
@@ -86,6 +88,16 @@ class Runtime:
             self.registry.finalize()
             self.logs = LogQueue(self.root / cfg.paths.logs)
             self.bus = EventBus(cfg.performance.event_queue_size)
+            self.diagnostics = None
+            if cfg.consolidation.traces_enabled:
+                try:
+                    from jarvis.core.diagnostics import OperationalDiagnostics, TraceStore
+                    self.diagnostics = OperationalDiagnostics(
+                        TraceStore(self.root / "data/acceptance/operational_traces.db", cfg.consolidation.trace_max_rows),
+                        advisor_enabled=cfg.consolidation.router_advisor == "shadow")
+                    self.bus.subscribe(self.diagnostics.consume)
+                except Exception:
+                    logging.getLogger("jarvis.runtime").exception("Optional diagnostics unavailable")
             self.metrics = MetricsCollector(self.writer, self.bus, cfg.performance.metric_queue_size)
             self.tasks = TaskManager(self.bus, self.writer)
             self.executor = ExecutionEngine()
@@ -253,6 +265,8 @@ class Runtime:
 
         cfg = self.config
         self.llm = OllamaClient(LLMSettings.from_config(cfg))
+        from jarvis.core.extensions import OllamaEngine
+        self.inference_engine = OllamaEngine(self.llm)
         set_llm(self.llm)
         knowledge_db = self.root / "db" / "knowledge.db"
         self.knowledge_engine = KnowledgeEngine(knowledge_db)

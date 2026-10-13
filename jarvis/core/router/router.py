@@ -251,6 +251,9 @@ class SmartRouter:
         text = request.text or ""
         if self._CARRIES_WORDS.search(text) or len(text.split()) > 12:
             return None
+        from jarvis.core.multilingual import to_english_command
+        if to_english_command(text) != text:
+            return None  # Recognized multilingual words are not English typos.
         from jarvis.core.router.lexicon_rewrite import global_repair
         try:
             g = global_repair(text)
@@ -758,6 +761,10 @@ class SmartRouter:
         """Scoring alone never turns a question into an action: a definition or opinion question ("what's a browser
         cookie", "which browser is best", "give me 3 startup ideas") reaches no tool at all, and any other question only
         a read-only one."""
+        if tool.startswith("whatsapp_") and not re.search(r"\bwhats\s*app\b", text or "", re.I):
+            context = getattr(self.working_memory, "context", None)
+            if not (getattr(context, "whatsapp_thread", "") or getattr(context, "pending_draft", None)):
+                return False  # Generic draft/search/cancel words do not identify WhatsApp.
         if self._DEFINITION_Q.match(text or ""):
             return False
         if not self._whatsapp_ok(tool, text):
@@ -1079,7 +1086,7 @@ class SmartRouter:
                       if str(getattr(c.risk_level, "value", c.risk_level)).upper() == "READ_ONLY"}
             except Exception:
                 ro = set()
-            type(self)._READ_ONLY_CACHE = frozenset(ro | {"read_whatsapp_messages", "summarize_whatsapp_messages", "get_time",
+            self._READ_ONLY_CACHE = frozenset(ro | {"read_whatsapp_messages", "summarize_whatsapp_messages", "get_time",
                                                          "battery_status", "network_info", "recent_actions", "quick_answer"})
         return intent in self._READ_ONLY_CACHE
 

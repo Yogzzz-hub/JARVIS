@@ -15,12 +15,12 @@ logger = logging.getLogger("jarvis.tools.computer")
 
 
 # =====================================================================
-# 1. PowerShell Execution Tool (Admin by default)
+# 1. Disabled legacy PowerShell binding
 # =====================================================================
 
 class PowerShellInput(Contract):
     command: str = Field(min_length=1, max_length=8192, description="PowerShell command or script to execute")
-    as_admin: bool = Field(default=True, description="Run in administrator context by default")
+    as_admin: bool = Field(default=False, description="Elevation requires owner interaction")
     timeout_s: float = Field(default=120.0, ge=1.0, le=600.0, description="Execution timeout in seconds")
 
 
@@ -35,89 +35,21 @@ class PowerShellOutput(Contract):
 class PowerShellCommandTool(Tool):
     definition = ToolDefinition(
         name="powershell_command",
-        description="Executes a PowerShell command or script, running as administrator by default. Ideal for software installations (winget, choco), configuration, and admin automations.",
+        description="Disabled legacy raw PowerShell binding. Use registered typed capabilities.",
         input_model=PowerShellInput,
         output_model=PowerShellOutput,
         read_only=False,
-        risk=RiskLevel.REVERSIBLE,
+        risk=RiskLevel.PRIVILEGED,
         timeout_s=120.0,
-        tags=("system", "powershell", "admin", "install", "software"),
+        tags=("system", "powershell", "arbitrary_ps", "admin", "install", "software"),
         execution_method=ExecutionMethod.CLI,
     )
 
     def run(self, arguments: Any) -> dict[str, Any]:
-        if isinstance(arguments, dict):
-            arguments = PowerShellInput(**arguments)
-        cmd = arguments.command.strip()
-        as_admin = arguments.as_admin
-        is_already_admin = False
-        try:
-            is_already_admin = bool(ctypes.windll.shell32.IsUserAnAdmin() != 0)
-        except Exception:
-            pass
-
-        # If admin is requested and not already admin, attempt elevated execution or bypass
-        logger.info(f"Executing PowerShell command (as_admin={as_admin}, is_already_admin={is_already_admin}): {cmd[:100]}")
-
-        ps_args = [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            cmd,
-        ]
-
-        try:
-            proc = subprocess.run(
-                ps_args,
-                capture_output=True,
-                text=True,
-                timeout=arguments.timeout_s,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            stdout = proc.stdout or ""
-            stderr = proc.stderr or ""
-            exit_code = proc.returncode
-
-            # If failed due to admin permissions and not currently admin, retry with elevated Start-Process
-            if exit_code != 0 and not is_already_admin and ("administrator" in stderr.lower() or "access is denied" in stderr.lower()):
-                logger.info("Retrying with elevated Start-Process RunAs...")
-                elevated_cmd = f"Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command {cmd}'"
-                proc_elevated = subprocess.run(
-                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", elevated_cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=arguments.timeout_s,
-                )
-                stdout = proc_elevated.stdout or stdout
-                stderr = proc_elevated.stderr or ""
-                exit_code = proc_elevated.returncode
-
-            return {
-                "stdout": stdout[:4000].strip(),
-                "stderr": stderr[:2000].strip(),
-                "exit_code": exit_code,
-                "as_admin": as_admin,
-                "status": "completed" if exit_code == 0 else f"exited with code {exit_code}",
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "stdout": "",
-                "stderr": f"Command timed out after {arguments.timeout_s}s",
-                "exit_code": -1,
-                "as_admin": as_admin,
-                "status": "timeout",
-            }
-        except Exception as exc:
-            return {
-                "stdout": "",
-                "stderr": str(exc),
-                "exit_code": 1,
-                "as_admin": as_admin,
-                "status": "error",
-            }
+        # This legacy raw-shell binding is retained for compatibility, but cannot
+        # execute generated commands even if a caller bypasses the supervisor.
+        return {"stdout": "", "stderr": "Arbitrary PowerShell is disabled. Use a registered capability.",
+                "exit_code": 1, "as_admin": False, "status": "policy_denied"}
 
 
 # =====================================================================
@@ -205,7 +137,8 @@ class BrowserClickTool(Tool):
         input_model=BrowserClickInput,
         output_model=BrowserClickOutput,
         read_only=False,
-        risk=RiskLevel.REVERSIBLE,
+        risk=RiskLevel.EXTERNAL_EFFECT,
+        requires_confirmation=True,
         timeout_s=15.0,
         tags=("browser", "web", "click"),
         execution_method=ExecutionMethod.DOM,
@@ -1075,6 +1008,50 @@ class MediaControlTool(Tool):
         return {"status": "SUCCESS", "action": act, "message": msg}
 
 
+class BrowserWorkflowInput(Contract):
+    goal: str = Field(min_length=1, max_length=1000)
+    allowed_origins: list[str] = Field(min_length=1, max_length=10)
+    completion_text: str = Field(min_length=1, max_length=150)
+    max_steps: int = Field(default=20, ge=1, le=200)
+
+
+class BrowserWorkflowOutput(Contract):
+    task_id: str
+    status: str
+    completed_steps: int
+    last_verified_hash: str
+    current_origin: str
+    failure: str | None
+
+
+class BrowserWorkflowTool(Tool):
+    definition = ToolDefinition(name='browser_workflow',
+        description='Experimental bounded same-origin Next/Continue link navigation. Pauses at forms, authentication, payments, ambiguous controls and completion requiring owner work.',
+        input_model=BrowserWorkflowInput, output_model=BrowserWorkflowOutput,
+        read_only=False, risk=RiskLevel.REVERSIBLE, requires_confirmation=True,
+        timeout_s=180, tags=('browser', 'workflow', 'experimental'), execution_method=ExecutionMethod.DOM)
+
+    async def run_async(self, arguments):
+        from pathlib import Path
+        from jarvis.core.computer.browser.workflow import BrowserWorkflow, BrowserProgram
+        from jarvis.core.tasks.scope import get_scope_manager
+        # Executor grants must survive the dedicated browser event-loop handoff.
+        if get_scope_manager().current() is None:
+            raise PermissionError('An active command task scope is required')
+        get_scope_manager().check('browser_workflow')
+        page = await get_shared_browser_manager().get_active_page()
+        program = BrowserProgram(goal=arguments.goal, allowed_origins=tuple(arguments.allowed_origins),
+                                 completion_text=arguments.completion_text, max_steps=arguments.max_steps)
+        workflow = BrowserWorkflow(page, program, checkpoint_dir=Path(__file__).resolve().parents[2] / 'data/browser/checkpoints')
+        return (await workflow.run()).model_dump()
+
+    def run(self, arguments):
+        from jarvis.core.computer.browser.loop import run_browser
+        if isinstance(arguments, dict):
+            arguments = BrowserWorkflowInput.model_validate(arguments)
+        return run_browser(self.run_async(arguments), timeout=180)
+
+
 def create_computer_tools() -> list[Tool]:
     """Factory creating all computer, browser, DOM screen, and PowerShell tools."""
     from jarvis.tools.system.ollama_tool import OllamaChatTool
@@ -1082,6 +1059,7 @@ def create_computer_tools() -> list[Tool]:
     return [
         PowerShellCommandTool(),
         BrowserNavigateTool(),
+        BrowserWorkflowTool(),
         BrowserClickTool(),
         BrowserTypeTool(),
         BrowserSnapshotTool(),

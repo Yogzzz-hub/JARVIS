@@ -44,6 +44,36 @@ def register(app: FastAPI, runtime: Any = None) -> None:
     app.state.voice_benchmark = benchmark
     app.state.voice_benchmark_token = secrets.token_urlsafe(32)
 
+    @app.get('/dashboard/acceptance')
+    async def acceptance_state(request: Request):
+        if request.headers.get('host', '') not in {'127.0.0.1:8765', 'localhost:8765', 'testserver'}:
+            raise HTTPException(403, 'Local owner page only')
+        diagnostics = getattr(runtime, 'diagnostics', None)
+        traces = await asyncio.to_thread(diagnostics.store.aggregate) if diagnostics else {'enabled': False}
+        from pathlib import Path
+        import json
+        path = Path(__file__).resolve().parents[3] / 'data/acceptance/windows-summary.json'
+        evidence = {}
+        if path.is_file():
+            try:
+                evidence = json.loads(await asyncio.to_thread(path.read_text, encoding='utf-8'))
+            except (ValueError, OSError):
+                evidence = {'error': 'Acceptance evidence unavailable'}
+        return {'traces': traces, 'windows': evidence,
+                'production_authoritative': True, 'candidate_execution': False,
+                'promotion': 'NONE', 'owner_voice': 'OWNER_ACTION_REQUIRED'}
+
+    @app.get('/dashboard/acceptance/page')
+    async def acceptance_page(request: Request):
+        if request.headers.get('host', '') not in {'127.0.0.1:8765', 'localhost:8765', 'testserver'}:
+            raise HTTPException(403, 'Local owner page only')
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse('''<!doctype html><html lang="en"><meta charset="utf-8">
+        <title>JARVIS acceptance</title><style>body{background:#101820;color:#dce7ed;font:16px system-ui;max-width:1000px;margin:40px auto}pre{white-space:pre-wrap}a{color:#56d7e4}</style>
+        <h1>Windows acceptance</h1><p>Production routing remains authoritative. No candidates promoted.</p>
+        <p><a href="/dashboard/voice-benchmark/page">Owner voice checks</a></p><pre id="evidence">Loading…</pre>
+        <script>async function refresh(){try{let r=await fetch('/dashboard/acceptance');document.getElementById('evidence').textContent=JSON.stringify(await r.json(),null,2)}catch(e){document.getElementById('evidence').textContent='Backend unavailable'}}refresh();setInterval(refresh,10000)</script></html>''')
+
     @app.get('/dashboard/voice-benchmark')
     async def benchmark_state():
         return await asyncio.to_thread(benchmark.state)

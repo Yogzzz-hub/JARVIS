@@ -40,7 +40,7 @@ class Verifier:
         error = None
         if cancellation.is_set():
             raise asyncio.CancelledError
-        if tool_name in {"send_whatsapp_message", "whatsapp_draft_send", "whatsapp_send_media"}:
+        if tool_name in {"send_whatsapp_message", "whatsapp_draft_send", "whatsapp_send_media", "browser_click", "browser_type", "browser_workflow"}:
             from jarvis.security.postconditions import verify_postconditions
             return await verify_postconditions(tool_name, {}, execution_result=result.data)
         if tool_name == "open_app":

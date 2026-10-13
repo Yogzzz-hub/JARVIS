@@ -86,7 +86,7 @@ class LLMSettings:
     deep_model: str = ""
     keep_alive: str = "30m"
     timeout_s: float = 60.0
-    connect_timeout_s: float = 2.5
+    connect_timeout_s: float = 0.8
     num_ctx: int = 4096
     auto_start: bool = True
     breaker_cooldown_s: float = 10.0

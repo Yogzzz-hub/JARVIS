@@ -115,7 +115,7 @@ def create_app(runtime=None):
             return
         await socket.accept()
         outgoing = asyncio.Queue(128)
-        commands = asyncio.Queue(2)
+        commands = asyncio.Queue(64)
 
         async def forward_event(event):
             if event.name == "response.ready":
@@ -158,7 +158,7 @@ def create_app(runtime=None):
                     await outgoing.put({"version": 1, "type": "task_result", **result.model_dump(mode="json")})
                     if asyncio.current_task().cancelling():
                         return
-                except (ValueError, RuntimeError) as exc:
+                except Exception as exc:
                     await outgoing.put({"version": 1, "type": "error", "request_id": message.request_id, "error": str(exc)})
                 finally:
                     commands.task_done()
@@ -190,6 +190,13 @@ def create_app(runtime=None):
                     elif not message.text:
                         raise ValueError("command requires text")
                     else:
+                        norm_text = message.text.strip().lower()
+                        if norm_text in ("stop", "cancel", "stop task", "abort", "shut up", "be quiet", "stop speaking", "stop talking", "pesadha", "summa iru"):
+                            if hasattr(runtime, "service") and hasattr(runtime.service, "response"):
+                                runtime.service.response.stop_speaking()
+                            if hasattr(runtime, "tasks"):
+                                for t in runtime.tasks.active_tasks():
+                                    runtime.tasks.cancel(t.request_id)
                         commands.put_nowait((message, Clock(received_ns=stamp, parsed_ns=now_ns())))
                 except (ValidationError, ValueError, RuntimeError, asyncio.QueueFull) as exc:
                     await outgoing.put({"version": 1, "type": "error", "request_id": request_id,

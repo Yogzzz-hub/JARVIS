@@ -98,7 +98,11 @@ class PolicyEvaluator:
                             evaluated_ms=eval_ms,
                         )
             except Exception:
-                pass
+                return PolicyDecision(decision=PolicyDecisionType.DENY,
+                    risk=tool_def.risk, reason_code=PolicyReasonCode.POLICY_DENIED,
+                    rule_id="RULE_TASK_SCOPE_UNAVAILABLE",
+                    constraints={"error": "Task scope could not be verified"},
+                    evaluated_ms=(time.perf_counter_ns() - t0) / 1e6)
 
         # 1. Tool existence check
         if tool_def is None:

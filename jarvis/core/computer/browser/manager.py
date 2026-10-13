@@ -24,10 +24,12 @@ class BrowserManager:
         self._active_page: Optional[Page] = None
         self._pages: Dict[str, Page] = {}
         self._is_running = False
+        self._next_page_id = 0
+        self._ephemeral_browsers = []
 
     async def start(self) -> None:
         """Launch managed browser and create primary context with isolated profile."""
-        if self._is_running and self._browser:
+        if self._is_running and self._context is not None:
             return
 
         self.profile_dir.mkdir(parents=True, exist_ok=True)
@@ -49,25 +51,40 @@ class BrowserManager:
         pages = self._context.pages
         if pages:
             self._active_page = pages[0]
-            self._pages["page_1"] = pages[0]
+            for page in pages:
+                self._register_page(page)
         else:
             self._active_page = await self._context.new_page()
-            self._pages["page_1"] = self._active_page
+            self._register_page(self._active_page)
 
         self._is_running = True
         logger.info(f"BrowserManager started with profile at {self.profile_dir}")
 
     def _on_new_page(self, page: Page) -> None:
         """Track new popup tabs automatically."""
-        pid = f"page_{len(self._pages) + 1}"
-        self._pages[pid] = page
+        self._register_page(page)
         self._active_page = page
+
+    def _register_page(self, page: Page) -> None:
+        if page in self._pages.values():
+            return
+        self._next_page_id += 1
+        pid = f"page_{self._next_page_id}"
+        self._pages[pid] = page
+        def closed():
+            self._pages.pop(pid, None)
+            if self._active_page is page:
+                self._active_page = next(iter(self._pages.values()), None)
+        page.on("close", closed)
         logger.info(f"New browser page registered: {pid}")
 
     async def get_active_page(self) -> Page:
         """Return the current active page, starting browser if needed."""
-        if not self._is_running or not self._active_page:
+        if not self._is_running:
             await self.start()
+        if self._active_page is None:
+            self._active_page = await self._context.new_page()
+            self._register_page(self._active_page)
         return self._active_page
 
     async def create_ephemeral_context(self) -> BrowserContext:
@@ -75,6 +92,7 @@ class BrowserManager:
         if not self._playwright:
             await self.start()
         browser = await self._playwright.chromium.launch(headless=self.headless)
+        self._ephemeral_browsers.append(browser)
         return await browser.new_context(permissions=[])
 
     async def recover_if_crashed(self) -> bool:
@@ -93,6 +111,9 @@ class BrowserManager:
     async def stop(self) -> None:
         """Shut down browser contexts and Playwright cleanly."""
         try:
+            for browser in self._ephemeral_browsers:
+                await browser.close()
+            self._ephemeral_browsers.clear()
             if self._context:
                 await self._context.close()
             if self._playwright:
